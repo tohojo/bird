@@ -34,6 +34,7 @@
 
 #define P ((struct babel_proto *) p)
 #define P_CF ((struct babel_proto_config *)p->cf)
+#define NEXT_TLV(t) (t+=t->length)
 
 #undef TRACE
 #define TRACE(level, msg, args...) do { if (p->debug & level) { log(L_TRACE "%s: " msg, p->name , ## args); } } while(0)
@@ -64,6 +65,49 @@ babel_dump(struct proto *p)
 {
 }
 
+static int
+babel_process_packet(struct proto *p, int size, struct babel_header *hdr,
+		     ip_addr whotoldme, int port, struct iface *iface)
+{
+  struct babel_tlv_header *tlv = FIRST_TLV(hdr);
+  while(tlv < hdr+size) {
+    switch(tlv->type) {
+    case BABEL_TYPE_ACK_REQ:
+      babel_handle_ack_req(tlv);
+      break;
+    case BABEL_TYPE_ACK:
+      babel_handle_ack(tlv);
+      break;
+    case BABEL_TYPE_HELLO:
+      babel_handle_hello(tlv);
+      break;
+    case BABEL_TYPE_IHU:
+      babel_handle_ihu(tlv);
+      break;
+    case BABEL_TYPE_ROUTER_ID:
+      babel_handle_router_id(tlv);
+      break;
+    case BABEL_TYPE_NEXT_HOP:
+      babel_handle_next_hop(tlv);
+      break;
+    case BABEL_TYPE_UPDATE:
+      babel_handle_update(tlv);
+      break:
+    case BABEL_TYPE_ROUTE_REQUEST:
+      babel_handle_route_request(tlv);
+      break;
+    case BABEL_TYPE_SEQNO_REQUEST:
+      babel_handle_seqno_request(tlv);
+      break;
+    case BABEL_TYPE_PAD0:
+    case BABEL_TYPE_PADN:
+    default:
+      break;
+    }
+    NEXT_TLV(tlv);
+  }
+}
+
 static void
 babel_tx_err( sock *s, int err )
 {
@@ -88,6 +132,29 @@ babel_tx( sock *s )
 static int
 babel_rx(sock *s, int size)
 {
+  struct babel_interface *i = s->data;
+  struct proto *p = i->proto;
+  struct iface *iface = NULL;
+  if (! i->iface || s->lifindex != i->iface->index)
+    return 1;
+
+  iface = i->iface;
+  DBG( "Babel: incoming packet: %d bytes from %I via %s\n", size, s->faddr, i->iface ? i->iface->name : "(dummy)" );
+  size -= sizeof( struct babel_header );
+  if (size < 0) BAD( "Too small packet" );
+
+  if (ipa_equal(i->iface->addr->ip, s->faddr)) {
+    DBG("My own packet\n");
+    return 1;
+  }
+
+  if (!ipa_is_link_local(s->faddr)) {
+    BAD("Non-link local sender\n");
+    return 1;
+  }
+
+  babel_process_packet( p, size, (struct babel_header *) s->rbuf, s->faddr, s->fport, iface );
+  return 1;
 }
 
 static void babel_new_packet(sock *s, u16 len)
@@ -111,7 +178,6 @@ static void babel_send_hello(sock *s)
   tlv->header.length = TLV_LENGTH(struct babel_tlv_hello);
   tlv->seqno = htons(P_CF->seqno);
   tlv->interval = htons(bif->interval);
-  DBG("seqno interval %d %d\n", tlv->seqno, tlv->interval);
 
   babel_tx(s);
 }
@@ -210,12 +276,6 @@ static struct babel_interface *new_iface(struct proto *p, struct iface *new, uns
     bif->interval = PATT->interval;
   }
 
-  /* Babel wants source to be a link-local address; try to find one.*/
-  WALK_LIST(a, new->addrs) {
-    DBG("Found ip: %I\n", *a);
-    if(ipa_is_link_local(*a)) {saddr=*a; break;}
-  }
-
   bif->sock = sk_new( p->pool );
   bif->sock->type = SK_UDP;
   bif->sock->sport = P_CF->port;
@@ -226,7 +286,6 @@ static struct babel_interface *new_iface(struct proto *p, struct iface *new, uns
   bif->sock->tbuf = mb_alloc( p->pool, new->mtu);
   bif->sock->tx_hook = babel_tx;
   bif->sock->err_hook = babel_tx_err;
-  //  bif->sock->saddr = saddr;
   bif->sock->dport = P_CF->port;
   bif->sock->daddr = IP6_BABEL_ROUTERS;
   if (sk_open( bif->sock) < 0)
