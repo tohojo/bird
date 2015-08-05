@@ -39,6 +39,7 @@
 #define TRACE(level, msg, args...) do { if (p->debug & level) { log(L_TRACE "%s: " msg, p->name , ## args); } } while(0)
 
 
+static struct babel_interface *new_iface(struct proto *p, struct iface *new, unsigned long flags, struct iface_patt *patt);
 /*
  * Interface to BIRD core
  */
@@ -49,7 +50,7 @@
 static int
 babel_start(struct proto *p)
 {
-  struct babel_interface *rif;
+  struct babel_interface *bif;
   DBG( "Babel: starting instance...\n" );
   fib_init( &P->rtable, p->pool, sizeof( struct babel_entry ), 0, NULL );
   init_list( &P->connections );
@@ -64,9 +65,189 @@ babel_dump(struct proto *p)
 }
 
 static void
-babel_if_notify(struct proto *p, unsigned c, struct iface *iface)
+babel_tx_err( sock *s, int err )
+{
+  //  struct babel_connection *c = ((struct babel_interface *)(s->data))->busy;
+  //struct proto *p = c->proto;
+  log( L_ERR ": Unexpected error at Babel transmit: %M", /*p->name,*/ err );
+}
+
+static void
+babel_tx( sock *s )
+{
+  struct babel_packet *pkt = (void *) s->tbuf;
+  int i =0, len;
+
+  len = ntohs(pkt->header.length)+sizeof(struct babel_header);
+  DBG( "Sending %d bytes from %I to %I\n", len, s->saddr, s->daddr );
+  i = sk_send( s, len);
+  if(i<0) babel_tx_err(s,i);
+  return;
+}
+
+static int
+babel_rx(sock *s, int size)
 {
 }
+
+static void babel_new_packet(sock *s, u16 len)
+{
+  struct babel_packet *pkt = (void *) s->tbuf;
+  pkt->header.magic = BABEL_MAGIC;
+  pkt->header.version = BABEL_VERSION;
+  pkt->header.length = htons(len);
+  memset(pkt+sizeof(struct babel_header), 0, len);
+}
+
+static void babel_send_hello(sock *s)
+{
+  DBG("Babel: Sending hello\n");
+  struct babel_interface *bif = s->data;
+  struct proto *p = bif->proto;
+  struct babel_tlv_hello *tlv;
+  babel_new_packet(s, sizeof(struct babel_tlv_hello));
+  tlv = FIRST_TLV(s->tbuf);
+  tlv->header.type = BABEL_TYPE_HELLO;
+  tlv->header.length = TLV_LENGTH(struct babel_tlv_hello);
+  tlv->seqno = htons(P_CF->seqno);
+  tlv->interval = htons(bif->interval);
+  DBG("seqno interval %d %d\n", tlv->seqno, tlv->interval);
+
+  babel_tx(s);
+}
+
+static struct babel_interface*
+find_interface(struct proto *p, struct iface *what)
+{
+  struct babel_interface *i;
+
+  WALK_LIST (i, P->interfaces)
+    if (i->iface == what)
+      return i;
+  return NULL;
+}
+
+static void
+kill_iface(struct babel_interface *i)
+{
+  DBG( "Babel: Interface %s disappeared\n", i->iface->name);
+  rfree(i->sock);
+  mb_free(i);
+}
+
+
+
+static void
+babel_add_if(struct object_lock *lock)
+{
+  struct iface *iface = lock->iface;
+  struct proto *p = lock->data;
+  struct babel_interface *bif;
+  struct iface_patt *k = iface_patt_find(&P_CF->iface_list, iface, iface->addr);
+  DBG("adding interface %s\n", iface->name );
+  bif = new_iface(p, iface, iface->flags, k);
+  if (bif) {
+    add_head( &P->interfaces, NODE bif );
+    DBG("Adding object lock of %p for %p\n", lock, bif);
+    bif->lock = lock;
+    babel_send_hello(bif->sock);
+  } else { rfree(lock); }
+}
+
+
+
+static void
+babel_if_notify(struct proto *p, unsigned c, struct iface *iface)
+{
+  DBG("Babel: if notify\n");
+  if (iface->flags & IF_IGNORE)
+    return;
+  if (c & IF_CHANGE_DOWN) {
+    struct babel_interface *i;
+    i = find_interface(p, iface);
+    if (i) {
+      rem_node(NODE i);
+      rfree(i->lock);
+      kill_iface(i);
+    }
+  }
+  if (c & IF_CHANGE_UP) {
+    struct iface_patt *k = iface_patt_find(&P_CF->iface_list, iface, iface->addr);
+    struct object_lock *lock;
+    struct babel_patt *PATT = (struct babel_patt *) k;
+
+    /* we only speak multicast */
+    if(!(iface->flags & IF_MULTICAST)) return;
+
+    if (!k) return; /* We are not interested in this interface */
+
+    lock = olock_new( p->pool );
+    lock->addr = IP6_BABEL_ROUTERS;
+    lock->port = P_CF->port;
+    lock->iface = iface;
+    lock->hook = babel_add_if;
+    lock->data = p;
+    lock->type = OBJLOCK_UDP;
+    olock_acquire(lock);
+  }
+
+}
+
+static struct babel_interface *new_iface(struct proto *p, struct iface *new, unsigned long flags, struct iface_patt *patt)
+{
+  struct babel_interface * bif;
+  struct babel_patt *PATT = (struct babel_patt *) patt;
+  ip_addr *a, saddr;
+
+  if(!new) return NULL;
+
+  bif = mb_allocz(p->pool, sizeof( struct babel_interface ));
+  bif->iface = new;
+  bif->proto = p;
+  bif->busy = NULL;
+  if (PATT) {
+    bif->metric = PATT->metric;
+    bif->interval = PATT->interval;
+  }
+
+  /* Babel wants source to be a link-local address; try to find one.*/
+  WALK_LIST(a, new->addrs) {
+    DBG("Found ip: %I\n", *a);
+    if(ipa_is_link_local(*a)) {saddr=*a; break;}
+  }
+
+  bif->sock = sk_new( p->pool );
+  bif->sock->type = SK_UDP;
+  bif->sock->sport = P_CF->port;
+  bif->sock->rx_hook = babel_rx;
+  bif->sock->data =  bif;
+  bif->sock->rbsize = 10240;
+  bif->sock->iface = new;
+  bif->sock->tbuf = mb_alloc( p->pool, new->mtu);
+  bif->sock->tx_hook = babel_tx;
+  bif->sock->err_hook = babel_tx_err;
+  //  bif->sock->saddr = saddr;
+  bif->sock->dport = P_CF->port;
+  bif->sock->daddr = IP6_BABEL_ROUTERS;
+  if (sk_open( bif->sock) < 0)
+    goto err;
+  if (sk_setup_multicast( bif->sock) < 0)
+    goto err;
+  if (sk_join_group( bif->sock,  bif->sock->daddr) < 0)
+    goto err;
+  TRACE(D_EVENTS, "Listening on %s, port %d, mode multicast (%I)",  bif->iface ?  bif->iface->name : "(dummy)", P_CF->port,  bif->sock->daddr );
+  return bif;
+ err:
+  sk_log_error(bif->sock, p->name);
+  log(L_ERR "%s: Cannot open socket for %s", p->name,  bif->iface ?  bif->iface->name : "(dummy)" );
+  if ( bif->iface) {
+    rfree( bif->sock);
+    mb_free( bif);
+    return NULL;
+  }
+
+}
+
 
 static struct ea_list *
 babel_gen_attrs(struct linpool *pool, int metric)
@@ -113,7 +294,7 @@ babel_store_tmp_attrs(struct rte *rt, struct ea_list *attrs)
  */
 static void
 babel_rt_notify(struct proto *p, struct rtable *table UNUSED, struct network *net,
-	      struct rte *new, struct rte *old UNUSED, struct ea_list *attrs)
+		struct rte *new, struct rte *old UNUSED, struct ea_list *attrs)
 {
 }
 
@@ -170,6 +351,7 @@ babel_init_config(struct babel_proto_config *c)
 {
   init_list(&c->iface_list);
   c->port	= BABEL_PORT;
+  c->seqno	= 1;
 }
 
 static void

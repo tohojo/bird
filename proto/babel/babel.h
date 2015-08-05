@@ -19,9 +19,12 @@
 
 #define BABEL_MAGIC	42
 #define BABEL_VERSION	2
-#define BABEL_PORT	6697
+#define BABEL_PORT	6696
+#define BABEL_DEFAULT_METRIC	1   /* default metric */
+#define BABEL_DEFAULT_INTERVAL	1000  /* default interval */
 
-#define BABEL_MULTICAST_GROUP "ff02:0:0:0:0:0:1:6"
+#define FIRST_TLV(p) ((void *) p+sizeof(struct babel_header))
+#define TLV_LENGTH(t) (sizeof(t)-sizeof(struct babel_tlv_header))
 
 struct babel_header {
   u8 magic;
@@ -63,7 +66,9 @@ struct babel_tlv_ack {
 
 struct babel_tlv_hello {
   struct babel_tlv_header header;
-  u16 nonce;
+  u16 reserved;
+  u16 seqno;
+  u16 interval;
 };
 
 struct babel_tlv_ihu {
@@ -141,7 +146,7 @@ struct babel_connection {
   struct proto *proto;
   ip_addr addr;
   sock *send;
-  struct babel_interface *rif;
+  struct babel_interface *bif;
   struct fib_iterator iter;
 
   ip_addr daddr;
@@ -158,6 +163,7 @@ struct babel_interface {
   sock *sock;
   struct babel_connection *busy;
   int metric;
+  int interval;
   int mode;
   int check_ttl;		/* Check incoming packets for TTL 255 */
   int triggered;
@@ -169,6 +175,7 @@ struct babel_patt {
   struct iface_patt i;
 
   int metric;
+  int interval;
   int tx_tos;
   int tx_priority;
 };
@@ -178,22 +185,8 @@ struct babel_patt {
 struct babel_proto_config {
   struct proto_config c;
   list iface_list;	/* Patterns configured -- keep it first; see babel_reconfigure why */
-  list *passwords;	/* Passwords, keep second */
-
-  int infinity;		/* User configurable data; must be comparable with memcmp */
   int port;
-  int period;
-  int garbage_time;
-  int timeout_time;
-
-  int authtype;
-#define AT_NONE 0
-#define AT_PLAINTEXT 2
-#define AT_MD5 3
-  int honor;
-#define HO_NEVER 0
-#define HO_NEIGHBOR 1
-#define HO_ALWAYS 2
+  int seqno;		/* To be increased on request */
 };
 
 struct babel_proto {
@@ -203,7 +196,6 @@ struct babel_proto {
   struct fib rtable;
   list garbage;
   list interfaces;	/* Interfaces we really know about */
-  int seqno;		/* To be increased on request */
 };
 
 
