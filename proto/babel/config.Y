@@ -61,7 +61,7 @@ babel_iface_init:
      add_tail(&BABEL_CFG->iface_list, NODE this_ipatt);
      init_list(&this_ipatt->ipn_list);
      BABEL_IPATT->metric = BABEL_DEFAULT_METRIC;
-     BABEL_IPATT->interval = BABEL_DEFAULT_;
+     BABEL_IPATT->interval = BABEL_DEFAULT_INTERVAL;
      BABEL_IPATT->tx_tos = IP_PREC_INTERNET_CONTROL;
      BABEL_IPATT->tx_priority = sk_priority_control;
    }
