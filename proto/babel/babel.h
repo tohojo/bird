@@ -21,7 +21,7 @@
 #define BABEL_VERSION	2
 #define BABEL_PORT	6696
 #define BABEL_DEFAULT_METRIC	1   /* default metric */
-#define BABEL_DEFAULT_INTERVAL	1000  /* default interval */
+#define BABEL_DEFAULT_INTERVAL	10  /* default interval in seconds */
 
 #define TLV_LENGTH(t) (sizeof(t)-sizeof(struct babel_tlv_header))
 
@@ -120,14 +120,14 @@ struct babel_tlv_update {
 void babel_hton_update(struct babel_tlv_update *tlv);
 void babel_ntoh_update(struct babel_tlv_update *tlv);
 
-struct babel_tlv_route_req {
+struct babel_tlv_route_request {
   struct babel_tlv_header header;
   u8 addr_enc;
   u8 plen;
   /*prefixes*/
 };
 
-struct babel_tlv_seqno_req {
+struct babel_tlv_seqno_request {
   struct babel_tlv_header header;
   u8 addr_enc;
   u8 plen;
@@ -137,8 +137,8 @@ struct babel_tlv_seqno_req {
   u64 router_id;
   /*prefixes*/
 };
-void babel_hton_seqno_req(struct babel_tlv_seqno_req *tlv);
-void babel_ntoh_seqno_req(struct babel_tlv_seqno_req *tlv);
+void babel_hton_seqno_request(struct babel_tlv_seqno_request *tlv);
+void babel_ntoh_seqno_request(struct babel_tlv_seqno_request *tlv);
 
 struct babel_entry {
   struct fib_node n;
@@ -180,12 +180,8 @@ struct babel_interface {
   sock *sock;
   struct babel_connection *busy;
   int metric;
-  int interval;
-  int mode;
-  int check_ttl;		/* Check incoming packets for TTL 255 */
-  int triggered;
   struct object_lock *lock;
-  int multicast;
+  list tlv_queue;
 };
 
 struct babel_patt {
@@ -204,6 +200,7 @@ struct babel_proto_config {
   list iface_list;	/* Patterns configured -- keep it first; see babel_reconfigure why */
   int port;
   int seqno;		/* To be increased on request */
+  int interval;
 };
 
 struct babel_proto {

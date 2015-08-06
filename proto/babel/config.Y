@@ -34,13 +34,13 @@ babel_cfg:
    babel_cfg_start proto_name '{'
  | babel_cfg proto_item ';'
  | babel_cfg PORT expr ';'	{ BABEL_CFG->port = $3; }
+ | babel_cfg INTERVAL expr ';'	{ BABEL_CFG->interval = $3; }
  | babel_cfg INTERFACE babel_iface ';'
  ;
 
 
 babel_iface_item:
  | METRIC expr { BABEL_IPATT->metric = $2; }
- | INTERVAL expr { BABEL_IPATT->interval = $2; }
  | TX tos { BABEL_IPATT->tx_tos = $2; }
  | TX PRIORITY expr { BABEL_IPATT->tx_priority = $3; }
  ;
@@ -61,7 +61,6 @@ babel_iface_init:
      add_tail(&BABEL_CFG->iface_list, NODE this_ipatt);
      init_list(&this_ipatt->ipn_list);
      BABEL_IPATT->metric = BABEL_DEFAULT_METRIC;
-     BABEL_IPATT->interval = BABEL_DEFAULT_INTERVAL;
      BABEL_IPATT->tx_tos = IP_PREC_INTERNET_CONTROL;
      BABEL_IPATT->tx_priority = sk_priority_control;
    }

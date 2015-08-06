@@ -34,8 +34,8 @@
 
 #define P ((struct babel_proto *) p)
 #define P_CF ((struct babel_proto_config *)p->cf)
-#define FIRST_TLV(p) (((u8 *) p) + sizeof(struct babel_header))
-#define NEXT_TLV(t) (t = ((u8 *)t) + (t->type == BABEL_TYPE_PAD0 ? 1 : t->length))
+#define FIRST_TLV(p) ((struct babel_tlv_header *)(((char *) p) + sizeof(struct babel_header)))
+#define NEXT_TLV(t) (t = ((char *)t) + (t->type == BABEL_TYPE_PAD0 ? 1 : t->length))
 
 #undef TRACE
 #define TRACE(level, msg, args...) do { if (p->debug & level) { log(L_TRACE "%s: " msg, p->name , ## args); } } while(0)
@@ -72,12 +72,12 @@ static struct babel_tlv_callback babel_tlv_callbacks[BABEL_TYPE_MAX] = {
   {babel_handle_ack_req, babel_hton_ack_req, babel_ntoh_ack_req},
   {babel_handle_ack, NULL, NULL},
   {babel_handle_hello, babel_hton_hello, babel_ntoh_hello},
-  {babel_handle_ihu, NULL, NULL},
+  {babel_handle_ihu, babel_hton_ihu, babel_ntoh_ihu},
   {babel_handle_router_id, NULL, NULL},
   {babel_handle_next_hop, NULL, NULL},
-  {babel_handle_update, NULL, NULL},
+  {babel_handle_update, babel_hton_update, babel_ntoh_update},
   {babel_handle_route_request, NULL, NULL},
-  {babel_handle_seqno_request, NULL, NULL},
+  {babel_handle_seqno_request, babel_hton_seqno_request, babel_ntoh_seqno_request},
 };
 
 void babel_hton_ack_req(struct babel_tlv_ack_req *tlv)
@@ -120,40 +120,15 @@ void babel_ntoh_update(struct babel_tlv_update *tlv)
   tlv->seqno = ntohs(tlv->seqno);
   tlv->metric = ntohs(tlv->metric);
 }
-void babel_hton_seqno_req(struct babel_tlv_seqno_req *tlv)
+void babel_hton_seqno_request(struct babel_tlv_seqno_request *tlv)
 {
   tlv->seqno = htons(tlv->seqno);
 }
-void babel_ntoh_seqno_req(struct babel_tlv_seqno_req *tlv)
+void babel_ntoh_seqno_request(struct babel_tlv_seqno_request *tlv)
 {
   tlv->seqno = ntohs(tlv->seqno);
 }
 
-
-
-/*
- * Interface to BIRD core
- */
-
-/*
- * babel_start - initialize instance of babel
- */
-static int
-babel_start(struct proto *p)
-{
-  struct babel_interface *bif;
-  DBG( "Babel: starting instance...\n" );
-  fib_init( &P->rtable, p->pool, sizeof( struct babel_entry ), 0, NULL );
-  init_list( &P->connections );
-  init_list( &P->interfaces );
-  DBG( "Babel: ...done\n");
-  return PS_UP;
-}
-
-static void
-babel_dump(struct proto *p)
-{
-}
 
 static int babel_handle_ack_req(struct babel_tlv_header *tlv, struct babel_parse_state *state)
 {
@@ -216,6 +191,20 @@ babel_process_packet(struct proto *p, int size, struct babel_header *hdr,
     NEXT_TLV(tlv);
   }
   return res;
+}
+
+
+/*
+ * Interface to BIRD core
+ */
+
+/*
+ * babel_start - initialize instance of babel
+ */
+
+static void
+babel_dump(struct proto *p)
+{
 }
 
 static void
@@ -296,7 +285,7 @@ static void babel_send_hello(sock *s)
   tlv->header.type = BABEL_TYPE_HELLO;
   tlv->header.length = TLV_LENGTH(struct babel_tlv_hello);
   tlv->seqno = P_CF->seqno;
-  tlv->interval = bif->interval;
+  tlv->interval = P_CF->interval*110;
 
   babel_tx(s);
 }
@@ -392,8 +381,8 @@ static struct babel_interface *new_iface(struct proto *p, struct iface *new, uns
   bif->busy = NULL;
   if (PATT) {
     bif->metric = PATT->metric;
-    bif->interval = PATT->interval;
   }
+  init_list(bif->tlv_queue);
 
   bif->sock = sk_new( p->pool );
   bif->sock->type = SK_UDP;
@@ -441,6 +430,13 @@ babel_gen_attrs(struct linpool *pool, int metric)
   l->attrs[0].u.data = metric;
   return l;
 }
+
+static void
+babel_timer(timer *t)
+{
+  DBG("Babel: tick tock\n");
+}
+
 
 static int
 babel_import_control(struct proto *p, struct rte **rt, struct ea_list **attrs, struct linpool *pool)
@@ -529,6 +525,7 @@ babel_init_config(struct babel_proto_config *c)
 {
   init_list(&c->iface_list);
   c->port	= BABEL_PORT;
+  c->interval	= BABEL_DEFAULT_INTERVAL;
   c->seqno	= 1;
 }
 
@@ -562,6 +559,25 @@ babel_copy_config(struct proto_config *dest, struct proto_config *src)
   init_list(&((struct babel_proto_config *) dest)->iface_list);
 
 }
+
+static int
+babel_start(struct proto *p)
+{
+  struct babel_interface *bif;
+  DBG( "Babel: starting instance...\n" );
+  fib_init( &P->rtable, p->pool, sizeof( struct babel_entry ), 0, NULL );
+  init_list( &P->connections );
+  init_list( &P->interfaces );
+  P->timer = tm_new( p->pool );
+  P->timer->data = p;
+  P->timer->recurrent = 1;
+  P->timer->hook = babel_timer;
+  P->timer->randomize = P_CF->interval/2;
+  tm_start( P->timer, P_CF->interval/2 );
+  DBG( "Babel: ...done\n");
+  return PS_UP;
+}
+
 
 
 struct protocol proto_babel = {
