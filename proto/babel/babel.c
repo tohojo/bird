@@ -632,8 +632,8 @@ babel_start(struct proto *p)
   P->timer->data = p;
   P->timer->recurrent = 1;
   P->timer->hook = babel_timer;
-  P->timer->randomize = P_CF->hello_interval/2;
-  tm_start( P->timer, P_CF->hello_interval/2 );
+  tm_start( P->timer, 2 );
+  P->last_update = 0;
   DBG( "Babel: ...done\n");
   return PS_UP;
 }

@@ -215,6 +215,7 @@ struct babel_proto {
   struct fib rtable;
   list garbage;
   list interfaces;	/* Interfaces we really know about */
+  bird_clock_t last_update;
 };
 
 
