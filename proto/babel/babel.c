@@ -34,6 +34,7 @@
 
 #define P ((struct babel_proto *) p)
 #define P_CF ((struct babel_proto_config *)p->cf)
+#define FIRST_TLV(p) (((u8 *) p) + sizeof(struct babel_header))
 #define NEXT_TLV(t) (t = ((u8 *)t) + (t->type == BABEL_TYPE_PAD0 ? 1 : t->length))
 
 #undef TRACE

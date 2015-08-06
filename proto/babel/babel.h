@@ -23,7 +23,6 @@
 #define BABEL_DEFAULT_METRIC	1   /* default metric */
 #define BABEL_DEFAULT_INTERVAL	1000  /* default interval */
 
-#define FIRST_TLV(p) ((void *) p+sizeof(struct babel_header))
 #define TLV_LENGTH(t) (sizeof(t)-sizeof(struct babel_tlv_header))
 
 struct babel_header {
