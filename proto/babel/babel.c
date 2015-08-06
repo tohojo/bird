@@ -34,7 +34,7 @@
 
 #define P ((struct babel_proto *) p)
 #define P_CF ((struct babel_proto_config *)p->cf)
-#define NEXT_TLV(t) (t = ((u8 *)t) + t->length)
+#define NEXT_TLV(t) (t = ((u8 *)t) + (t->type == BABEL_TYPE_PAD0 ? 1 : t->length))
 
 #undef TRACE
 #define TRACE(level, msg, args...) do { if (p->debug & level) { log(L_TRACE "%s: " msg, p->name , ## args); } } while(0)
