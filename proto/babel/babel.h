@@ -21,7 +21,8 @@
 #define BABEL_VERSION	2
 #define BABEL_PORT	6696
 #define BABEL_DEFAULT_METRIC	1   /* default metric */
-#define BABEL_DEFAULT_INTERVAL	10  /* default interval in seconds */
+#define BABEL_HELLO_INTERVAL	10  /* default hello interval in seconds */
+#define BABEL_UPDATE_INTERVAL	10  /* default update interval in seconds */
 
 #define TLV_LENGTH(t) (sizeof(t)-sizeof(struct babel_tlv_header))
 
@@ -184,13 +185,14 @@ struct babel_interface {
   int metric;
   struct object_lock *lock;
   list tlv_queue;
+  int hello_seqno;		/* To be increased on each hello */
+  bird_clock_t last_hello;
 };
 
 struct babel_patt {
   struct iface_patt i;
 
   int metric;
-  int interval;
   int tx_tos;
   int tx_priority;
 };
@@ -201,8 +203,9 @@ struct babel_proto_config {
   struct proto_config c;
   list iface_list;	/* Patterns configured -- keep it first; see babel_reconfigure why */
   int port;
-  int seqno;		/* To be increased on request */
-  int interval;
+  int update_seqno;		/* To be increased on request */
+  int hello_interval;
+  int update_interval;
 };
 
 struct babel_proto {

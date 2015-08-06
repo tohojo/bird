@@ -18,7 +18,7 @@ CF_DEFINES
 
 CF_DECLS
 
-CF_KEYWORDS(BABEL, METRIC, INTERVAL, PORT, BABEL_METRIC)
+CF_KEYWORDS(BABEL, METRIC, HELLO_INTERVAL, UPDATE_INTERVAL, PORT, BABEL_METRIC)
 
 CF_GRAMMAR
 
@@ -34,7 +34,8 @@ babel_cfg:
    babel_cfg_start proto_name '{'
  | babel_cfg proto_item ';'
  | babel_cfg PORT expr ';'	{ BABEL_CFG->port = $3; }
- | babel_cfg INTERVAL expr ';'	{ BABEL_CFG->interval = $3; }
+ | babel_cfg HELLO_INTERVAL expr ';'	{ BABEL_CFG->hello_interval = $3; }
+ | babel_cfg UPDATE_INTERVAL expr ';'	{ BABEL_CFG->update_interval = $3; }
  | babel_cfg INTERFACE babel_iface ';'
  ;
 

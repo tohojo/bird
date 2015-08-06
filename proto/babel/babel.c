@@ -206,8 +206,9 @@ static void babel_send_hello(sock *s)
   tlv = FIRST_TLV(s->tbuf);
   tlv->header.type = BABEL_TYPE_HELLO;
   tlv->header.length = TLV_LENGTH(struct babel_tlv_hello);
-  tlv->seqno = P_CF->seqno;
-  tlv->interval = P_CF->interval*110;
+  tlv->seqno = bif->hello_seqno++;
+  tlv->interval = P_CF->hello_interval*110;
+  bif->last_hello = now;
 
   babel_tx(s);
 }
@@ -423,7 +424,8 @@ babel_if_notify(struct proto *p, unsigned c, struct iface *iface)
 
 }
 
-static struct babel_interface *new_iface(struct proto *p, struct iface *new, unsigned long flags, struct iface_patt *patt)
+static struct babel_interface *new_iface(struct proto *p, struct iface *new,
+					 unsigned long flags, struct iface_patt *patt)
 {
   struct babel_interface * bif;
   struct babel_patt *PATT = (struct babel_patt *) patt;
@@ -438,6 +440,8 @@ static struct babel_interface *new_iface(struct proto *p, struct iface *new, uns
     bif->metric = PATT->metric;
   }
   init_list(&bif->tlv_queue);
+  bif->hello_seqno = 1;
+  bif->last_hello = 0;
 
   bif->sock = sk_new( p->pool );
   bif->sock->type = SK_UDP;
@@ -581,8 +585,9 @@ babel_init_config(struct babel_proto_config *c)
 {
   init_list(&c->iface_list);
   c->port	= BABEL_PORT;
-  c->interval	= BABEL_DEFAULT_INTERVAL;
-  c->seqno	= 1;
+  c->hello_interval	= BABEL_HELLO_INTERVAL;
+  c->update_interval	= BABEL_UPDATE_INTERVAL;
+  c->update_seqno	= 1;
 }
 
 static void
@@ -627,8 +632,8 @@ babel_start(struct proto *p)
   P->timer->data = p;
   P->timer->recurrent = 1;
   P->timer->hook = babel_timer;
-  P->timer->randomize = P_CF->interval/2;
-  tm_start( P->timer, P_CF->interval/2 );
+  P->timer->randomize = P_CF->hello_interval/2;
+  tm_start( P->timer, P_CF->hello_interval/2 );
   DBG( "Babel: ...done\n");
   return PS_UP;
 }
