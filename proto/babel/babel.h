@@ -32,6 +32,8 @@ struct babel_header {
 };
 
 struct babel_parse_state {
+  ip_addr whotoldme;
+  struct babel_interface *bif;
   u64 router_id;
 };
 
@@ -63,8 +65,8 @@ struct babel_tlv_ack_req {
   u16 interval;
 };
 
-void babel_hton_ack_req(struct babel_tlv_ack_req *tlv);
-void babel_ntoh_ack_req(struct babel_tlv_ack_req *tlv);
+void babel_hton_ack_req(struct babel_tlv_header *tlv);
+void babel_ntoh_ack_req(struct babel_tlv_header *tlv);
 
 struct babel_tlv_ack {
   struct babel_tlv_header header;
@@ -78,8 +80,8 @@ struct babel_tlv_hello {
   u16 interval;
 };
 
-void babel_hton_hello(struct babel_tlv_hello *tlv);
-void babel_ntoh_hello(struct babel_tlv_hello *tlv);
+void babel_hton_hello(struct babel_tlv_header *tlv);
+void babel_ntoh_hello(struct babel_tlv_header *tlv);
 
 
 struct babel_tlv_ihu {
@@ -90,8 +92,8 @@ struct babel_tlv_ihu {
   u16 interval;
   /*addr...*/
 };
-void babel_hton_ihu(struct babel_tlv_ihu *tlv);
-void babel_ntoh_ihu(struct babel_tlv_ihu *tlv);
+void babel_hton_ihu(struct babel_tlv_header *tlv);
+void babel_ntoh_ihu(struct babel_tlv_header *tlv);
 
 struct babel_tlv_router_id {
   struct babel_tlv_header header;
@@ -117,8 +119,8 @@ struct babel_tlv_update {
   u16 metric;
   /*prefixes*/
 };
-void babel_hton_update(struct babel_tlv_update *tlv);
-void babel_ntoh_update(struct babel_tlv_update *tlv);
+void babel_hton_update(struct babel_tlv_header *tlv);
+void babel_ntoh_update(struct babel_tlv_header *tlv);
 
 struct babel_tlv_route_request {
   struct babel_tlv_header header;
@@ -137,8 +139,8 @@ struct babel_tlv_seqno_request {
   u64 router_id;
   /*prefixes*/
 };
-void babel_hton_seqno_request(struct babel_tlv_seqno_request *tlv);
-void babel_ntoh_seqno_request(struct babel_tlv_seqno_request *tlv);
+void babel_hton_seqno_request(struct babel_tlv_header *tlv);
+void babel_ntoh_seqno_request(struct babel_tlv_header *tlv);
 
 struct babel_entry {
   struct fib_node n;
