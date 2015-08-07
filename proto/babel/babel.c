@@ -20,24 +20,10 @@
 #undef LOCAL_DEBUG
 #define LOCAL_DEBUG 1
 
-#include "nest/bird.h"
-#include "nest/iface.h"
-#include "nest/protocol.h"
-#include "nest/route.h"
-#include "lib/socket.h"
-#include "lib/resource.h"
-#include "lib/lists.h"
-#include "lib/timer.h"
-#include "lib/string.h"
-
 #include "babel.h"
 
 #define P ((struct babel_proto *) p)
 #define P_CF ((struct babel_proto_config *)p->cf)
-#define FIRST_TLV(p) ((void *)(((char *) p) + sizeof(struct babel_header)))
-#define NEXT_TLV(t) (t = (void *)((char *)t) + (t->type == BABEL_TYPE_PAD0 ? 1 : t->length))
-#define TLV_SIZE(t) (t->type == BABEL_TYPE_PAD0 ? 1 : t->length + sizeof(struct babel_tlv_header))
-#define VALIDATE_TLV(tlv, hdr, typ) if(hdr->length < TLV_LENGTH(typ)) {BAD("TLV too small");} tlv = (typ *)hdr
 
 #undef TRACE
 #define TRACE(level, msg, args...) do { if (p->debug & level) { log(L_TRACE "%s: " msg, p->name , ## args); } } while(0)
@@ -50,138 +36,7 @@ static struct babel_interface *new_iface(struct proto *p, struct iface *new,
 					 unsigned long flags, struct iface_patt *patt);
 
 
-static int babel_handle_ack_req(struct babel_tlv_header *tlv, struct babel_parse_state *state);
-static int babel_handle_ack(struct babel_tlv_header *tlv, struct babel_parse_state *state);
-static int babel_handle_hello(struct babel_tlv_header *tlv, struct babel_parse_state *state);
-static int babel_handle_ihu(struct babel_tlv_header *tlv, struct babel_parse_state *state);
-static int babel_handle_router_id(struct babel_tlv_header *tlv, struct babel_parse_state *state);
-static int babel_handle_next_hop(struct babel_tlv_header *tlv, struct babel_parse_state *state);
-static int babel_handle_update(struct babel_tlv_header *tlv, struct babel_parse_state *state);
-static int babel_handle_route_request(struct babel_tlv_header *tlv,
-				      struct babel_parse_state *state);
-static int babel_handle_seqno_request(struct babel_tlv_header *tlv,
-				      struct babel_parse_state *state);
 
-struct babel_tlv_callback {
-  int (*handle)(struct babel_tlv_header *tlv,
-		      struct babel_parse_state *state);
-  void (*hton)(struct babel_tlv_header *tlv);
-  void (*ntoh)(struct babel_tlv_header *tlv);
-};
-
-static struct babel_tlv_callback babel_tlv_callbacks[BABEL_TYPE_MAX] = {
-  {NULL,NULL,NULL},
-  {NULL,NULL,NULL},
-  {babel_handle_ack_req, babel_hton_ack_req, babel_ntoh_ack_req},
-  {babel_handle_ack, NULL, NULL},
-  {babel_handle_hello, babel_hton_hello, babel_ntoh_hello},
-  {babel_handle_ihu, babel_hton_ihu, babel_ntoh_ihu},
-  {babel_handle_router_id, NULL, NULL},
-  {babel_handle_next_hop, NULL, NULL},
-  {babel_handle_update, babel_hton_update, babel_ntoh_update},
-  {babel_handle_route_request, NULL, NULL},
-  {babel_handle_seqno_request, babel_hton_seqno_request, babel_ntoh_seqno_request},
-};
-
-void babel_hton_ack_req(struct babel_tlv_header *hdr)
-{
-  struct babel_tlv_ack_req *tlv = (struct babel_tlv_ack_req *)hdr;
-  tlv->interval = htons(tlv->interval);
-}
-void babel_ntoh_ack_req(struct babel_tlv_header *hdr)
-{
-  struct babel_tlv_ack_req *tlv = (struct babel_tlv_ack_req *)hdr;
-  tlv->interval = ntohs(tlv->interval);
-}
-void babel_hton_hello(struct babel_tlv_header *hdr)
-{
-  struct babel_tlv_hello *tlv = (struct babel_tlv_hello *)hdr;
-  tlv->seqno = htons(tlv->seqno);
-  tlv->interval = htons(tlv->interval);
-}
-void babel_ntoh_hello(struct babel_tlv_header *hdr)
-{
-  struct babel_tlv_hello *tlv = (struct babel_tlv_hello *)hdr;
-  tlv->seqno = ntohs(tlv->seqno);
-  tlv->interval = ntohs(tlv->interval);
-}
-void babel_hton_ihu(struct babel_tlv_header *hdr)
-{
-  struct babel_tlv_ihu *tlv = (struct babel_tlv_ihu *)hdr;
-  tlv->rxcost = htons(tlv->rxcost);
-  tlv->interval = htons(tlv->interval);
-}
-void babel_ntoh_ihu(struct babel_tlv_header *hdr)
-{
-  struct babel_tlv_ihu *tlv = (struct babel_tlv_ihu *)hdr;
-  tlv->rxcost = ntohs(tlv->rxcost);
-  tlv->interval = ntohs(tlv->interval);
-}
-void babel_hton_update(struct babel_tlv_header *hdr)
-{
-  struct babel_tlv_update *tlv = (struct babel_tlv_update *)hdr;
-  tlv->interval = htons(tlv->interval);
-  tlv->seqno = htons(tlv->seqno);
-  tlv->metric = htons(tlv->metric);
-}
-void babel_ntoh_update(struct babel_tlv_header *hdr)
-{
-  struct babel_tlv_update *tlv = (struct babel_tlv_update *)hdr;
-  tlv->interval = ntohs(tlv->interval);
-  tlv->seqno = ntohs(tlv->seqno);
-  tlv->metric = ntohs(tlv->metric);
-}
-void babel_hton_seqno_request(struct babel_tlv_header *hdr)
-{
-  struct babel_tlv_seqno_request *tlv = (struct babel_tlv_seqno_request *)hdr;
-  tlv->seqno = htons(tlv->seqno);
-}
-void babel_ntoh_seqno_request(struct babel_tlv_header *hdr)
-{
-  struct babel_tlv_seqno_request *tlv = (struct babel_tlv_seqno_request *)hdr;
-  tlv->seqno = ntohs(tlv->seqno);
-}
-static void babel_tlv_hton(struct babel_tlv_header *hdr)
-{
-  if(babel_tlv_callbacks[hdr->type].hton) {
-    babel_tlv_callbacks[hdr->type].hton(hdr);
-  }
-}
-
-static void babel_tlv_ntoh(struct babel_tlv_header *hdr)
-{
-  if(babel_tlv_callbacks[hdr->type].ntoh) {
-    babel_tlv_callbacks[hdr->type].ntoh(hdr);
-  }
-}
-
-static void babel_packet_hton(struct babel_packet *pkt)
-{
-  struct babel_tlv_header *tlv = FIRST_TLV(pkt);
-  int len = pkt->header.length+sizeof(struct babel_header);
-  char *p = (char *)pkt;
-  while((char *)tlv < p+len) {
-    babel_tlv_hton(tlv);
-    NEXT_TLV(tlv);
-  }
-  pkt->header.length = htons(pkt->header.length);
-}
-
-static void copy_tlv(struct babel_tlv_header *dest, struct babel_tlv_header *src)
-{
-  memcpy(dest, src, TLV_SIZE(src));
-}
-
-
-static void * babel_new_packet(sock *s, u16 len)
-{
-  struct babel_packet *pkt = (void *) s->tbuf;
-  pkt->header.magic = BABEL_MAGIC;
-  pkt->header.version = BABEL_VERSION;
-  pkt->header.length = len;
-  memset(pkt+sizeof(struct babel_header), 0, len);
-  return FIRST_TLV(pkt);
-}
 
 static void babel_send_ack(struct babel_interface *bif, ip_addr dest, u16 nonce)
 {
@@ -217,75 +72,51 @@ static void babel_send_hello(struct babel_interface *bif)
 
 
 
-static int babel_handle_ack_req(struct babel_tlv_header *hdr, struct babel_parse_state *state)
+int babel_handle_ack_req(struct babel_tlv_header *hdr, struct babel_parse_state *state)
 {
-  struct babel_tlv_ack_req *tlv;
+  struct babel_tlv_ack_req *tlv = (struct babel_tlv_ack_req *)hdr;
   struct proto *p = state->proto;
-  VALIDATE_TLV(tlv, hdr, struct babel_tlv_ack_req);
   TRACE(D_PACKETS, "Received ACK req nonce %d interval %d\n", tlv->nonce, tlv->interval);
   if(tlv->interval) {
     babel_send_ack(state->bif, state->whotoldme, tlv->nonce);
   }
   return 0;
 }
-static int babel_handle_ack(struct babel_tlv_header *hdr, struct babel_parse_state *state)
+int babel_handle_ack(struct babel_tlv_header *hdr, struct babel_parse_state *state)
 {
-  struct babel_tlv_ack *tlv;
+  struct babel_tlv_ack *tlv = (struct babel_tlv_ack *)hdr;
   struct proto *p = state->proto;
-  VALIDATE_TLV(tlv, hdr, struct babel_tlv_ack);
   TRACE(D_PACKETS, "Received ACK nonce %d\n", tlv->nonce);
 }
-static int babel_handle_hello(struct babel_tlv_header *tlv, struct babel_parse_state *state)
+int babel_handle_hello(struct babel_tlv_header *tlv, struct babel_parse_state *state)
 {
 }
-static int babel_handle_ihu(struct babel_tlv_header *tlv, struct babel_parse_state *state)
+int babel_handle_ihu(struct babel_tlv_header *tlv, struct babel_parse_state *state)
 {
 }
-static int babel_handle_router_id(struct babel_tlv_header *hdr, struct babel_parse_state *state)
+int babel_handle_router_id(struct babel_tlv_header *hdr, struct babel_parse_state *state)
 {
-  struct babel_tlv_router_id *tlv;
+  struct babel_tlv_router_id *tlv = (struct babel_tlv_router_id *)hdr;
   struct proto *p = state->proto;
-  VALIDATE_TLV(tlv, hdr, struct babel_tlv_router_id);
   TRACE(D_PACKETS, "Received router ID %x\n", tlv->router_id);
   state->router_id = tlv->router_id;
   return 0;
 }
-static int babel_handle_next_hop(struct babel_tlv_header *hdr, struct babel_parse_state *state)
+int babel_handle_next_hop(struct babel_tlv_header *hdr, struct babel_parse_state *state)
 {
 }
-static int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *state)
+int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *state)
 {
 }
-static int babel_handle_route_request(struct babel_tlv_header *hdr,
+int babel_handle_route_request(struct babel_tlv_header *hdr,
 				      struct babel_parse_state *state)
 {
 }
-static int babel_handle_seqno_request(struct babel_tlv_header *hdr,
+int babel_handle_seqno_request(struct babel_tlv_header *hdr,
 				      struct babel_parse_state *state)
 {
 }
 
-
-static int
-babel_process_packet(struct babel_header *pkt, int size,
-		     ip_addr whotoldme, int port, struct babel_interface *bif)
-{
-  struct babel_tlv_header *tlv = FIRST_TLV(pkt);
-  struct babel_parse_state state = {
-    .whotoldme = whotoldme,
-    .bif = bif,
-  };
-  char *p = (char *)pkt;
-  int res = 0;
-  while((char *)tlv < p+size) {
-    if(tlv->type > BABEL_TYPE_PADN && tlv->type < BABEL_TYPE_MAX) {
-      babel_tlv_ntoh(tlv);
-      res += babel_tlv_callbacks[tlv->type].handle(tlv, &state);
-    }
-    NEXT_TLV(tlv);
-  }
-  return res;
-}
 
 
 /*
@@ -306,27 +137,6 @@ static void babel_tx_err( sock *s, int err )
   //struct proto *p = c->proto;
   log( L_ERR ": Unexpected error at Babel transmit: %M", /*p->name,*/ err );
 }
-
-void babel_send_to(struct babel_interface *bif, ip_addr dest)
-{
-  sock *s = bif->sock;
-  struct babel_packet *pkt = (void *) s->tbuf;
-  int len = pkt->header.length+sizeof(struct babel_header);
-  int done;
-
-  babel_packet_hton(pkt);
-
-  DBG( "Sending %d bytes from %I to %I\n", len, s->saddr, dest);
-  done = sk_send_to( s, len, dest, 0);
-  if(!done)
-    log(L_WARN "Babel: TX queue full on %s", bif->ifname);
-}
-
-void babel_send( struct babel_interface *bif )
-{
-  babel_send_to(bif, IP6_BABEL_ROUTERS);
-}
-
 
 
 static int

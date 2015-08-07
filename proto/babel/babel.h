@@ -3,9 +3,16 @@
  *
  */
 
+#include "nest/bird.h"
+#include "nest/iface.h"
 #include "nest/route.h"
-#include "nest/password.h"
+#include "nest/protocol.h"
 #include "nest/locks.h"
+#include "lib/resource.h"
+#include "lib/lists.h"
+#include "lib/socket.h"
+#include "lib/string.h"
+#include "lib/timer.h"
 
 #ifndef IPV6
 #error "The Babel protocol only speaks IPv6"
@@ -186,7 +193,7 @@ struct babel_patt {
 struct babel_neighbor {
   node n;
   struct babel_interface *bif;
-  neighbor *n;
+  neighbor *neigh;
   ip_addr addr;
   u16 txcost;
   u16 hello_map;
@@ -221,3 +228,18 @@ struct babel_proto {
 void babel_init_config(struct babel_proto_config *c);
 void babel_send( struct babel_interface *bif );
 void babel_send_to( struct babel_interface *bif, ip_addr dest );
+int babel_process_packet(struct babel_header *pkt, int size,
+			 ip_addr whotoldme, int port, struct babel_interface *bif);
+void * babel_new_packet(sock *s, u16 len);
+
+int babel_handle_ack_req(struct babel_tlv_header *tlv, struct babel_parse_state *state);
+int babel_handle_ack(struct babel_tlv_header *tlv, struct babel_parse_state *state);
+int babel_handle_hello(struct babel_tlv_header *tlv, struct babel_parse_state *state);
+int babel_handle_ihu(struct babel_tlv_header *tlv, struct babel_parse_state *state);
+int babel_handle_router_id(struct babel_tlv_header *tlv, struct babel_parse_state *state);
+int babel_handle_next_hop(struct babel_tlv_header *tlv, struct babel_parse_state *state);
+int babel_handle_update(struct babel_tlv_header *tlv, struct babel_parse_state *state);
+int babel_handle_route_request(struct babel_tlv_header *tlv,
+				      struct babel_parse_state *state);
+int babel_handle_seqno_request(struct babel_tlv_header *tlv,
+				      struct babel_parse_state *state);

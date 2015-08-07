@@ -1,4 +1,4 @@
-source=babel.c
+source=babel.c packet.c
 root-rel=../../
 dir-name=proto/babel
 
