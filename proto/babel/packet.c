@@ -62,6 +62,8 @@ void babel_hton_ihu(struct babel_tlv_header *hdr)
   struct babel_tlv_ihu *tlv = (struct babel_tlv_ihu *)hdr;
   tlv->rxcost = htons(tlv->rxcost);
   tlv->interval = htons(tlv->interval);
+  tlv->addr[0] = htonl(tlv->addr[0]);
+  tlv->addr[1] = htonl(tlv->addr[1]);
 }
 void babel_ntoh_ihu(struct babel_tlv_header *hdr)
 {
@@ -172,11 +174,11 @@ void babel_send( struct babel_interface *bif )
 }
 
 int babel_process_packet(struct babel_header *pkt, int size,
-			ip_addr whotoldme, int port, struct babel_interface *bif)
+			ip_addr saddr, int port, struct babel_interface *bif)
 {
   struct babel_tlv_header *tlv = FIRST_TLV(pkt);
   struct babel_parse_state state = {
-    .whotoldme = whotoldme,
+    .saddr = saddr,
     .bif = bif,
   };
   char *p = (char *)pkt;
@@ -191,4 +193,14 @@ int babel_process_packet(struct babel_header *pkt, int size,
     NEXT_TLV(tlv);
   }
   return res;
+}
+
+ip_addr babel_get_addr(u32 *addr, u8 ae, u8 omitted, void * prefix)
+{
+  switch(ae) {
+  case BABEL_AE_IP6_LL:
+    return ip6_or(ipa_build6(0xfe800000,0,0,0), ipa_build6(0,0,*addr,*(addr+1)));
+  default:
+    return IPA_NONE;
+  }
 }

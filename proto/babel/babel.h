@@ -33,6 +33,11 @@
 
 /* ip header + udp header + babel header */
 #define BABEL_OVERHEAD (SIZE_OF_IP_HEADER+8+sizeof(struct babel_header))
+#define BABEL_INFINITY 0xFFFF
+#define BABEL_AE_WILDCARD 0
+#define BABEL_AE_IP4 1
+#define BABEL_AE_IP6 2
+#define BABEL_AE_IP6_LL 3
 
 #define TLV_LENGTH(t) (sizeof(t)-sizeof(struct babel_tlv_header))
 
@@ -44,7 +49,7 @@ struct babel_header {
 
 struct babel_parse_state {
   struct proto *proto;
-  ip_addr whotoldme;
+  ip_addr saddr;
   struct babel_interface *bif;
   u64 router_id;
 };
@@ -98,11 +103,11 @@ void babel_ntoh_hello(struct babel_tlv_header *tlv);
 
 struct babel_tlv_ihu {
   struct babel_tlv_header header;
-  u8 addr_enc;
+  u8 ae;
   u8 reserved;
   u16 rxcost;
   u16 interval;
-  /*addr...*/
+  u32 addr[2];
 };
 void babel_hton_ihu(struct babel_tlv_header *tlv);
 void babel_ntoh_ihu(struct babel_tlv_header *tlv);
@@ -115,14 +120,16 @@ struct babel_tlv_router_id {
 
 struct babel_tlv_next_hop {
   struct babel_tlv_header header;
-  u8 addr_enc;
+  u8 ae;
   u8 reserved;
   /*next -hop*/
 };
 
 struct babel_tlv_update {
   struct babel_tlv_header header;
-  u8 addr_enc;
+  u8 ae;
+#define BABEL_FLAG_DEF_PREFIX 0x80
+#define BABEL_FLAG_ROUTER_ID 0x40
   u8 flags;
   u8 plen;
   u8 omitted;
@@ -136,14 +143,14 @@ void babel_ntoh_update(struct babel_tlv_header *tlv);
 
 struct babel_tlv_route_request {
   struct babel_tlv_header header;
-  u8 addr_enc;
+  u8 ae;
   u8 plen;
   /*prefixes*/
 };
 
 struct babel_tlv_seqno_request {
   struct babel_tlv_header header;
-  u8 addr_enc;
+  u8 ae;
   u8 plen;
   u16 seqno;
   u8 hop_count;
@@ -191,6 +198,7 @@ struct babel_interface {
   node n;
   struct proto *proto;
   struct iface *iface;
+  pool *pool;
   char *ifname;
   sock *sock;
   int max_pkt_len;
@@ -220,10 +228,15 @@ struct babel_neighbor {
   neighbor *neigh;
   ip_addr addr;
   u16 txcost;
+  /* received hello map. The hello_map entry is the bitmap of the hello history.
+     hello_map_idx contains the number of valid bits in the highest four bits,
+     and the next bit to twiddle in the lowest four bits. */
   u16 hello_map;
-  u16 hello_seqno;
-  bird_clock_t hello_exp;
-  bird_clock_t ihu_exp;
+  u8 hello_map_idx;
+  u16 next_hello_seqno;
+  u16 last_timer_interval;
+  timer *hello_timer;
+  timer *ihu_timer;
 };
 
 
@@ -255,7 +268,8 @@ void babel_init_config(struct babel_proto_config *c);
 void babel_send( struct babel_interface *bif );
 void babel_send_to( struct babel_interface *bif, ip_addr dest );
 int babel_process_packet(struct babel_header *pkt, int size,
-			 ip_addr whotoldme, int port, struct babel_interface *bif);
+			 ip_addr saddr, int port, struct babel_interface *bif);
+ip_addr babel_get_addr(u32 *addr, u8 ae, u8 omitted, void * prefix);
 
 #define BABEL_NEW_PACKET(bif,t) ((t *)babel_new_packet(bif,sizeof(t)))
 struct babel_tlv_header * babel_new_packet(struct babel_interface *bif, u16 len);

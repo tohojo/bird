@@ -76,22 +76,140 @@ int babel_handle_ack_req(struct babel_tlv_header *hdr, struct babel_parse_state 
   struct proto *p = state->proto;
   TRACE(D_PACKETS, "Received ACK req nonce %d interval %d\n", tlv->nonce, tlv->interval);
   if(tlv->interval) {
-    babel_send_ack(state->bif, state->whotoldme, tlv->nonce);
+    babel_send_ack(state->bif, state->saddr, tlv->nonce);
   }
   return 0;
 }
+
 int babel_handle_ack(struct babel_tlv_header *hdr, struct babel_parse_state *state)
 {
   struct babel_tlv_ack *tlv = (struct babel_tlv_ack *)hdr;
   struct proto *p = state->proto;
   TRACE(D_PACKETS, "Received ACK nonce %d\n", tlv->nonce);
 }
-int babel_handle_hello(struct babel_tlv_header *tlv, struct babel_parse_state *state)
+
+static void babel_flush_neighbor(struct babel_neighbor *bn)
 {
+  struct babel_interface *bif;
+  tm_stop(bn->hello_timer);
+  tm_stop(bn->ihu_timer);
+  rfree((resource *)bn->hello_timer);
+  rfree((resource *)bn->ihu_timer);
+  rem_node((node *)bn);
+  mb_free(bn);
 }
-int babel_handle_ihu(struct babel_tlv_header *tlv, struct babel_parse_state *state)
+
+static void babel_hello_timer(timer *t)
 {
+  struct babel_neighbor *bn = t->data;
+  u8 valid, idx;
+  valid = bn->hello_map_idx >> 4;
+  idx = bn->hello_map_idx & (0xFF>>4);
+  bn->hello_map &= ~(1<<idx);
+  idx = (idx+1)%16;
+  if(valid < 16) valid++;
+  bn->hello_map_idx = (valid << 4) & idx;
+  if(!bn->hello_map) {
+    babel_flush_neighbor(bn);
+  } else {
+    tm_start(bn->hello_timer, bn->last_timer_interval);
+  }
 }
+
+static void babel_ihu_timer(timer *t)
+{
+  struct babel_neighbor *bn = t->data;
+  bn->txcost = BABEL_INFINITY;
+}
+
+static struct babel_neighbor * babel_new_neighbor(struct babel_interface *bif, neighbor *n)
+{
+  struct babel_neighbor *bn = mb_allocz(bif->pool, sizeof(struct babel_neighbor));
+    bn->bif = bif;
+    bn->neigh = n;
+    bn->addr = n->addr;
+    bn->hello_timer = tm_new(bif->pool);
+    bn->hello_timer->data = bn;
+    bn->ihu_timer = tm_new(bif->pool);
+    bn->ihu_timer->data = bn;
+    n->data = bn;
+    add_tail(&bif->neigh_list, (node *)bn);
+}
+
+/* update hello history according to Appendix A1 of the RFC */
+static void update_hello_history(struct babel_neighbor *bn, u16 seqno, u16 interval)
+{
+  u8 diff, valid, idx;
+  int i;
+  valid = bn->hello_map_idx >> 4;
+  idx = bn->hello_map_idx & (0xFF>>4);
+  if(seqno - bn->next_hello_seqno > 16 || bn->next_hello_seqno - seqno > 16) {
+    /* note state reset - flush entries */
+    bn->hello_map = bn->hello_map_idx = valid = idx = 0;
+  } else if(seqno < bn->next_hello_seqno) {
+    /* sending node increased interval; reverse history */
+    diff = bn->next_hello_seqno - seqno;
+    valid -= diff;
+    idx = (idx-diff) % 16;
+  } else if(bn->next_hello_seqno > seqno) {
+    /* sending node decreased interval; fast-forward */
+    diff = seqno - bn->next_hello_seqno;
+    for(i=0;i<diff;i++) {
+      bn->hello_map &= ~(1<<idx);
+      idx = (idx+1)%16;
+      valid = MIN(16,valid+diff);
+    }
+  }
+  /* current entry */
+  bn->hello_map |= 1<<idx;
+  idx = (idx+1)%16;
+  if(valid < 16) valid++;
+  bn->next_hello_seqno = seqno+1;
+  bn->hello_map_idx = (valid << 4) & idx;
+  bn->last_timer_interval = 1.5*(interval/100);
+  tm_start(bn->hello_timer, bn->last_timer_interval);
+}
+
+static struct babel_interface * babel_find_neighbor(struct babel_interface *bif, ip_addr addr)
+{
+  struct proto *p = bif->proto;
+  neighbor *n = neigh_find2(p, &addr, bif->iface, NEF_STICKY);
+  struct babel_neighbor *bn;
+  if(!n->data) {
+    bn = babel_new_neighbor(bif, n);
+  } else {
+    bn = n->data;
+  }
+  return bn;
+}
+
+int babel_handle_hello(struct babel_tlv_header *hdr, struct babel_parse_state *state)
+{
+  struct babel_tlv_hello *tlv = (struct babel_tlv_hello *)hdr;
+  struct proto *p = state->proto;
+  struct babel_interface *bif = state->bif;
+  struct babel_neighbor *bn = babel_find_neighbor(bif, state->saddr);
+  TRACE(D_PACKETS, "Received Hello seqno %d interval %d from %I\n", tlv->seqno,
+	tlv->interval, state->saddr);
+  update_hello_history(bn, tlv->seqno, tlv->interval);
+  return 0;
+}
+
+int babel_handle_ihu(struct babel_tlv_header *hdr, struct babel_parse_state *state)
+{
+  struct babel_tlv_ihu *tlv = (struct babel_tlv_ihu *)hdr;
+  struct proto *p = state->proto;
+  struct babel_interface *bif = state->bif;
+  ip_addr addr = babel_get_addr(tlv->addr, tlv->ae, 0, NULL);
+  if(!ipa_equal(addr, bif->iface->addr->ip)) return 0; // not for us
+  TRACE(D_PACKETS, "Received IHU rxcost %d interval %d from %I\n", tlv->rxcost,
+	tlv->interval, state->saddr);
+  struct babel_neighbor *bn = babel_find_neighbor(bif, state->saddr);
+  bn->txcost = tlv->rxcost;
+  tm_start(bn->ihu_timer, 1.5*(tlv->interval/100));
+  return 0;
+}
+
 int babel_handle_router_id(struct babel_tlv_header *hdr, struct babel_parse_state *state)
 {
   struct babel_tlv_router_id *tlv = (struct babel_tlv_router_id *)hdr;
@@ -100,16 +218,20 @@ int babel_handle_router_id(struct babel_tlv_header *hdr, struct babel_parse_stat
   state->router_id = tlv->router_id;
   return 0;
 }
+
 int babel_handle_next_hop(struct babel_tlv_header *hdr, struct babel_parse_state *state)
 {
 }
+
 int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *state)
 {
 }
+
 int babel_handle_route_request(struct babel_tlv_header *hdr,
 				      struct babel_parse_state *state)
 {
 }
+
 int babel_handle_seqno_request(struct babel_tlv_header *hdr,
 				      struct babel_parse_state *state)
 {
