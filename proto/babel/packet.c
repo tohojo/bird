@@ -7,7 +7,7 @@
 
 #include "babel.h"
 
-#define FIRST_TLV(p) ((void *)(((char *) p) + sizeof(struct babel_header)))
+#define FIRST_TLV(p) ((struct babel_tlv_header *)(((char *) p) + sizeof(struct babel_header)))
 #define NEXT_TLV(t) (t = (void *)((char *)t) + (t->type == BABEL_TYPE_PAD0 ? 1 : t->length))
 #define TLV_SIZE(t) (t->type == BABEL_TYPE_PAD0 ? 1 : t->length + sizeof(struct babel_tlv_header))
 #define VALIDATE_TLV(tlv, hdr, typ) if(hdr->length < TLV_LENGTH(typ)) {BAD("TLV too small");} tlv = (typ *)hdr
@@ -125,14 +125,30 @@ static void copy_tlv(struct babel_tlv_header *dest, struct babel_tlv_header *src
 }
 
 
-void * babel_new_packet(sock *s, u16 len)
+struct babel_tlv_header * babel_new_packet(struct babel_interface *bif, u16 len)
 {
-  struct babel_packet *pkt = (void *) s->tbuf;
-  pkt->header.magic = BABEL_MAGIC;
-  pkt->header.version = BABEL_VERSION;
-  pkt->header.length = len;
-  memset(pkt+sizeof(struct babel_header), 0, len);
-  return FIRST_TLV(pkt);
+  sock *s = bif->sock;
+  struct babel_header *hdr = (void *) s->tbuf;
+  memset(hdr, 0, sizeof(struct babel_header)+len);
+  hdr->magic = BABEL_MAGIC;
+  hdr->version = BABEL_VERSION;
+  hdr->length = len;
+  return FIRST_TLV(hdr);
+}
+
+struct babel_tlv_header * babel_add_tlv(struct babel_interface *bif, u16 len)
+{
+  sock *s = bif->sock;
+  struct babel_header *hdr = (void *) s->tbuf;
+  struct babel_tlv_header *tlv;
+  int pktlen = sizeof(struct babel_header)+hdr->length;
+  if(pktlen+len > bif->max_pkt_len) {
+    return NULL;
+  }
+  hdr->length+=len;
+  tlv = (struct babel_tlv_header *)((char*)hdr+pktlen);
+  memset(tlv, 0, len);
+  return tlv;
 }
 
 void babel_send_to(struct babel_interface *bif, ip_addr dest)

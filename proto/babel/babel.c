@@ -40,11 +40,10 @@ static struct babel_interface *new_iface(struct proto *p, struct iface *new,
 
 static void babel_send_ack(struct babel_interface *bif, ip_addr dest, u16 nonce)
 {
-  sock *s = bif->sock;
   struct proto *p = bif->proto;
   struct babel_tlv_ack *tlv;
   TRACE(D_PACKETS, "Babel: Sending ACK to %I with nonce %d\n", dest, nonce);
-  tlv = babel_new_packet(s, sizeof(struct babel_tlv_hello));
+  tlv = BABEL_NEW_PACKET(bif, struct babel_tlv_ack);
   tlv->header.type = BABEL_TYPE_ACK;
   tlv->header.length = TLV_LENGTH(struct babel_tlv_ack);
   tlv->nonce = nonce;
@@ -54,11 +53,10 @@ static void babel_send_ack(struct babel_interface *bif, ip_addr dest, u16 nonce)
 
 static void babel_send_hello(struct babel_interface *bif)
 {
-  sock *s = bif->sock;
   struct proto *p = bif->proto;
   struct babel_tlv_hello *tlv;
   TRACE(D_PACKETS, "Babel: Sending hello\n");
-  tlv = babel_new_packet(s, sizeof(struct babel_tlv_hello));
+  tlv = BABEL_NEW_PACKET(bif, struct babel_tlv_hello);
   tlv->header.type = BABEL_TYPE_HELLO;
   tlv->header.length = TLV_LENGTH(struct babel_tlv_hello);
   tlv->seqno = bif->hello_seqno++;
@@ -256,6 +254,7 @@ static struct babel_interface *new_iface(struct proto *p, struct iface *new,
   init_list(&bif->neigh_list);
   bif->hello_seqno = 1;
   bif->last_hello = 0;
+  bif->max_pkt_len = new->mtu - BABEL_OVERHEAD;
 
   bif->sock = sk_new( p->pool );
   bif->sock->type = SK_UDP;

@@ -31,6 +31,9 @@
 #define BABEL_HELLO_INTERVAL	10  /* default hello interval in seconds */
 #define BABEL_UPDATE_INTERVAL	10  /* default update interval in seconds */
 
+/* ip header + udp header + babel header */
+#define BABEL_OVERHEAD (SIZE_OF_IP_HEADER+8+sizeof(struct babel_header))
+
 #define TLV_LENGTH(t) (sizeof(t)-sizeof(struct babel_tlv_header))
 
 struct babel_header {
@@ -151,6 +154,22 @@ struct babel_tlv_seqno_request {
 void babel_hton_seqno_request(struct babel_tlv_header *tlv);
 void babel_ntoh_seqno_request(struct babel_tlv_header *tlv);
 
+
+/* Handlers */
+
+int babel_handle_ack_req(struct babel_tlv_header *tlv, struct babel_parse_state *state);
+int babel_handle_ack(struct babel_tlv_header *tlv, struct babel_parse_state *state);
+int babel_handle_hello(struct babel_tlv_header *tlv, struct babel_parse_state *state);
+int babel_handle_ihu(struct babel_tlv_header *tlv, struct babel_parse_state *state);
+int babel_handle_router_id(struct babel_tlv_header *tlv, struct babel_parse_state *state);
+int babel_handle_next_hop(struct babel_tlv_header *tlv, struct babel_parse_state *state);
+int babel_handle_update(struct babel_tlv_header *tlv, struct babel_parse_state *state);
+int babel_handle_route_request(struct babel_tlv_header *tlv,
+				      struct babel_parse_state *state);
+int babel_handle_seqno_request(struct babel_tlv_header *tlv,
+				      struct babel_parse_state *state);
+
+
 struct babel_entry {
   struct fib_node n;
 
@@ -174,6 +193,7 @@ struct babel_interface {
   struct iface *iface;
   char *ifname;
   sock *sock;
+  int max_pkt_len;
   int metric;
   struct object_lock *lock;
   list tlv_queue;
@@ -226,20 +246,14 @@ struct babel_proto {
 
 
 void babel_init_config(struct babel_proto_config *c);
+
+/* Packet mangling code - packet.c */
 void babel_send( struct babel_interface *bif );
 void babel_send_to( struct babel_interface *bif, ip_addr dest );
 int babel_process_packet(struct babel_header *pkt, int size,
 			 ip_addr whotoldme, int port, struct babel_interface *bif);
-void * babel_new_packet(sock *s, u16 len);
 
-int babel_handle_ack_req(struct babel_tlv_header *tlv, struct babel_parse_state *state);
-int babel_handle_ack(struct babel_tlv_header *tlv, struct babel_parse_state *state);
-int babel_handle_hello(struct babel_tlv_header *tlv, struct babel_parse_state *state);
-int babel_handle_ihu(struct babel_tlv_header *tlv, struct babel_parse_state *state);
-int babel_handle_router_id(struct babel_tlv_header *tlv, struct babel_parse_state *state);
-int babel_handle_next_hop(struct babel_tlv_header *tlv, struct babel_parse_state *state);
-int babel_handle_update(struct babel_tlv_header *tlv, struct babel_parse_state *state);
-int babel_handle_route_request(struct babel_tlv_header *tlv,
-				      struct babel_parse_state *state);
-int babel_handle_seqno_request(struct babel_tlv_header *tlv,
-				      struct babel_parse_state *state);
+#define BABEL_NEW_PACKET(bif,t) ((t *)babel_new_packet(bif,sizeof(t)))
+struct babel_tlv_header * babel_new_packet(struct babel_interface *bif, u16 len);
+#define BABEL_ADD_TLV(bif,t) ((t *)babel_add_tlv(bif,sizeof(t)))
+struct babel_tlv_header * babel_add_tlv(struct babel_interface *bif, u16 len);
