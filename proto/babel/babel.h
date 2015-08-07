@@ -160,29 +160,13 @@ struct babel_packet {
   struct babel_header header;
 };
 
-struct babel_connection {
-  node n;
-
-  int num;
-  struct proto *proto;
-  ip_addr addr;
-  sock *send;
-  struct babel_interface *bif;
-  struct fib_iterator iter;
-
-  ip_addr daddr;
-  int dport;
-  int done;
-};
-
-
 
 struct babel_interface {
   node n;
   struct proto *proto;
   struct iface *iface;
+  char *ifname;
   sock *sock;
-  struct babel_connection *busy;
   int metric;
   struct object_lock *lock;
   list tlv_queue;
@@ -199,9 +183,10 @@ struct babel_patt {
   int tx_priority;
 };
 
-struct babel_neighbour {
+struct babel_neighbor {
   node n;
   struct babel_interface *bif;
+  neighbor *n;
   ip_addr addr;
   u16 txcost;
   u16 hello_map;
@@ -234,3 +219,5 @@ struct babel_proto {
 
 
 void babel_init_config(struct babel_proto_config *c);
+void babel_send( struct babel_interface *bif );
+void babel_send_to( struct babel_interface *bif, ip_addr dest );

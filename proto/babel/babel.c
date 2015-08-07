@@ -48,8 +48,6 @@
 
 static struct babel_interface *new_iface(struct proto *p, struct iface *new,
 					 unsigned long flags, struct iface_patt *patt);
-static void babel_tx( sock *s );
-static void babel_sendto( sock *s, ip_addr dest );
 
 
 static int babel_handle_ack_req(struct babel_tlv_header *tlv, struct babel_parse_state *state);
@@ -175,45 +173,44 @@ static void copy_tlv(struct babel_tlv_header *dest, struct babel_tlv_header *src
 }
 
 
-static void babel_new_packet(sock *s, u16 len)
+static void * babel_new_packet(sock *s, u16 len)
 {
   struct babel_packet *pkt = (void *) s->tbuf;
   pkt->header.magic = BABEL_MAGIC;
   pkt->header.version = BABEL_VERSION;
   pkt->header.length = len;
   memset(pkt+sizeof(struct babel_header), 0, len);
+  return FIRST_TLV(pkt);
 }
 
-static void babel_send_ack(sock *s, ip_addr dest, u16 nonce)
+static void babel_send_ack(struct babel_interface *bif, ip_addr dest, u16 nonce)
 {
-  struct babel_interface *bif = s->data;
+  sock *s = bif->sock;
   struct proto *p = bif->proto;
   struct babel_tlv_ack *tlv;
   TRACE(D_PACKETS, "Babel: Sending ACK to %I with nonce %d\n", dest, nonce);
-  babel_new_packet(s, sizeof(struct babel_tlv_hello));
-  tlv = FIRST_TLV(s->tbuf);
+  tlv = babel_new_packet(s, sizeof(struct babel_tlv_hello));
   tlv->header.type = BABEL_TYPE_ACK;
   tlv->header.length = TLV_LENGTH(struct babel_tlv_ack);
   tlv->nonce = nonce;
 
-  babel_sendto(s, dest);
+  babel_send_to(bif, dest);
 }
 
-static void babel_send_hello(sock *s)
+static void babel_send_hello(struct babel_interface *bif)
 {
-  struct babel_interface *bif = s->data;
+  sock *s = bif->sock;
   struct proto *p = bif->proto;
   struct babel_tlv_hello *tlv;
   TRACE(D_PACKETS, "Babel: Sending hello\n");
-  babel_new_packet(s, sizeof(struct babel_tlv_hello));
-  tlv = FIRST_TLV(s->tbuf);
+  tlv = babel_new_packet(s, sizeof(struct babel_tlv_hello));
   tlv->header.type = BABEL_TYPE_HELLO;
   tlv->header.length = TLV_LENGTH(struct babel_tlv_hello);
   tlv->seqno = bif->hello_seqno++;
   tlv->interval = P_CF->hello_interval*110;
   bif->last_hello = now;
 
-  babel_tx(s);
+  babel_send(bif);
 }
 
 
@@ -227,7 +224,7 @@ static int babel_handle_ack_req(struct babel_tlv_header *hdr, struct babel_parse
   VALIDATE_TLV(tlv, hdr, struct babel_tlv_ack_req);
   TRACE(D_PACKETS, "Received ACK req nonce %d interval %d\n", tlv->nonce, tlv->interval);
   if(tlv->interval) {
-    babel_send_ack(state->bif->sock, state->whotoldme, tlv->nonce);
+    babel_send_ack(state->bif, state->whotoldme, tlv->nonce);
   }
   return 0;
 }
@@ -310,35 +307,27 @@ static void babel_tx_err( sock *s, int err )
   log( L_ERR ": Unexpected error at Babel transmit: %M", /*p->name,*/ err );
 }
 
-static void babel_tx( sock *s )
+void babel_send_to(struct babel_interface *bif, ip_addr dest)
 {
+  sock *s = bif->sock;
   struct babel_packet *pkt = (void *) s->tbuf;
   int len = pkt->header.length+sizeof(struct babel_header);
-  int i = 0;
-
-  babel_packet_hton(pkt);
-
-  DBG( "Sending %d bytes from %I to %I\n", len, s->saddr, s->daddr );
-  i = sk_send( s, len);
-  if(i<0) babel_tx_err(s,i);
-  return;
-}
-
-static void babel_sendto(sock *s, ip_addr dest)
-{
-  struct babel_interface *bif = s->data;
-  struct proto *p = bif->proto;
-  struct babel_packet *pkt = (void *) s->tbuf;
-  int len = pkt->header.length+sizeof(struct babel_header);
-  int i = 0;
+  int done;
 
   babel_packet_hton(pkt);
 
   DBG( "Sending %d bytes from %I to %I\n", len, s->saddr, dest);
-  i = sk_send_to( s, len, dest, P_CF->port);
-  if(i<0) babel_tx_err(s,i);
-  return;
+  done = sk_send_to( s, len, dest, 0);
+  if(!done)
+    log(L_WARN "Babel: TX queue full on %s", bif->ifname);
 }
+
+void babel_send( struct babel_interface *bif )
+{
+  babel_send_to(bif, IP6_BABEL_ROUTERS);
+}
+
+
 
 static int
 babel_rx(sock *s, int size)
@@ -396,7 +385,7 @@ babel_add_if(struct object_lock *lock)
     add_head( &P->interfaces, NODE bif );
     DBG("Adding object lock of %p for %p\n", lock, bif);
     bif->lock = lock;
-    babel_send_hello(bif->sock);
+    babel_send_hello(bif);
   } else { rfree(lock); }
 }
 
@@ -448,8 +437,8 @@ static struct babel_interface *new_iface(struct proto *p, struct iface *new,
 
   bif = mb_allocz(p->pool, sizeof( struct babel_interface ));
   bif->iface = new;
+  bif->ifname = new->name;
   bif->proto = p;
-  bif->busy = NULL;
   if (PATT) {
     bif->metric = PATT->metric;
   }
@@ -466,7 +455,6 @@ static struct babel_interface *new_iface(struct proto *p, struct iface *new,
   bif->sock->rbsize = 10240;
   bif->sock->iface = new;
   bif->sock->tbuf = mb_alloc( p->pool, new->mtu);
-  bif->sock->tx_hook = babel_tx;
   bif->sock->err_hook = babel_tx_err;
   bif->sock->dport = P_CF->port;
   bif->sock->daddr = IP6_BABEL_ROUTERS;
@@ -547,6 +535,17 @@ babel_rt_notify(struct proto *p, struct rtable *table UNUSED, struct network *ne
 {
 }
 
+static void babel_neigh_notify(neighbor *n)
+{
+  struct proto *p = n->proto;
+  struct babel_neighbor *bn = n->data;
+  if(n->scope <= 0) {
+    TRACE(D_EVENTS, "Babel: Neighbor lost");
+  } else {
+    TRACE(D_EVENTS, "Babel: Neighbor ready");
+  }
+}
+
 static int
 babel_rte_same(struct rte *new, struct rte *old)
 {
@@ -584,6 +583,7 @@ babel_init(struct proto_config *cfg)
   p->accept_ra_types = RA_OPTIMAL;
   p->if_notify = babel_if_notify;
   p->rt_notify = babel_rt_notify;
+  p->neigh_notify = babel_neigh_notify;
   p->import_control = babel_import_control;
   p->make_tmp_attrs = babel_make_tmp_attrs;
   p->store_tmp_attrs = babel_store_tmp_attrs;
