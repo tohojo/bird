@@ -195,6 +195,7 @@ struct babel_interface {
   sock *sock;
   int max_pkt_len;
   int metric;
+  int type;
   struct object_lock *lock;
   list tlv_queue;
   list neigh_list;
@@ -206,6 +207,9 @@ struct babel_patt {
   struct iface_patt i;
 
   int metric;
+#define BABEL_TYPE_WIRED 1
+#define BABEL_TYPE_WIRELESS 2
+  int type;
   int tx_tos;
   int tx_priority;
 };

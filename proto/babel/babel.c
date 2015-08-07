@@ -249,6 +249,7 @@ static struct babel_interface *new_iface(struct proto *p, struct iface *new,
   bif->proto = p;
   if (PATT) {
     bif->metric = PATT->metric;
+    bif->type = PATT->type;
   }
   init_list(&bif->tlv_queue);
   init_list(&bif->neigh_list);
