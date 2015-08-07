@@ -200,14 +200,23 @@ int babel_handle_ihu(struct babel_tlv_header *hdr, struct babel_parse_state *sta
   struct babel_tlv_ihu *tlv = (struct babel_tlv_ihu *)hdr;
   struct proto *p = state->proto;
   struct babel_interface *bif = state->bif;
-  ip_addr addr = babel_get_addr(tlv->addr, tlv->ae, 0, NULL);
-  if(!ipa_equal(addr, bif->iface->addr->ip)) return 0; // not for us
+  ip_addr addr = babel_get_addr(hdr, state);
+
+  if(!ipa_equal(addr, bif->iface->addr->ip)) return 1; // not for us
   TRACE(D_PACKETS, "Received IHU rxcost %d interval %d from %I\n", tlv->rxcost,
 	tlv->interval, state->saddr);
   struct babel_neighbor *bn = babel_find_neighbor(bif, state->saddr);
   bn->txcost = tlv->rxcost;
   tm_start(bn->ihu_timer, 1.5*(tlv->interval/100));
   return 0;
+}
+
+int babel_validate_ihu(struct babel_tlv_header *hdr)
+{
+  struct babel_tlv_ihu *tlv = (struct babel_tlv_ihu *)hdr;
+  if(hdr->length < sizeof(struct babel_tlv_ihu)-sizeof(tlv->addr)) return 0;
+  return (tlv->ae == BABEL_AE_WILDCARD
+	  || (tlv->ae == BABEL_AE_IP6_LL && hdr->length >= sizeof(struct babel_tlv_ihu)));
 }
 
 int babel_handle_router_id(struct babel_tlv_header *hdr, struct babel_parse_state *state)
@@ -222,8 +231,14 @@ int babel_handle_router_id(struct babel_tlv_header *hdr, struct babel_parse_stat
 int babel_handle_next_hop(struct babel_tlv_header *hdr, struct babel_parse_state *state)
 {
 }
+int babel_validate_next_hop(struct babel_tlv_header *hdr)
+{
+}
 
 int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *state)
+{
+}
+int babel_validate_update(struct babel_tlv_header *hdr)
 {
 }
 
@@ -231,9 +246,15 @@ int babel_handle_route_request(struct babel_tlv_header *hdr,
 				      struct babel_parse_state *state)
 {
 }
+int babel_validate_route_request(struct babel_tlv_header *hdr)
+{
+}
 
 int babel_handle_seqno_request(struct babel_tlv_header *hdr,
 				      struct babel_parse_state *state)
+{
+}
+int babel_validate_seqno_request(struct babel_tlv_header *hdr)
 {
 }
 
