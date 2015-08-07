@@ -33,6 +33,7 @@ struct babel_header {
 };
 
 struct babel_parse_state {
+  struct proto *proto;
   ip_addr whotoldme;
   struct babel_interface *bif;
   u64 router_id;
@@ -185,7 +186,8 @@ struct babel_interface {
   int metric;
   struct object_lock *lock;
   list tlv_queue;
-  int hello_seqno;		/* To be increased on each hello */
+  list neigh_list;
+  u16 hello_seqno;		/* To be increased on each hello */
   bird_clock_t last_hello;
 };
 
@@ -197,13 +199,24 @@ struct babel_patt {
   int tx_priority;
 };
 
+struct babel_neighbour {
+  node n;
+  struct babel_interface *bif;
+  ip_addr addr;
+  u16 txcost;
+  u16 hello_map;
+  u16 hello_seqno;
+  bird_clock_t hello_exp;
+  bird_clock_t ihu_exp;
+};
+
 
 
 struct babel_proto_config {
   struct proto_config c;
   list iface_list;	/* Patterns configured -- keep it first; see babel_reconfigure why */
   int port;
-  int update_seqno;		/* To be increased on request */
+  u16 update_seqno;		/* To be increased on request */
   int hello_interval;
   int update_interval;
 };

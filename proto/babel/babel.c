@@ -37,6 +37,7 @@
 #define FIRST_TLV(p) ((void *)(((char *) p) + sizeof(struct babel_header)))
 #define NEXT_TLV(t) (t = (void *)((char *)t) + (t->type == BABEL_TYPE_PAD0 ? 1 : t->length))
 #define TLV_SIZE(t) (t->type == BABEL_TYPE_PAD0 ? 1 : t->length + sizeof(struct babel_tlv_header))
+#define VALIDATE_TLV(tlv, hdr, typ) if(hdr->length < TLV_LENGTH(typ)) {BAD("TLV too small");} tlv = (typ *)hdr
 
 #undef TRACE
 #define TRACE(level, msg, args...) do { if (p->debug & level) { log(L_TRACE "%s: " msg, p->name , ## args); } } while(0)
@@ -185,8 +186,10 @@ static void babel_new_packet(sock *s, u16 len)
 
 static void babel_send_ack(sock *s, ip_addr dest, u16 nonce)
 {
-  DBG("Babel: Sending ACK to %I with nonce %d\n", dest, nonce);
+  struct babel_interface *bif = s->data;
+  struct proto *p = bif->proto;
   struct babel_tlv_ack *tlv;
+  TRACE(D_PACKETS, "Babel: Sending ACK to %I with nonce %d\n", dest, nonce);
   babel_new_packet(s, sizeof(struct babel_tlv_hello));
   tlv = FIRST_TLV(s->tbuf);
   tlv->header.type = BABEL_TYPE_ACK;
@@ -198,10 +201,10 @@ static void babel_send_ack(sock *s, ip_addr dest, u16 nonce)
 
 static void babel_send_hello(sock *s)
 {
-  DBG("Babel: Sending hello\n");
   struct babel_interface *bif = s->data;
   struct proto *p = bif->proto;
   struct babel_tlv_hello *tlv;
+  TRACE(D_PACKETS, "Babel: Sending hello\n");
   babel_new_packet(s, sizeof(struct babel_tlv_hello));
   tlv = FIRST_TLV(s->tbuf);
   tlv->header.type = BABEL_TYPE_HELLO;
@@ -219,13 +222,21 @@ static void babel_send_hello(sock *s)
 
 static int babel_handle_ack_req(struct babel_tlv_header *hdr, struct babel_parse_state *state)
 {
-  struct babel_tlv_ack_req *tlv = (struct babel_tlv_ack_req *)hdr;
+  struct babel_tlv_ack_req *tlv;
+  struct proto *p = state->proto;
+  VALIDATE_TLV(tlv, hdr, struct babel_tlv_ack_req);
+  TRACE(D_PACKETS, "Received ACK req nonce %d interval %d\n", tlv->nonce, tlv->interval);
   if(tlv->interval) {
     babel_send_ack(state->bif->sock, state->whotoldme, tlv->nonce);
   }
+  return 0;
 }
-static int babel_handle_ack(struct babel_tlv_header *tlv, struct babel_parse_state *state)
+static int babel_handle_ack(struct babel_tlv_header *hdr, struct babel_parse_state *state)
 {
+  struct babel_tlv_ack *tlv;
+  struct proto *p = state->proto;
+  VALIDATE_TLV(tlv, hdr, struct babel_tlv_ack);
+  TRACE(D_PACKETS, "Received ACK nonce %d\n", tlv->nonce);
 }
 static int babel_handle_hello(struct babel_tlv_header *tlv, struct babel_parse_state *state)
 {
@@ -235,7 +246,10 @@ static int babel_handle_ihu(struct babel_tlv_header *tlv, struct babel_parse_sta
 }
 static int babel_handle_router_id(struct babel_tlv_header *hdr, struct babel_parse_state *state)
 {
-  struct babel_tlv_router_id *tlv = (struct babel_tlv_router_id *)hdr;
+  struct babel_tlv_router_id *tlv;
+  struct proto *p = state->proto;
+  VALIDATE_TLV(tlv, hdr, struct babel_tlv_router_id);
+  TRACE(D_PACKETS, "Received router ID %x\n", tlv->router_id);
   state->router_id = tlv->router_id;
   return 0;
 }
@@ -342,7 +356,7 @@ babel_rx(sock *s, int size)
     return 1;
   }
 
-  if (!ipa_is_link_local(s->faddr)) { BAD("Non-link local sender\n"); }
+  if (!ipa_is_link_local(s->faddr)) { BAD("Non-link local sender"); }
 
   babel_process_packet((struct babel_header *) s->rbuf, size, s->faddr, s->fport, i );
   return 1;
@@ -440,6 +454,7 @@ static struct babel_interface *new_iface(struct proto *p, struct iface *new,
     bif->metric = PATT->metric;
   }
   init_list(&bif->tlv_queue);
+  init_list(&bif->neigh_list);
   bif->hello_seqno = 1;
   bif->last_hello = 0;
 
