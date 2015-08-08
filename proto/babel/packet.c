@@ -5,10 +5,14 @@
  * 2015-08-07
  */
 
+#undef LOCAL_DEBUG
+#define LOCAL_DEBUG 1
+
 #include "babel.h"
 
-#define FIRST_TLV(p) ((struct babel_tlv_header *)(((char *) p) + sizeof(struct babel_header)))
-#define NEXT_TLV(t) (t = (void *)((char *)t) + (t->type == BABEL_TYPE_PAD0 ? 1 : t->length))
+
+#define FIRST_TLV(p) ((struct babel_tlv_header *)(((struct babel_header *) p) + 1))
+#define NEXT_TLV(t) (t = (void *)((char *)t) + TLV_SIZE(t))
 #define TLV_SIZE(t) (t->type == BABEL_TYPE_PAD0 ? 1 : t->length + sizeof(struct babel_tlv_header))
 
 
