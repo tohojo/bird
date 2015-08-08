@@ -51,9 +51,27 @@ static void babel_send_ack(struct babel_interface *bif, ip_addr dest, u16 nonce)
   babel_send_to(bif, dest);
 }
 
-
-static void babel_add_ihus(bif)
+static u16 babel_compute_rxcost(struct babel_neighbor *bn)
 {
+  return 1;
+}
+
+static void babel_add_ihu(struct babel_interface *bif, struct babel_neighbor *bn)
+{
+  struct babel_tlv_ihu *tlv;
+  tlv = BABEL_ADD_TLV_SEND(bif, struct babel_tlv_ihu, IPA_NONE);
+  tlv->header.type = BABEL_TYPE_IHU;
+  tlv->header.length = TLV_LENGTH(struct babel_tlv_ihu);
+  babel_put_addr_ihu(&tlv->header, bn->addr);
+  tlv->rxcost = babel_compute_rxcost(bn);
+  tlv->interval = bif->ihu_interval;
+}
+
+static void babel_add_ihus(struct babel_interface *bif)
+{
+  struct babel_neighbor *bn;
+  WALK_LIST(bn, bif->neigh_list)
+    babel_add_ihu(bif,bn);
 }
 
 static void babel_send_hello(struct babel_interface *bif, u8 send_ihu)
@@ -117,7 +135,6 @@ static void babel_flush_neighbor(struct babel_neighbor *bn)
 static void babel_hello_expiry(timer *t)
 {
   struct babel_neighbor *bn = t->data;
-  u8 valid, idx;
   bn->hello_map <<= 1;
   if(!bn->hello_map) {
     babel_flush_neighbor(bn);
@@ -401,6 +418,7 @@ static struct babel_interface *new_iface(struct proto *p, struct iface *new,
     } else {
       bif->update_interval = bif->hello_interval*BABEL_UPDATE_INTERVAL_FACTOR;
     }
+    bif->ihu_interval = bif->hello_interval*BABEL_IHU_INTERVAL_FACTOR;
   }
   init_list(&bif->tlv_queue);
   init_list(&bif->neigh_list);

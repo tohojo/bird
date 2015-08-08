@@ -31,7 +31,8 @@
   /* default hello intervals in seconds */
 #define BABEL_HELLO_INTERVAL_WIRED	20
 #define BABEL_HELLO_INTERVAL_WIRELESS	4
-#define BABEL_UPDATE_INTERVAL_FACTOR	4  /* default update interval in seconds */
+#define BABEL_UPDATE_INTERVAL_FACTOR	4
+#define BABEL_IHU_INTERVAL_FACTOR	3
 
 /* ip header + udp header + babel header */
 #define BABEL_OVERHEAD (SIZE_OF_IP_HEADER+8+sizeof(struct babel_header))
@@ -239,8 +240,9 @@ struct babel_interface {
   list neigh_list;
   u16 hello_seqno;		/* To be increased on each hello */
   u16 hello_interval;
-  timer * hello_timer;
+  u16 ihu_interval;
   u16 update_interval;
+  timer * hello_timer;
   timer * update_timer;
 };
 
@@ -301,5 +303,5 @@ ip_addr babel_get_addr(struct babel_tlv_header *hdr, struct babel_parse_state *s
 struct babel_tlv_header * babel_new_packet(struct babel_interface *bif, u16 len);
 #define BABEL_ADD_TLV(bif,t) ((t *)babel_add_tlv(bif,sizeof(t)))
 struct babel_tlv_header * babel_add_tlv(struct babel_interface *bif, u16 len);
-#define BABEL_ADD_TLV_SEND(bif,t,dest) ((t *)babel_add_tlv(bif,sizeof(t),dest))
+#define BABEL_ADD_TLV_SEND(bif,t,dest) ((t *)babel_add_tlv_send(bif,sizeof(t),dest))
 struct babel_tlv_header * babel_add_tlv_send(struct babel_interface *bif, u16 len, ip_addr dest);
