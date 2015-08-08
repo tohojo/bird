@@ -39,7 +39,6 @@
 /* ip header + udp header + babel header */
 #define BABEL_OVERHEAD (SIZE_OF_IP_HEADER+8+sizeof(struct babel_header))
 #define BABEL_INFINITY 0xFFFF
-#define BABEL_MISSED_THRESHOLD 0xFFFF
 
 #define TLV_LENGTH(t) (sizeof(t)-sizeof(struct babel_tlv_header))
 
