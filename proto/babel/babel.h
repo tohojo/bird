@@ -246,13 +246,8 @@ struct babel_neighbor {
   neighbor *neigh;
   ip_addr addr;
   u16 txcost;
-  /* received hello map. The hello_map entry is the bitmap of the hello history.
-     hello_map_idx contains the number of valid bits in the highest four bits,
-     and the next bit to twiddle in the lowest four bits. */
   u16 hello_map;
-  u8 hello_map_idx;
   u16 next_hello_seqno;
-  u16 last_timer_interval;
   timer *hello_timer;
   timer *ihu_timer;
 };

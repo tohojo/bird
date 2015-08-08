@@ -99,24 +99,17 @@ static void babel_flush_neighbor(struct babel_neighbor *bn)
   mb_free(bn);
 }
 
-static void babel_hello_timer(timer *t)
+static void babel_hello_expiry(timer *t)
 {
   struct babel_neighbor *bn = t->data;
   u8 valid, idx;
-  valid = bn->hello_map_idx >> 4;
-  idx = bn->hello_map_idx & (0xFF>>4);
-  bn->hello_map &= ~(1<<idx);
-  idx = (idx+1)%16;
-  if(valid < 16) valid++;
-  bn->hello_map_idx = (valid << 4) & idx;
+  bn->hello_map <<= 1;
   if(!bn->hello_map) {
     babel_flush_neighbor(bn);
-  } else {
-    tm_start(bn->hello_timer, bn->last_timer_interval);
   }
 }
 
-static void babel_ihu_timer(timer *t)
+static void babel_ihu_expiry(timer *t)
 {
   struct babel_neighbor *bn = t->data;
   bn->txcost = BABEL_INFINITY;
@@ -129,9 +122,12 @@ static struct babel_neighbor * babel_new_neighbor(struct babel_interface *bif, n
     bn->neigh = n;
     bn->addr = n->addr;
     bn->hello_timer = tm_new(bif->pool);
+    bn->hello_timer->recurrent = 1;
     bn->hello_timer->data = bn;
+    bn->hello_timer->hook = babel_hello_expiry;
     bn->ihu_timer = tm_new(bif->pool);
     bn->ihu_timer->data = bn;
+    bn->ihu_timer->hook = babel_ihu_expiry;
     n->data = bn;
     add_tail(&bif->neigh_list, (node *)bn);
 }
@@ -139,35 +135,19 @@ static struct babel_neighbor * babel_new_neighbor(struct babel_interface *bif, n
 /* update hello history according to Appendix A1 of the RFC */
 static void update_hello_history(struct babel_neighbor *bn, u16 seqno, u16 interval)
 {
-  u8 diff, valid, idx;
-  int i;
-  valid = bn->hello_map_idx >> 4;
-  idx = bn->hello_map_idx & (0xFF>>4);
   if(seqno - bn->next_hello_seqno > 16 || bn->next_hello_seqno - seqno > 16) {
     /* note state reset - flush entries */
-    bn->hello_map = bn->hello_map_idx = valid = idx = 0;
+    bn->hello_map = 0;
   } else if(seqno < bn->next_hello_seqno) {
     /* sending node increased interval; reverse history */
-    diff = bn->next_hello_seqno - seqno;
-    valid -= diff;
-    idx = (idx-diff) % 16;
+    bn->hello_map >>= bn->next_hello_seqno - seqno;
   } else if(bn->next_hello_seqno > seqno) {
     /* sending node decreased interval; fast-forward */
-    diff = seqno - bn->next_hello_seqno;
-    for(i=0;i<diff;i++) {
-      bn->hello_map &= ~(1<<idx);
-      idx = (idx+1)%16;
-      valid = MIN(16,valid+diff);
-    }
+    bn->hello_map <<= seqno - bn->next_hello_seqno;
   }
   /* current entry */
-  bn->hello_map |= 1<<idx;
-  idx = (idx+1)%16;
-  if(valid < 16) valid++;
-  bn->next_hello_seqno = seqno+1;
-  bn->hello_map_idx = (valid << 4) & idx;
-  bn->last_timer_interval = 1.5*(interval/100);
-  tm_start(bn->hello_timer, bn->last_timer_interval);
+  bn->hello_map = (bn->hello_map << 1) & 1;
+  tm_start(bn->hello_timer, (1.5*interval)/100);
 }
 
 static struct babel_interface * babel_find_neighbor(struct babel_interface *bif, ip_addr addr)
