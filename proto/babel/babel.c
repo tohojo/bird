@@ -114,7 +114,7 @@ int babel_handle_ack_req(struct babel_tlv_header *hdr, struct babel_parse_state 
   if(tlv->interval) {
     babel_send_ack(state->bif, state->saddr, tlv->nonce);
   }
-  return 0;
+  return 1;
 }
 
 int babel_handle_ack(struct babel_tlv_header *hdr, struct babel_parse_state *state)
@@ -207,7 +207,7 @@ int babel_handle_hello(struct babel_tlv_header *hdr, struct babel_parse_state *s
   TRACE(D_PACKETS, "Received Hello seqno %d interval %d from %I", tlv->seqno,
 	tlv->interval, state->saddr);
   update_hello_history(bn, tlv->seqno, tlv->interval);
-  return 0;
+  return 1;
 }
 
 int babel_handle_ihu(struct babel_tlv_header *hdr, struct babel_parse_state *state)
@@ -217,13 +217,13 @@ int babel_handle_ihu(struct babel_tlv_header *hdr, struct babel_parse_state *sta
   struct babel_interface *bif = state->bif;
   ip_addr addr = babel_get_addr(hdr, state);
 
-  if(!ipa_equal(addr, bif->iface->addr->ip)) return 1; // not for us
+  if(!ipa_equal(addr, bif->iface->addr->ip)) return 0; // not for us
   TRACE(D_PACKETS, "Received IHU rxcost %d interval %d from %I", tlv->rxcost,
 	tlv->interval, state->saddr);
   struct babel_neighbor *bn = babel_find_neighbor(bif, state->saddr);
   bn->txcost = tlv->rxcost;
   tm_start(bn->ihu_timer, 1.5*(tlv->interval/100));
-  return 0;
+  return 1;
 }
 
 int babel_handle_router_id(struct babel_tlv_header *hdr, struct babel_parse_state *state)
@@ -232,7 +232,7 @@ int babel_handle_router_id(struct babel_tlv_header *hdr, struct babel_parse_stat
   struct proto *p = state->proto;
   TRACE(D_PACKETS, "Received router ID %x\n", tlv->router_id);
   state->router_id = tlv->router_id;
-  return 0;
+  return 1;
 }
 
 int babel_handle_next_hop(struct babel_tlv_header *hdr, struct babel_parse_state *state)

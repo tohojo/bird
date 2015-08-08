@@ -318,7 +318,7 @@ int babel_process_packet(struct babel_header *pkt, int size,
        && tlv->type < BABEL_TYPE_MAX
        && tlv_data[tlv->type].validate(tlv)) {
       babel_tlv_ntoh(tlv);
-      res += tlv_data[tlv->type].handle(tlv, &state);
+      res &= tlv_data[tlv->type].handle(tlv, &state);
     } else {
       DBG("Unknown or invalid TLV of type %d\n",tlv->type);
     }
