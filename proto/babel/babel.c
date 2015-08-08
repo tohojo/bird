@@ -126,12 +126,14 @@ int babel_handle_ack(struct babel_tlv_header *hdr, struct babel_parse_state *sta
 
 static void babel_flush_neighbor(struct babel_neighbor *bn)
 {
-  struct babel_interface *bif;
+  struct proto *p = bn->bif->proto;
+  TRACE(D_EVENTS, "Flushing neighbor %I", bn->addr);
   tm_stop(bn->hello_timer);
   tm_stop(bn->ihu_timer);
-  rfree((resource *)bn->hello_timer);
-  rfree((resource *)bn->ihu_timer);
-  rem_node((node *)bn);
+  rfree(bn->hello_timer);
+  rfree(bn->ihu_timer);
+  rem_node(NODE bn);
+  bn->neigh->data = NULL;
   mb_free(bn);
 }
 
@@ -164,7 +166,7 @@ static struct babel_neighbor * babel_new_neighbor(struct babel_interface *bif, n
   bn->ihu_timer->data = bn;
   bn->ihu_timer->hook = babel_ihu_expiry;
   n->data = bn;
-  add_tail(&bif->neigh_list, (node *)bn);
+  add_tail(&bif->neigh_list, NODE bn);
 }
 
 /* update hello history according to Appendix A1 of the RFC */
@@ -278,42 +280,42 @@ static void babel_tx_err( sock *s, int err )
 static int
 babel_rx(sock *s, int size)
 {
-  struct babel_interface *i = s->data;
-  struct proto *p = i->proto;
-  if (! i->iface || s->lifindex != i->iface->index)
+  struct babel_interface *bif = s->data;
+  struct proto *p = bif->proto;
+  if (! bif->iface || s->lifindex != bif->iface->index)
     return 1;
 
-  DBG( "Babel: incoming packet: %d bytes from %I via %s\n", size, s->faddr, i->iface ? i->iface->name : "(dummy)" );
+  DBG( "Babel: incoming packet: %d bytes from %I via %s\n", size, s->faddr, bif->iface ? bif->iface->name : "(dummy)" );
   if (size < sizeof(struct babel_header)) BAD( "Too small packet" );
 
-  if (ipa_equal(i->iface->addr->ip, s->faddr)) {
+  if (ipa_equal(bif->iface->addr->ip, s->faddr)) {
     DBG("My own packet\n");
     return 1;
   }
 
   if (!ipa_is_link_local(s->faddr)) { BAD("Non-link local sender"); }
 
-  babel_process_packet((struct babel_header *) s->rbuf, size, s->faddr, s->fport, i );
+  babel_process_packet((struct babel_header *) s->rbuf, size, s->faddr, s->fport, bif );
   return 1;
 }
 
 static struct babel_interface*
 find_interface(struct proto *p, struct iface *what)
 {
-  struct babel_interface *i;
+  struct babel_interface *bif;
 
-  WALK_LIST (i, P->interfaces)
-    if (i->iface == what)
-      return i;
+  WALK_LIST (bif, P->interfaces)
+    if (bif->iface == what)
+      return bif;
   return NULL;
 }
 
 static void
-kill_iface(struct babel_interface *i)
+kill_iface(struct babel_interface *bif)
 {
-  DBG( "Babel: Interface %s disappeared\n", i->iface->name);
-  rfree(i->sock);
-  mb_free(i);
+  DBG( "Babel: Interface %s disappeared\n", bif->iface->name);
+  rfree(bif->pool);
+  mb_free(bif);
 }
 
 
@@ -344,12 +346,12 @@ babel_if_notify(struct proto *p, unsigned c, struct iface *iface)
   if (iface->flags & IF_IGNORE)
     return;
   if (c & IF_CHANGE_DOWN) {
-    struct babel_interface *i;
-    i = find_interface(p, iface);
-    if (i) {
-      rem_node(NODE i);
-      rfree(i->lock);
-      kill_iface(i);
+    struct babel_interface *bif;
+    bif = find_interface(p, iface);
+    if (bif) {
+      rem_node(NODE bif);
+      rfree(bif->lock);
+      kill_iface(bif);
     }
   }
   if (c & IF_CHANGE_UP) {
@@ -382,10 +384,10 @@ static struct babel_interface *new_iface(struct proto *p, struct iface *new,
   if(!new) return NULL;
 
   bif = mb_allocz(p->pool, sizeof( struct babel_interface ));
+  bif->pool = rp_new(p->pool, bif->ifname);
   bif->iface = new;
   bif->ifname = new->name;
   bif->proto = p;
-  bif->pool = rp_new(p->pool, bif->ifname);
   if (PATT) {
     bif->metric = PATT->metric;
     bif->type = PATT->type;
@@ -409,22 +411,22 @@ static struct babel_interface *new_iface(struct proto *p, struct iface *new,
   bif->hello_seqno = 1;
   bif->max_pkt_len = new->mtu - BABEL_OVERHEAD;
 
-  bif->hello_timer = tm_new(p->pool);
+  bif->hello_timer = tm_new(bif->pool);
   bif->hello_timer->hook = babel_hello_timer;
   bif->hello_timer->data = bif;
 
-  bif->update_timer = tm_new(p->pool);
+  bif->update_timer = tm_new(bif->pool);
   bif->update_timer->hook = babel_update_timer;
   bif->update_timer->data = bif;
 
-  bif->sock = sk_new( p->pool );
+  bif->sock = sk_new( bif->pool );
   bif->sock->type = SK_UDP;
   bif->sock->sport = P_CF->port;
   bif->sock->rx_hook = babel_rx;
   bif->sock->data =  bif;
   bif->sock->rbsize = 10240;
   bif->sock->iface = new;
-  bif->sock->tbuf = mb_alloc( p->pool, new->mtu);
+  bif->sock->tbuf = mb_alloc( bif->pool, new->mtu);
   bif->sock->err_hook = babel_tx_err;
   bif->sock->dport = P_CF->port;
   bif->sock->daddr = IP6_BABEL_ROUTERS;
@@ -447,10 +449,8 @@ static struct babel_interface *new_iface(struct proto *p, struct iface *new,
  err:
   sk_log_error(bif->sock, p->name);
   log(L_ERR "%s: Cannot open socket for %s", p->name,  bif->iface ?  bif->iface->name : "(dummy)" );
-  if ( bif->iface) {
-    rfree( bif->sock);
-    rfree( bif->hello_timer);
-    rfree( bif->update_timer);
+  if (bif->iface) {
+    rfree(bif->pool);
     mb_free( bif);
     return NULL;
   }
