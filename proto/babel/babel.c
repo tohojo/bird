@@ -153,18 +153,18 @@ static void babel_ihu_expiry(timer *t)
 static struct babel_neighbor * babel_new_neighbor(struct babel_interface *bif, neighbor *n)
 {
   struct babel_neighbor *bn = mb_allocz(bif->pool, sizeof(struct babel_neighbor));
-    bn->bif = bif;
-    bn->neigh = n;
-    bn->addr = n->addr;
-    bn->hello_timer = tm_new(bif->pool);
-    bn->hello_timer->recurrent = 1;
-    bn->hello_timer->data = bn;
-    bn->hello_timer->hook = babel_hello_expiry;
-    bn->ihu_timer = tm_new(bif->pool);
-    bn->ihu_timer->data = bn;
-    bn->ihu_timer->hook = babel_ihu_expiry;
-    n->data = bn;
-    add_tail(&bif->neigh_list, (node *)bn);
+  bn->bif = bif;
+  bn->neigh = n;
+  bn->addr = n->addr;
+  bn->hello_timer = tm_new(bif->pool);
+  bn->hello_timer->recurrent = 1;
+  bn->hello_timer->data = bn;
+  bn->hello_timer->hook = babel_hello_expiry;
+  bn->ihu_timer = tm_new(bif->pool);
+  bn->ihu_timer->data = bn;
+  bn->ihu_timer->hook = babel_ihu_expiry;
+  n->data = bn;
+  add_tail(&bif->neigh_list, (node *)bn);
 }
 
 /* update hello history according to Appendix A1 of the RFC */
@@ -204,7 +204,7 @@ int babel_handle_hello(struct babel_tlv_header *hdr, struct babel_parse_state *s
   struct proto *p = state->proto;
   struct babel_interface *bif = state->bif;
   struct babel_neighbor *bn = babel_find_neighbor(bif, state->saddr);
-  TRACE(D_PACKETS, "Received Hello seqno %d interval %d from %I\n", tlv->seqno,
+  TRACE(D_PACKETS, "Received Hello seqno %d interval %d from %I", tlv->seqno,
 	tlv->interval, state->saddr);
   update_hello_history(bn, tlv->seqno, tlv->interval);
   return 0;
@@ -218,7 +218,7 @@ int babel_handle_ihu(struct babel_tlv_header *hdr, struct babel_parse_state *sta
   ip_addr addr = babel_get_addr(hdr, state);
 
   if(!ipa_equal(addr, bif->iface->addr->ip)) return 1; // not for us
-  TRACE(D_PACKETS, "Received IHU rxcost %d interval %d from %I\n", tlv->rxcost,
+  TRACE(D_PACKETS, "Received IHU rxcost %d interval %d from %I", tlv->rxcost,
 	tlv->interval, state->saddr);
   struct babel_neighbor *bn = babel_find_neighbor(bif, state->saddr);
   bn->txcost = tlv->rxcost;
@@ -405,6 +405,7 @@ static struct babel_interface *new_iface(struct proto *p, struct iface *new,
   bif->iface = new;
   bif->ifname = new->name;
   bif->proto = p;
+  bif->pool = rp_new(p->pool, bif->ifname);
   if (PATT) {
     bif->metric = PATT->metric;
     bif->type = PATT->type;
@@ -447,6 +448,10 @@ static struct babel_interface *new_iface(struct proto *p, struct iface *new,
   bif->sock->err_hook = babel_tx_err;
   bif->sock->dport = P_CF->port;
   bif->sock->daddr = IP6_BABEL_ROUTERS;
+
+  bif->sock->tos = PATT->tx_tos;
+  bif->sock->priority = PATT->tx_priority;
+  bif->sock->flags = SKF_LADDR_RX;
   if (sk_open( bif->sock) < 0)
     goto err;
   if (sk_setup_multicast( bif->sock) < 0)

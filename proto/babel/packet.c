@@ -286,9 +286,11 @@ int babel_process_packet(struct babel_header *pkt, int size,
 			ip_addr saddr, int port, struct babel_interface *bif)
 {
   struct babel_tlv_header *tlv = FIRST_TLV(pkt);
+  struct proto *proto = bif->proto;
   struct babel_parse_state state = {
     .saddr = saddr,
     .bif = bif,
+    .proto = proto,
   };
   char *p = (char *)pkt;
   int res = 0;
@@ -296,8 +298,11 @@ int babel_process_packet(struct babel_header *pkt, int size,
     if(tlv->type > BABEL_TYPE_PADN
        && tlv->type < BABEL_TYPE_MAX
        && tlv_data[tlv->type].validate(tlv)) {
+      DBG("Valid TLV of type %d\n", tlv->type);
       babel_tlv_ntoh(tlv);
       res += tlv_data[tlv->type].handle(tlv, &state);
+    } else {
+      DBG("Unknown or invalid TLV of type %d\n",tlv->type);
     }
     NEXT_TLV(tlv);
   }
@@ -306,5 +311,7 @@ int babel_process_packet(struct babel_header *pkt, int size,
 
 int babel_validate_length(struct babel_tlv_header *hdr)
 {
-  return (hdr->length >= tlv_data[hdr->type].struct_length);
+  DBG("Validate type: %d length: %d needed: %d\n", hdr->type, hdr->length,
+  tlv_data[hdr->type].struct_length - sizeof(struct babel_tlv_header));
+  return (hdr->length >= tlv_data[hdr->type].struct_length - sizeof(struct babel_tlv_header));
 }
