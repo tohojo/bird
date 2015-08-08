@@ -53,7 +53,15 @@ static void babel_send_ack(struct babel_interface *bif, ip_addr dest, u16 nonce)
 
 static u16 babel_compute_rxcost(struct babel_neighbor *bn)
 {
-  return 1;
+  struct babel_interface *bif = bn->bif;
+  u8 n,missed; u16 map=bn->hello_map;
+  if(bif->type == BABEL_IFACE_TYPE_WIRED) {
+    if(!bn->hello_map) return BABEL_INFINITY;
+    for(n=1;map&=map-1;n++);
+    missed = bn->hello_n-n;
+    DBG("Missed %d hellos from %I\n", missed, bn->addr);
+    return (missed > BABEL_MISSED_THRESHOLD) ? BABEL_INFINITY : bif->rxcost;
+  }
 }
 
 static void babel_add_ihu(struct babel_interface *bif, struct babel_neighbor *bn)
@@ -72,6 +80,17 @@ static void babel_add_ihus(struct babel_interface *bif)
   struct babel_neighbor *bn;
   WALK_LIST(bn, bif->neigh_list)
     babel_add_ihu(bif,bn);
+}
+
+static void babel_send_ihus(struct babel_interface *bif)
+{
+  struct proto *p = bif->proto;
+  struct babel_tlv_header *hdr;
+  TRACE(D_PACKETS, "Babel: Sending IHUs");
+  hdr = babel_new_packet(bif, 0);
+  babel_add_ihus(bif);
+
+  babel_send(bif);
 }
 
 static void babel_send_hello(struct babel_interface *bif, u8 send_ihu)
@@ -141,6 +160,7 @@ static void babel_hello_expiry(timer *t)
 {
   struct babel_neighbor *bn = t->data;
   bn->hello_map <<= 1;
+  if(bn->hello_n < 16) bn->hello_n++;
   if(!bn->hello_map) {
     babel_flush_neighbor(bn);
   }
@@ -155,11 +175,13 @@ static void babel_ihu_expiry(timer *t)
 static struct babel_neighbor * babel_new_neighbor(struct babel_interface *bif, neighbor *n)
 {
   struct babel_neighbor *bn = mb_allocz(bif->pool, sizeof(struct babel_neighbor));
+  event *ev = ev_new(bif->pool);
+  ev->hook = babel_send_ihus;
+  ev->data = bif;
   bn->bif = bif;
   bn->neigh = n;
   bn->addr = n->addr;
   bn->hello_timer = tm_new(bif->pool);
-  bn->hello_timer->recurrent = 1;
   bn->hello_timer->data = bn;
   bn->hello_timer->hook = babel_hello_expiry;
   bn->ihu_timer = tm_new(bif->pool);
@@ -167,23 +189,32 @@ static struct babel_neighbor * babel_new_neighbor(struct babel_interface *bif, n
   bn->ihu_timer->hook = babel_ihu_expiry;
   n->data = bn;
   add_tail(&bif->neigh_list, NODE bn);
+  DBG("Scheduling event\n");
+  ev_schedule(ev);
+  return bn;
 }
 
 /* update hello history according to Appendix A1 of the RFC */
 static void update_hello_history(struct babel_neighbor *bn, u16 seqno, u16 interval)
 {
+  DBG("Updating hello history for %I\n", bn->addr);
   if(seqno - bn->next_hello_seqno > 16 || bn->next_hello_seqno - seqno > 16) {
     /* note state reset - flush entries */
-    bn->hello_map = 0;
+    bn->hello_map = bn->hello_n = 0;
   } else if(seqno < bn->next_hello_seqno) {
+    u8 diff = bn->next_hello_seqno - seqno;
     /* sending node increased interval; reverse history */
-    bn->hello_map >>= bn->next_hello_seqno - seqno;
-  } else if(bn->next_hello_seqno > seqno) {
+    bn->hello_map >>= diff;
+    bn->hello_n -= MAX(bn->hello_n-diff, 0);
+  } else if(seqno > bn->next_hello_seqno) {
+    u8 diff = seqno - bn->next_hello_seqno;
     /* sending node decreased interval; fast-forward */
     bn->hello_map <<= seqno - bn->next_hello_seqno;
+    bn->hello_n = MIN(bn->hello_n+diff, 16);
   }
   /* current entry */
-  bn->hello_map = (bn->hello_map << 1) & 1;
+  bn->hello_map = (bn->hello_map << 1) | 1;
+  if(bn->hello_n < 16) bn->hello_n++;
   tm_start(bn->hello_timer, (1.5*interval)/100);
 }
 
@@ -314,6 +345,9 @@ static void
 kill_iface(struct babel_interface *bif)
 {
   DBG( "Babel: Interface %s disappeared\n", bif->iface->name);
+  struct babel_neighbor *bn;
+  WALK_LIST(bn, bif->neigh_list)
+    babel_flush_neighbor(bn);
   rfree(bif->pool);
   mb_free(bif);
 }
@@ -389,15 +423,21 @@ static struct babel_interface *new_iface(struct proto *p, struct iface *new,
   bif->ifname = new->name;
   bif->proto = p;
   if (PATT) {
-    bif->metric = PATT->metric;
+    bif->rxcost = PATT->rxcost;
     bif->type = PATT->type;
 
-    if(PATT->hello_interval < BABEL_INFINITY) {
-      bif->hello_interval = PATT->hello_interval;
-    } else if(bif->type == BABEL_IFACE_TYPE_WIRED) {
+    if(bif->type == BABEL_IFACE_TYPE_WIRED) {
       bif->hello_interval = BABEL_HELLO_INTERVAL_WIRED;
+      bif->rxcost = BABEL_RXCOST_WIRED;
     } else if(bif->type == BABEL_IFACE_TYPE_WIRELESS) {
       bif->hello_interval = BABEL_HELLO_INTERVAL_WIRELESS;
+      bif->rxcost = BABEL_RXCOST_WIRELESS;
+    }
+    if(PATT->hello_interval < BABEL_INFINITY) {
+      bif->hello_interval = PATT->hello_interval;
+    }
+    if(PATT->rxcost < BABEL_INFINITY) {
+      bif->rxcost = PATT->rxcost;
     }
     if(PATT->update_interval < BABEL_INFINITY) {
       bif->update_interval = PATT->update_interval;

@@ -18,7 +18,7 @@ CF_DEFINES
 
 CF_DECLS
 
-CF_KEYWORDS(BABEL, METRIC, HELLO_INTERVAL, UPDATE_INTERVAL, PORT, WIRED,
+CF_KEYWORDS(BABEL, METRIC, RXCOST, HELLO_INTERVAL, UPDATE_INTERVAL, PORT, WIRED,
 WIRELESS, BABEL_METRIC)
 
 CF_GRAMMAR
@@ -40,7 +40,7 @@ babel_cfg:
 
 
 babel_iface_item:
- | METRIC expr { BABEL_IPATT->metric = $2; }
+ | RXCOST expr { BABEL_IPATT->rxcost = $2; }
  | TX tos { BABEL_IPATT->tx_tos = $2; }
  | TX PRIORITY expr { BABEL_IPATT->tx_priority = $3; }
  | TYPE WIRED { BABEL_IPATT->type = BABEL_IFACE_TYPE_WIRED; }
@@ -64,7 +64,7 @@ babel_iface_init:
      this_ipatt = cfg_allocz(sizeof(struct babel_patt));
      add_tail(&BABEL_CFG->iface_list, NODE this_ipatt);
      init_list(&this_ipatt->ipn_list);
-     BABEL_IPATT->metric = BABEL_DEFAULT_METRIC;
+     BABEL_IPATT->rxcost = BABEL_INFINITY;
      BABEL_IPATT->type = BABEL_IFACE_TYPE_WIRED;
      BABEL_IPATT->tx_tos = IP_PREC_INTERNET_CONTROL;
      BABEL_IPATT->tx_priority = sk_priority_control;

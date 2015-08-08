@@ -33,10 +33,13 @@
 #define BABEL_HELLO_INTERVAL_WIRELESS	4
 #define BABEL_UPDATE_INTERVAL_FACTOR	4
 #define BABEL_IHU_INTERVAL_FACTOR	3
+#define BABEL_RXCOST_WIRED	96
+#define BABEL_RXCOST_WIRELESS	256
 
 /* ip header + udp header + babel header */
 #define BABEL_OVERHEAD (SIZE_OF_IP_HEADER+8+sizeof(struct babel_header))
 #define BABEL_INFINITY 0xFFFF
+#define BABEL_MISSED_THRESHOLD 0xFFFF
 
 #define TLV_LENGTH(t) (sizeof(t)-sizeof(struct babel_tlv_header))
 
@@ -233,7 +236,7 @@ struct babel_interface {
   char *ifname;
   sock *sock;
   int max_pkt_len;
-  int metric;
+  int rxcost;
   int type;
   struct object_lock *lock;
   list tlv_queue;
@@ -249,7 +252,7 @@ struct babel_interface {
 struct babel_patt {
   struct iface_patt i;
 
-  int metric;
+  int rxcost;
   int type;
   int tx_tos;
   int tx_priority;
@@ -263,6 +266,7 @@ struct babel_neighbor {
   neighbor *neigh;
   ip_addr addr;
   u16 txcost;
+  u8 hello_n;
   u16 hello_map;
   u16 next_hello_seqno;
   /* expiry timers */
