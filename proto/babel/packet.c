@@ -244,6 +244,20 @@ struct babel_tlv_header * babel_add_tlv(struct babel_interface *bif, u16 len)
   return tlv;
 }
 
+struct babel_tlv_header * babel_add_tlv_send(struct babel_interface *bif, u16 len, ip_addr dest)
+{
+  struct babel_tlv_header *tlv = babel_add_tlv(bif, len);
+  if(!tlv) {
+    if(ipa_equal(dest, IPA_NONE)) {
+      babel_send(bif);
+    } else {
+      babel_send_to(bif, dest);
+    }
+    tlv = babel_new_packet(bif, len);
+  }
+  return tlv;
+}
+
 void babel_send_to(struct babel_interface *bif, ip_addr dest)
 {
   sock *s = bif->sock;
