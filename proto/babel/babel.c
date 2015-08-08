@@ -64,7 +64,7 @@ static void babel_add_ihu(struct babel_interface *bif, struct babel_neighbor *bn
   tlv->header.length = TLV_LENGTH(struct babel_tlv_ihu);
   babel_put_addr_ihu(&tlv->header, bn->addr);
   tlv->rxcost = babel_compute_rxcost(bn);
-  tlv->interval = bif->ihu_interval;
+  tlv->interval = bif->ihu_interval*100;
 }
 
 static void babel_add_ihus(struct babel_interface *bif)
@@ -78,12 +78,12 @@ static void babel_send_hello(struct babel_interface *bif, u8 send_ihu)
 {
   struct proto *p = bif->proto;
   struct babel_tlv_hello *tlv;
-  TRACE(D_PACKETS, "Babel: Sending hello\n");
+  TRACE(D_PACKETS, "Babel: Sending hello");
   tlv = BABEL_NEW_PACKET(bif, struct babel_tlv_hello);
   tlv->header.type = BABEL_TYPE_HELLO;
   tlv->header.length = TLV_LENGTH(struct babel_tlv_hello);
   tlv->seqno = bif->hello_seqno++;
-  tlv->interval = bif->hello_interval;
+  tlv->interval = bif->hello_interval*100;
 
   if(send_ihu) babel_add_ihus(bif);
 
@@ -93,7 +93,10 @@ static void babel_send_hello(struct babel_interface *bif, u8 send_ihu)
 static void babel_hello_timer(timer *t)
 {
   struct babel_interface *bif = t->data;
+  struct proto *p = bif->proto;
+  TRACE(D_EVENTS, "Babel: Hello timer fired for interface %s", bif->ifname);
   babel_send_hello(bif, (bif->type == BABEL_IFACE_TYPE_WIRELESS || bif->hello_seqno % 3 == 0));
+  tm_start(t, bif->hello_interval);
 }
 
 
@@ -107,7 +110,7 @@ int babel_handle_ack_req(struct babel_tlv_header *hdr, struct babel_parse_state 
 {
   struct babel_tlv_ack_req *tlv = (struct babel_tlv_ack_req *)hdr;
   struct proto *p = state->proto;
-  TRACE(D_PACKETS, "Received ACK req nonce %d interval %d\n", tlv->nonce, tlv->interval);
+  TRACE(D_PACKETS, "Received ACK req nonce %d interval %d", tlv->nonce, tlv->interval);
   if(tlv->interval) {
     babel_send_ack(state->bif, state->saddr, tlv->nonce);
   }
@@ -118,7 +121,7 @@ int babel_handle_ack(struct babel_tlv_header *hdr, struct babel_parse_state *sta
 {
   struct babel_tlv_ack *tlv = (struct babel_tlv_ack *)hdr;
   struct proto *p = state->proto;
-  TRACE(D_PACKETS, "Received ACK nonce %d\n", tlv->nonce);
+  TRACE(D_PACKETS, "Received ACK nonce %d", tlv->nonce);
 }
 
 static void babel_flush_neighbor(struct babel_neighbor *bn)
@@ -426,12 +429,12 @@ static struct babel_interface *new_iface(struct proto *p, struct iface *new,
   bif->max_pkt_len = new->mtu - BABEL_OVERHEAD;
 
   bif->hello_timer = tm_new(p->pool);
-  bif->hello_timer->recurrent = 1;
   bif->hello_timer->hook = babel_hello_timer;
+  bif->hello_timer->data = bif;
 
   bif->update_timer = tm_new(p->pool);
-  bif->update_timer->recurrent = 1;
   bif->update_timer->hook = babel_update_timer;
+  bif->update_timer->data = bif;
 
   bif->sock = sk_new( p->pool );
   bif->sock->type = SK_UDP;
@@ -489,7 +492,6 @@ babel_gen_attrs(struct linpool *pool, int metric)
 static void
 babel_timer(timer *t)
 {
-  DBG("Babel: tick tock\n");
 }
 
 
