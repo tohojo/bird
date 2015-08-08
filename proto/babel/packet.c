@@ -91,6 +91,13 @@ void babel_ntoh_hello(struct babel_tlv_header *hdr)
   tlv->seqno = ntohs(tlv->seqno);
   tlv->interval = ntohs(tlv->interval);
 }
+int babel_validate_ihu(struct babel_tlv_header *hdr)
+{
+  struct babel_tlv_ihu *tlv = (struct babel_tlv_ihu *)hdr;
+  if(hdr->length < TLV_LENGTH(struct babel_tlv_ihu)-sizeof(tlv->addr)) return 0;
+  return (tlv->ae == BABEL_AE_WILDCARD
+	  || (tlv->ae == BABEL_AE_IP6_LL && hdr->length >= TLV_LENGTH(struct babel_tlv_ihu)));
+}
 void babel_hton_ihu(struct babel_tlv_header *hdr)
 {
   struct babel_tlv_ihu *tlv = (struct babel_tlv_ihu *)hdr;
@@ -127,10 +134,16 @@ void babel_put_addr_ihu(struct babel_tlv_header *hdr, ip_addr addr)
   memcpy(tlv->addr, buf+8, 8);
   tlv->ae = BABEL_AE_IP6_LL;
 }
+int babel_validate_next_hop(struct babel_tlv_header *hdr)
+{
+}
 ip_addr babel_get_addr_next_hop(struct babel_tlv_header *hdr, struct babel_parse_state *state)
 {
 }
 void babel_put_addr_next_hop(struct babel_tlv_header *hdr, ip_addr addr)
+{
+}
+int babel_validate_update(struct babel_tlv_header *hdr)
 {
 }
 void babel_hton_update(struct babel_tlv_header *hdr)
@@ -153,10 +166,16 @@ ip_addr babel_get_addr_update(struct babel_tlv_header *hdr, struct babel_parse_s
 void babel_put_addr_update(struct babel_tlv_header *hdr, ip_addr addr)
 {
 }
+int babel_validate_route_request(struct babel_tlv_header *hdr)
+{
+}
 ip_addr babel_get_addr_route_request(struct babel_tlv_header *hdr, struct babel_parse_state *state)
 {
 }
 void babel_put_addr_route_request(struct babel_tlv_header *hdr, ip_addr addr)
+{
+}
+int babel_validate_seqno_request(struct babel_tlv_header *hdr)
 {
 }
 void babel_hton_seqno_request(struct babel_tlv_header *hdr)

@@ -226,14 +226,6 @@ int babel_handle_ihu(struct babel_tlv_header *hdr, struct babel_parse_state *sta
   return 0;
 }
 
-int babel_validate_ihu(struct babel_tlv_header *hdr)
-{
-  struct babel_tlv_ihu *tlv = (struct babel_tlv_ihu *)hdr;
-  if(hdr->length < TLV_LENGTH(struct babel_tlv_ihu)-sizeof(tlv->addr)) return 0;
-  return (tlv->ae == BABEL_AE_WILDCARD
-	  || (tlv->ae == BABEL_AE_IP6_LL && hdr->length >= TLV_LENGTH(struct babel_tlv_ihu)));
-}
-
 int babel_handle_router_id(struct babel_tlv_header *hdr, struct babel_parse_state *state)
 {
   struct babel_tlv_router_id *tlv = (struct babel_tlv_router_id *)hdr;
@@ -246,14 +238,8 @@ int babel_handle_router_id(struct babel_tlv_header *hdr, struct babel_parse_stat
 int babel_handle_next_hop(struct babel_tlv_header *hdr, struct babel_parse_state *state)
 {
 }
-int babel_validate_next_hop(struct babel_tlv_header *hdr)
-{
-}
 
 int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *state)
-{
-}
-int babel_validate_update(struct babel_tlv_header *hdr)
 {
 }
 
@@ -261,15 +247,9 @@ int babel_handle_route_request(struct babel_tlv_header *hdr,
 				      struct babel_parse_state *state)
 {
 }
-int babel_validate_route_request(struct babel_tlv_header *hdr)
-{
-}
 
 int babel_handle_seqno_request(struct babel_tlv_header *hdr,
 				      struct babel_parse_state *state)
-{
-}
-int babel_validate_seqno_request(struct babel_tlv_header *hdr)
 {
 }
 
