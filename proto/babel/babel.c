@@ -229,9 +229,9 @@ int babel_handle_ihu(struct babel_tlv_header *hdr, struct babel_parse_state *sta
 int babel_validate_ihu(struct babel_tlv_header *hdr)
 {
   struct babel_tlv_ihu *tlv = (struct babel_tlv_ihu *)hdr;
-  if(hdr->length < sizeof(struct babel_tlv_ihu)-sizeof(tlv->addr)) return 0;
+  if(hdr->length < TLV_LENGTH(struct babel_tlv_ihu)-sizeof(tlv->addr)) return 0;
   return (tlv->ae == BABEL_AE_WILDCARD
-	  || (tlv->ae == BABEL_AE_IP6_LL && hdr->length >= sizeof(struct babel_tlv_ihu)));
+	  || (tlv->ae == BABEL_AE_IP6_LL && hdr->length >= TLV_LENGTH(struct babel_tlv_ihu)));
 }
 
 int babel_handle_router_id(struct babel_tlv_header *hdr, struct babel_parse_state *state)
