@@ -28,16 +28,14 @@
 #define BABEL_VERSION	2
 #define BABEL_PORT	6696
 #define BABEL_DEFAULT_METRIC	1   /* default metric */
-#define BABEL_HELLO_INTERVAL	10  /* default hello interval in seconds */
-#define BABEL_UPDATE_INTERVAL	10  /* default update interval in seconds */
+  /* default hello intervals in seconds */
+#define BABEL_HELLO_INTERVAL_WIRED	20
+#define BABEL_HELLO_INTERVAL_WIRELESS	4
+#define BABEL_UPDATE_INTERVAL_FACTOR	4  /* default update interval in seconds */
 
 /* ip header + udp header + babel header */
 #define BABEL_OVERHEAD (SIZE_OF_IP_HEADER+8+sizeof(struct babel_header))
 #define BABEL_INFINITY 0xFFFF
-#define BABEL_AE_WILDCARD 0
-#define BABEL_AE_IP4 1
-#define BABEL_AE_IP6 2
-#define BABEL_AE_IP6_LL 3
 
 #define TLV_LENGTH(t) (sizeof(t)-sizeof(struct babel_tlv_header))
 
@@ -68,6 +66,20 @@ enum babel_tlv_type_t {
   BABEL_TYPE_ROUTE_REQUEST = 9,
   BABEL_TYPE_SEQNO_REQUEST = 10,
   BABEL_TYPE_MAX
+};
+
+enum babel_iface_type_t {
+  BABEL_IFACE_TYPE_WIRED,
+  BABEL_IFACE_TYPE_WIRELESS,
+  BABEL_IFACE_TYPE_MAX
+};
+
+enum babel_ae_type_t {
+  BABEL_AE_WILDCARD = 0,
+  BABEL_AE_IP4 = 1,
+  BABEL_AE_IP6 = 2,
+  BABEL_AE_IP6_LL = 3,
+  BABEL_AE_MAX
 };
 
 struct babel_tlv_header {
@@ -226,18 +238,21 @@ struct babel_interface {
   list tlv_queue;
   list neigh_list;
   u16 hello_seqno;		/* To be increased on each hello */
-  bird_clock_t last_hello;
+  u16 hello_interval;
+  timer * hello_timer;
+  u16 update_interval;
+  timer * update_timer;
 };
 
 struct babel_patt {
   struct iface_patt i;
 
   int metric;
-#define BABEL_TYPE_WIRED 1
-#define BABEL_TYPE_WIRELESS 2
   int type;
   int tx_tos;
   int tx_priority;
+  int hello_interval;
+  int update_interval;
 };
 
 struct babel_neighbor {
@@ -248,6 +263,7 @@ struct babel_neighbor {
   u16 txcost;
   u16 hello_map;
   u16 next_hello_seqno;
+  /* expiry timers */
   timer *hello_timer;
   timer *ihu_timer;
 };
@@ -258,9 +274,6 @@ struct babel_proto_config {
   struct proto_config c;
   list iface_list;	/* Patterns configured -- keep it first; see babel_reconfigure why */
   int port;
-  u16 update_seqno;		/* To be increased on request */
-  int hello_interval;
-  int update_interval;
 };
 
 struct babel_proto {
@@ -270,7 +283,7 @@ struct babel_proto {
   struct fib rtable;
   list garbage;
   list interfaces;	/* Interfaces we really know about */
-  bird_clock_t last_update;
+  u16 update_seqno;		/* To be increased on request */
 };
 
 
@@ -288,3 +301,5 @@ ip_addr babel_get_addr(struct babel_tlv_header *hdr, struct babel_parse_state *s
 struct babel_tlv_header * babel_new_packet(struct babel_interface *bif, u16 len);
 #define BABEL_ADD_TLV(bif,t) ((t *)babel_add_tlv(bif,sizeof(t)))
 struct babel_tlv_header * babel_add_tlv(struct babel_interface *bif, u16 len);
+#define BABEL_ADD_TLV_SEND(bif,t,dest) ((t *)babel_add_tlv(bif,sizeof(t),dest))
+struct babel_tlv_header * babel_add_tlv_send(struct babel_interface *bif, u16 len, ip_addr dest);

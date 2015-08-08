@@ -51,7 +51,12 @@ static void babel_send_ack(struct babel_interface *bif, ip_addr dest, u16 nonce)
   babel_send_to(bif, dest);
 }
 
-static void babel_send_hello(struct babel_interface *bif)
+
+static void babel_add_ihus(bif)
+{
+}
+
+static void babel_send_hello(struct babel_interface *bif, u8 send_ihu)
 {
   struct proto *p = bif->proto;
   struct babel_tlv_hello *tlv;
@@ -60,14 +65,24 @@ static void babel_send_hello(struct babel_interface *bif)
   tlv->header.type = BABEL_TYPE_HELLO;
   tlv->header.length = TLV_LENGTH(struct babel_tlv_hello);
   tlv->seqno = bif->hello_seqno++;
-  tlv->interval = P_CF->hello_interval*110;
-  bif->last_hello = now;
+  tlv->interval = bif->hello_interval;
+
+  if(send_ihu) babel_add_ihus(bif);
 
   babel_send(bif);
 }
 
+static void babel_hello_timer(timer *t)
+{
+  struct babel_interface *bif = t->data;
+  babel_send_hello(bif, (bif->type == BABEL_IFACE_TYPE_WIRELESS || bif->hello_seqno % 3 == 0));
+}
 
 
+static void babel_update_timer(timer *t)
+{
+  struct babel_interface *bif = t->data;
+}
 
 
 int babel_handle_ack_req(struct babel_tlv_header *hdr, struct babel_parse_state *state)
@@ -316,7 +331,7 @@ babel_add_if(struct object_lock *lock)
     add_head( &P->interfaces, NODE bif );
     DBG("Adding object lock of %p for %p\n", lock, bif);
     bif->lock = lock;
-    babel_send_hello(bif);
+    babel_send_hello(bif,0);
   } else { rfree(lock); }
 }
 
@@ -373,12 +388,32 @@ static struct babel_interface *new_iface(struct proto *p, struct iface *new,
   if (PATT) {
     bif->metric = PATT->metric;
     bif->type = PATT->type;
+
+    if(PATT->hello_interval < BABEL_INFINITY) {
+      bif->hello_interval = PATT->hello_interval;
+    } else if(bif->type == BABEL_IFACE_TYPE_WIRED) {
+      bif->hello_interval = BABEL_HELLO_INTERVAL_WIRED;
+    } else if(bif->type == BABEL_IFACE_TYPE_WIRELESS) {
+      bif->hello_interval = BABEL_HELLO_INTERVAL_WIRELESS;
+    }
+    if(PATT->update_interval < BABEL_INFINITY) {
+      bif->update_interval = PATT->update_interval;
+    } else {
+      bif->update_interval = bif->hello_interval*BABEL_UPDATE_INTERVAL_FACTOR;
+    }
   }
   init_list(&bif->tlv_queue);
   init_list(&bif->neigh_list);
   bif->hello_seqno = 1;
-  bif->last_hello = 0;
   bif->max_pkt_len = new->mtu - BABEL_OVERHEAD;
+
+  bif->hello_timer = tm_new(p->pool);
+  bif->hello_timer->recurrent = 1;
+  bif->hello_timer->hook = babel_hello_timer;
+
+  bif->update_timer = tm_new(p->pool);
+  bif->update_timer->recurrent = 1;
+  bif->update_timer->hook = babel_update_timer;
 
   bif->sock = sk_new( p->pool );
   bif->sock->type = SK_UDP;
@@ -398,12 +433,18 @@ static struct babel_interface *new_iface(struct proto *p, struct iface *new,
   if (sk_join_group( bif->sock,  bif->sock->daddr) < 0)
     goto err;
   TRACE(D_EVENTS, "Listening on %s, port %d, mode multicast (%I)",  bif->iface ?  bif->iface->name : "(dummy)", P_CF->port,  bif->sock->daddr );
+
+  tm_start(bif->hello_timer, bif->hello_interval);
+  tm_start(bif->update_timer, bif->update_interval);
+
   return bif;
  err:
   sk_log_error(bif->sock, p->name);
   log(L_ERR "%s: Cannot open socket for %s", p->name,  bif->iface ?  bif->iface->name : "(dummy)" );
   if ( bif->iface) {
     rfree( bif->sock);
+    rfree( bif->hello_timer);
+    rfree( bif->update_timer);
     mb_free( bif);
     return NULL;
   }
@@ -533,9 +574,6 @@ babel_init_config(struct babel_proto_config *c)
 {
   init_list(&c->iface_list);
   c->port	= BABEL_PORT;
-  c->hello_interval	= BABEL_HELLO_INTERVAL;
-  c->update_interval	= BABEL_UPDATE_INTERVAL;
-  c->update_seqno	= 1;
 }
 
 static void
@@ -581,7 +619,7 @@ babel_start(struct proto *p)
   P->timer->recurrent = 1;
   P->timer->hook = babel_timer;
   tm_start( P->timer, 2 );
-  P->last_update = 0;
+  P->update_seqno = 1;
   DBG( "Babel: ...done\n");
   return PS_UP;
 }
