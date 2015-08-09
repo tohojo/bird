@@ -33,6 +33,7 @@
 #define BABEL_HELLO_INTERVAL_WIRELESS	4
 #define BABEL_UPDATE_INTERVAL_FACTOR	4
 #define BABEL_IHU_INTERVAL_FACTOR	3
+#define BABEL_EXPIRY_FACTOR	3.5
 #define BABEL_RXCOST_WIRED	96
 #define BABEL_RXCOST_WIRELESS	256
 
@@ -286,7 +287,7 @@ struct babel_source {
   node n;
   ip_addr prefix;
   u8 plen;
-  u64 router_id __attribute__((packed));
+  u64 router_id;
   u16 seqno;
   u16 metric;
   bird_clock_t updated;
@@ -301,13 +302,15 @@ struct babel_entry {
   node n;
   ip_addr prefix;
   u8 plen;
-  struct babel_neighbor neigh;
-  struct babel_source s;
+  struct babel_neighbor *neigh;
 
+  u16 seqno;
+  u16 advert_metric;
   u16 metric;
+  u64 router_id;
   ip_addr next_hop;
 
-  bird_clock_t updated;
+  bird_clock_t updated, expiry;
 #define BABEL_FLAG_SELECTED 1
   u8 flags;
 };

@@ -39,10 +39,10 @@ static void babel_hello_expiry(timer *t);
 static void babel_ihu_expiry(timer *t);
 
 
-static struct babel_source * find_source(struct proto *p, ip_addr *addr,
+static struct babel_source * find_source(struct proto *p, ip_addr prefix,
 					 int plen, u64 router_id)
 {
-  struct babel_source_prefix *sp = fib_find(&P->sources, addr, plen);
+  struct babel_source_prefix *sp = fib_find(&P->sources, &prefix, plen);
   struct babel_source *s;
   if(!sp) return NULL;
   WALK_LIST(s, sp->sources)
@@ -50,14 +50,14 @@ static struct babel_source * find_source(struct proto *p, ip_addr *addr,
       return s;
   return NULL;
 }
-static struct babel_source * get_source(struct proto *p, ip_addr *addr,
+static struct babel_source * get_source(struct proto *p, ip_addr prefix,
 					int plen, u64 router_id)
 {
-  struct babel_source_prefix *sp = fib_find(&P->sources, addr, plen);
+  struct babel_source_prefix *sp = fib_find(&P->sources, &prefix, plen);
   struct babel_source *s, *source = NULL;
   if(!sp) {
-    sp = fib_get(&P->sources, addr, plen);
-    list_init(sp->sources);
+    sp = fib_get(&P->sources, &prefix, plen);
+    init_list(&sp->sources);
   }
   WALK_LIST(s, sp->sources)
     if(s->router_id == router_id)
@@ -65,11 +65,46 @@ static struct babel_source * get_source(struct proto *p, ip_addr *addr,
   if(!source) {
     source = mb_allocz(p->pool, sizeof(struct babel_source));
     source->router_id = router_id;
-    source->prefix = *addr;
+    source->prefix = prefix;
     source->plen = plen;
+    add_tail(&sp->sources, NODE source);
   }
   return source;
 }
+
+static struct babel_entry * find_entry(struct proto *p, ip_addr prefix,
+				       int plen, struct babel_neighbor *n)
+{
+  struct babel_entry_prefix *ep = fib_find(&P->rtable, &prefix, plen);
+  struct babel_entry *e;
+  if(!ep) return NULL;
+  WALK_LIST(e, ep->entries)
+    if(e->neigh == n)
+      return e;
+  return NULL;
+}
+static struct babel_entry * get_entry(struct proto *p, ip_addr prefix,
+				      int plen, struct babel_neighbor *n)
+{
+  struct babel_entry_prefix *ep = fib_find(&P->rtable, &prefix, plen);
+  struct babel_entry *e, *entry = NULL;
+  if(!ep) {
+    ep = fib_get(&P->rtable, &prefix, plen);
+    init_list(&ep->entries);
+  }
+  WALK_LIST(e, ep->entries)
+    if(e->neigh == n)
+      entry = e;
+  if(!entry) {
+    entry = mb_allocz(p->pool, sizeof(struct babel_entry));
+    entry->neigh = n;
+    entry->prefix = prefix;
+    entry->plen = plen;
+    add_tail(&ep->entries, NODE entry);
+  }
+  return entry;
+}
+
 
 static struct babel_neighbor * find_neighbor(struct babel_interface *bif, ip_addr addr)
 {
@@ -139,6 +174,27 @@ static u16 babel_compute_rxcost(struct babel_neighbor *bn)
     return (beta > 0) ? BABEL_RXCOST_WIRELESS/beta : BABEL_RXCOST_WIRELESS;
   }
 }
+
+static u16 compute_cost(struct babel_neighbor *bn)
+{
+  struct babel_interface *bif = bn->bif;
+  u16 rxcost = babel_compute_rxcost(bn);
+  if(bif->type == BABEL_IFACE_TYPE_WIRED) {
+    return (rxcost == BABEL_INFINITY) ? rxcost : bn->txcost;
+  } else if(bif->type == BABEL_IFACE_TYPE_WIRELESS) {
+    return (MAX(bn->txcost, 256) * rxcost)/256;
+  }
+}
+
+
+
+static u16 compute_metric(struct babel_neighbor *bn, u16 metric)
+{
+  u16 cost = compute_cost(bn);
+  return (cost == BABEL_INFINITY) ? cost : cost+metric;
+}
+
+
 
 static void babel_add_ihu(struct babel_interface *bif, struct babel_neighbor *bn)
 {
@@ -318,20 +374,67 @@ int babel_handle_next_hop(struct babel_tlv_header *hdr, struct babel_parse_state
   return 1;
 }
 
+static inline int is_feasible(struct babel_source *s, u16 seqno, u16 metric)
+{
+  if(!s || metric == BABEL_INFINITY) return 1;
+  return (seqno > s->seqno
+	  || (seqno == s->seqno && metric < s->metric));
+}
+static int route_is_feasible(struct proto *p, ip_addr prefix, int plen, u64 router_id,
+			     u16 seqno, u16 metric)
+{
+  struct babel_source *s = find_source(p, prefix, plen, router_id);
+  return is_feasible(s, seqno, metric);
+}
+
 int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *state)
 {
   struct babel_tlv_update *tlv = (struct babel_tlv_update *)hdr;
+  struct babel_interface *bif = state->bif;
   struct proto *p = state->proto;
-  struct babel_router *r;
-  ip_addr addr = babel_get_addr(hdr, state);
+  struct babel_neighbor *n;
+  struct babel_entry *e;
+  struct babel_source *s;
+  ip_addr prefix = babel_get_addr(hdr, state);
   TRACE(D_PACKETS, "Handling update for %I/%d with seqno %d metric %d",
-	addr, tlv->plen, tlv->seqno, tlv->metric);
+	prefix, tlv->plen, tlv->seqno, tlv->metric);
   if(tlv->flags & BABEL_FLAG_DEF_PREFIX) {
-    state->prefix = addr;
+    state->prefix = prefix;
   }
   if(tlv->flags & BABEL_FLAG_ROUTER_ID) {
-    u64 *buf = &addr;
+    u64 *buf = &prefix;
     memcpy(&state->router_id, buf+1, sizeof(u64));
+  }
+  s = find_source(p, prefix, tlv->plen, state->router_id);
+  n = find_neighbor(bif,state->saddr);
+  if(!n) {
+    DBG("Haven't heard from neighbor %I; ignoring update\n.", state->saddr);
+    return 0;
+  }
+  e = find_entry(p, prefix, tlv->plen, n);
+  if(!e) {
+    if(!is_feasible(s, tlv->seqno, tlv->metric)) return 0;
+    e = get_entry(p, prefix, tlv->plen, n);
+    e->advert_metric = tlv->metric;
+    e->router_id = state->router_id;
+    e->metric = compute_metric(n, tlv->metric);
+    e->next_hop = state->next_hop;
+    e->updated = now;
+  } else if(e->flags & BABEL_FLAG_SELECTED
+       && !is_feasible(s, tlv->seqno, tlv->metric)) {
+
+    /* RFC section 3.5.4: If the router-ids are different, the update is
+       treated as though it were a retraction (i.e., as though the metric were
+       FFFF hexadecimal). If the router-ids are equal, the update is ignored; */
+    if(state->router_id == s->router_id) return 0;
+    e->metric = BABEL_INFINITY;
+  } else {
+    e->seqno = tlv->seqno;
+    e->advert_metric = tlv->metric;
+    e->metric = compute_metric(n, tlv->metric);
+    e->router_id = state->router_id;
+    e->next_hop = state->next_hop;
+    if(tlv->metric != BABEL_INFINITY) e->expiry = now + (BABEL_EXPIRY_FACTOR*tlv->interval)/100;
   }
 }
 
