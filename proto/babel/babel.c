@@ -34,8 +34,77 @@
 
 static struct babel_interface *new_iface(struct proto *p, struct iface *new,
 					 unsigned long flags, struct iface_patt *patt);
+static void babel_send_ihus(struct babel_interface *bif);
+static void babel_hello_expiry(timer *t);
+static void babel_ihu_expiry(timer *t);
 
 
+
+static struct babel_source * find_source(struct proto *p, ip_addr *addr,
+					 int plen, u64 router_id)
+{
+  struct babel_source_prefix *sp = fib_find(&P->sources, addr, plen);
+  struct babel_source *s;
+  if(!sp) return NULL;
+  WALK_LIST(s, sp->sources)
+    if(s->router_id == router_id)
+      return s;
+  return NULL;
+}
+static struct babel_source * get_source(struct proto *p, ip_addr *addr,
+					int plen, u64 router_id)
+{
+  struct babel_source_prefix *sp = fib_find(&P->sources, addr, plen);
+  struct babel_source *s, *source = NULL;
+  if(!sp) {
+    sp = fib_get(&P->sources, addr, plen);
+    list_init(sp->sources);
+  }
+  WALK_LIST(s, sp->sources)
+    if(s->router_id == router_id)
+      source = s;
+  if(!source) {
+    source = mb_allocz(p->pool, sizeof(struct babel_source));
+    source->router_id = router_id;
+    source->prefix = *addr;
+    source->plen = plen;
+  }
+  return source;
+}
+
+static struct babel_neighbor * find_neighbor(struct babel_interface *bif, ip_addr addr)
+{
+  struct proto *p = bif->proto;
+  neighbor *n = neigh_find2(p, &addr, bif->iface, NEF_STICKY);
+  return (n->data) ? n->data : NULL;
+}
+
+static struct babel_neighbor * get_neighbor(struct babel_interface *bif, ip_addr addr)
+{
+  struct proto *p = bif->proto;
+  neighbor *n = neigh_find2(p, &addr, bif->iface, NEF_STICKY);
+  if (n->data) return n->data;
+
+  struct babel_neighbor *bn = mb_allocz(bif->pool, sizeof(struct babel_neighbor));
+  event *ev = ev_new(bif->pool);
+  ev->hook = babel_send_ihus;
+  ev->data = bif;
+  bn->bif = bif;
+  bn->neigh = n;
+  bn->addr = n->addr;
+  bn->hello_timer = tm_new(bif->pool);
+  bn->hello_timer->data = bn;
+  bn->hello_timer->hook = babel_hello_expiry;
+  bn->ihu_timer = tm_new(bif->pool);
+  bn->ihu_timer->data = bn;
+  bn->ihu_timer->hook = babel_ihu_expiry;
+  n->data = bn;
+  init_list(&bn->routes);
+  add_tail(&bif->neigh_list, NODE bn);
+  DBG("Scheduling event\n");
+  ev_schedule(ev);
+  return bn;
+}
 
 
 static void babel_send_ack(struct babel_interface *bif, ip_addr dest, u16 nonce)
@@ -182,27 +251,6 @@ static void babel_ihu_expiry(timer *t)
   bn->txcost = BABEL_INFINITY;
 }
 
-static struct babel_neighbor * babel_new_neighbor(struct babel_interface *bif, neighbor *n)
-{
-  struct babel_neighbor *bn = mb_allocz(bif->pool, sizeof(struct babel_neighbor));
-  event *ev = ev_new(bif->pool);
-  ev->hook = babel_send_ihus;
-  ev->data = bif;
-  bn->bif = bif;
-  bn->neigh = n;
-  bn->addr = n->addr;
-  bn->hello_timer = tm_new(bif->pool);
-  bn->hello_timer->data = bn;
-  bn->hello_timer->hook = babel_hello_expiry;
-  bn->ihu_timer = tm_new(bif->pool);
-  bn->ihu_timer->data = bn;
-  bn->ihu_timer->hook = babel_ihu_expiry;
-  n->data = bn;
-  add_tail(&bif->neigh_list, NODE bn);
-  DBG("Scheduling event\n");
-  ev_schedule(ev);
-  return bn;
-}
 
 /* update hello history according to Appendix A1 of the RFC */
 static void update_hello_history(struct babel_neighbor *bn, u16 seqno, u16 interval)
@@ -228,25 +276,13 @@ static void update_hello_history(struct babel_neighbor *bn, u16 seqno, u16 inter
   tm_start(bn->hello_timer, (1.5*interval)/100);
 }
 
-static struct babel_interface * babel_find_neighbor(struct babel_interface *bif, ip_addr addr)
-{
-  struct proto *p = bif->proto;
-  neighbor *n = neigh_find2(p, &addr, bif->iface, NEF_STICKY);
-  struct babel_neighbor *bn;
-  if(!n->data) {
-    bn = babel_new_neighbor(bif, n);
-  } else {
-    bn = n->data;
-  }
-  return bn;
-}
 
 int babel_handle_hello(struct babel_tlv_header *hdr, struct babel_parse_state *state)
 {
   struct babel_tlv_hello *tlv = (struct babel_tlv_hello *)hdr;
   struct proto *p = state->proto;
   struct babel_interface *bif = state->bif;
-  struct babel_neighbor *bn = babel_find_neighbor(bif, state->saddr);
+  struct babel_neighbor *bn = get_neighbor(bif, state->saddr);
   TRACE(D_PACKETS, "Received Hello seqno %d interval %d from %I", tlv->seqno,
 	tlv->interval, state->saddr);
   update_hello_history(bn, tlv->seqno, tlv->interval);
@@ -263,7 +299,7 @@ int babel_handle_ihu(struct babel_tlv_header *hdr, struct babel_parse_state *sta
   if(!ipa_equal(addr, bif->iface->addr->ip)) return 0; // not for us
   TRACE(D_PACKETS, "Received IHU rxcost %d interval %d from %I", tlv->rxcost,
 	tlv->interval, state->saddr);
-  struct babel_neighbor *bn = babel_find_neighbor(bif, state->saddr);
+  struct babel_neighbor *bn = get_neighbor(bif, state->saddr);
   bn->txcost = tlv->rxcost;
   tm_start(bn->ihu_timer, 1.5*(tlv->interval/100));
   return 1;
@@ -311,25 +347,6 @@ int babel_handle_seqno_request(struct babel_tlv_header *hdr,
 {
 }
 
-static struct babel_router * get_source_router(struct proto *p, ip_addr *addr,
-					       int plen, u64 router_id)
-{
-  struct babel_source *s = fib_find(&P->sources, addr, plen);
-  struct babel_router *r, *router = NULL;
-  if(!s) {
-    s = fib_get(&P->sources, addr, plen);
-    list_init(s->routers);
-  }
-  WALK_LIST(r, s->routers)
-    if(r->router_id == router_id)
-      router = r;
-  if(!router) {
-    router = mb_allocz(p->pool, sizeof(struct babel_router));
-    router->router_id = router_id;
-    router->s = s;
-  }
-  return router;
-}
 
 
 /*
@@ -703,8 +720,8 @@ static int
 babel_start(struct proto *p)
 {
   DBG( "Babel: starting instance...\n" );
-  fib_init( &P->rtable, p->pool, sizeof( struct babel_entry ), 0, NULL );
-  fib_init( &P->sources, p->pool, sizeof( struct babel_source ), 0, NULL );
+  fib_init( &P->rtable, p->pool, sizeof( struct babel_entry_prefix ), 0, NULL );
+  fib_init( &P->sources, p->pool, sizeof( struct babel_source_prefix ), 0, NULL );
   init_list( &P->connections );
   init_list( &P->interfaces );
   P->timer = tm_new( p->pool );

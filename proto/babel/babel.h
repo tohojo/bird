@@ -211,32 +211,6 @@ int babel_handle_seqno_request(struct babel_tlv_header *tlv,
 				      struct babel_parse_state *state);
 int babel_validate_seqno_request(struct babel_tlv_header *hdr);
 
-struct babel_source {
-  struct fib_node n;
-  list routers;
-};
-
-struct babel_router {
-  node n;
-  struct babel_source *s;
-  u64 router_id;
-  u16 seqno;
-  u16 metric;
-  bird_clock_t updated;
-};
-
-struct babel_entry {
-  struct fib_node n;
-
-  ip_addr whotoldme;
-  ip_addr nexthop;
-  int metric;
-  u16 tag;
-
-  bird_clock_t updated, changed;
-  int flags;
-};
-
 struct babel_packet {
   struct babel_header header;
 };
@@ -286,7 +260,46 @@ struct babel_neighbor {
   /* expiry timers */
   timer *hello_timer;
   timer *ihu_timer;
+
+  list routes;
 };
+
+struct babel_source_prefix {
+  struct fib_node n;
+  list sources;
+};
+
+struct babel_source {
+  node n;
+  ip_addr prefix;
+  u8 plen;
+  u64 router_id;
+  u16 seqno;
+  u16 metric;
+  bird_clock_t updated;
+};
+
+struct babel_entry_prefix {
+  struct fib_node n;
+  list entries;
+};
+
+struct babel_entry {
+  node n;
+  ip_addr prefix;
+  u8 plen;
+  struct babel_neighbor neigh;
+  struct babel_source s;
+
+  u16 metric;
+  ip_addr next_hop;
+
+  bird_clock_t updated;
+#define BABEL_FLAG_SELECTED 1
+  u8 flags;
+};
+
+
 
 
 
