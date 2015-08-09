@@ -44,7 +44,7 @@ static struct babel_entry * babel_get_entry(struct proto *p, ip_addr prefix, u8 
   struct babel_entry *e = fib_find(&P->rtable, &prefix, plen);
   if(e) return e;
   e = fib_get(&P->rtable, &prefix, plen);
-  e->p = p;
+  e->proto = p;
   init_list(&e->sources);
   init_list(&e->routes);
   return e;
@@ -63,7 +63,7 @@ static struct babel_source * babel_get_source(struct babel_entry *e, u64 router_
 {
   struct babel_source *s = babel_find_source(e, router_id);
   if(!s) return s;
-  s = mb_allocz(e->p->pool, sizeof(struct babel_source));
+  s = mb_allocz(e->proto->pool, sizeof(struct babel_source));
   s->router_id = router_id;
   s->e = e;
   add_tail(&e->sources, NODE s);
@@ -82,7 +82,7 @@ static struct babel_route * babel_get_route(struct babel_entry *e, struct babel_
 {
   struct babel_route *r = babel_find_route(e,n);
   if(r) return r;
-  r = mb_allocz(e->p->pool, sizeof(struct babel_route));
+  r = mb_allocz(e->proto->pool, sizeof(struct babel_route));
   r->neigh = n;
   r->e = e;
   add_tail(&e->routes, NODE r);
@@ -164,6 +164,55 @@ static u16 compute_metric(struct babel_neighbor *bn, u16 metric)
 {
   u16 cost = compute_cost(bn);
   return (cost == BABEL_INFINITY) ? cost : cost+metric;
+}
+
+static int
+babel_rte_same(struct rte *new, struct rte *old)
+{
+}
+
+
+static int babel_rte_better(struct rte *new, struct rte *old)
+{
+}
+
+static rte * babel_build_rte(struct proto *p, struct babel_route *r, net *n)
+{
+  rta *a, A;
+  rte *rte;
+  memset(&A, 0, sizeof(A));
+  A.src = p->main_source;
+  A.source = RTS_BABEL;
+  A.scope = SCOPE_UNIVERSE;
+  A.cast = RTC_UNICAST;
+  A.dest = r->metric == BABEL_INFINITY ? RTD_UNREACHABLE : RTD_ROUTER;
+  A.flags = 0;
+  A.gw = r->next_hop;
+  A.from = r->neigh->addr;
+  A.iface = r->neigh->bif->iface;
+  a = rta_lookup(&A);
+  rte = rte_get_temp(a);
+  rte->u.babel.metric = r->metric;
+  rte->u.babel.router_id = r->router_id;
+  rte->net = n;
+  rte->pflags = 0;
+  return rte;
+}
+
+/* Route selection algorithm. Just select the route with the lowest metric. */
+static void babel_select_route(struct babel_entry *e, struct babel_interface *bif)
+{
+  struct proto *p = e->proto;
+  rte *rte;
+  net *n;
+  struct babel_route *r, *cur = e->selected;
+  if(!cur || 1) {
+    r = HEAD(e->routes);
+    n = net_get(p->table, e->n.prefix, e->n.pxlen);
+    r->flags |= BABEL_FLAG_SELECTED;
+    rte = babel_build_rte(p, r, n);
+    rte_update(p, n, rte);
+  }
 }
 
 
@@ -470,6 +519,7 @@ int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *
     if(tlv->metric != BABEL_INFINITY) r->expiry = now + (BABEL_EXPIRY_FACTOR*tlv->interval)/100;
   }
   babel_dump_entry(e);
+  babel_select_route(e, bif);
 }
 
 int babel_handle_route_request(struct babel_tlv_header *hdr,
@@ -790,16 +840,6 @@ static void babel_neigh_notify(neighbor *n)
   }
 }
 
-static int
-babel_rte_same(struct rte *new, struct rte *old)
-{
-}
-
-
-static int
-babel_rte_better(struct rte *new, struct rte *old)
-{
-}
 
 /*
  * babel_rte_insert - we maintain linked list of "our" entries in main
