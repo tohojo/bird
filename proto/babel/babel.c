@@ -39,7 +39,6 @@ static void babel_hello_expiry(timer *t);
 static void babel_ihu_expiry(timer *t);
 
 
-
 static struct babel_source * find_source(struct proto *p, ip_addr *addr,
 					 int plen, u64 router_id)
 {
@@ -309,8 +308,8 @@ int babel_handle_router_id(struct babel_tlv_header *hdr, struct babel_parse_stat
 {
   struct babel_tlv_router_id *tlv = (struct babel_tlv_router_id *)hdr;
   struct proto *p = state->proto;
-  TRACE(D_PACKETS, "Received router ID %x\n", tlv->router_id);
   state->router_id = tlv->router_id;
+  TRACE(D_PACKETS, "Received router ID %016lx", state->router_id);
   return 1;
 }
 
@@ -327,13 +326,14 @@ int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *
   struct proto *p = state->proto;
   struct babel_router *r;
   ip_addr addr = babel_get_addr(hdr, state);
+  TRACE(D_PACKETS, "Received update for %I/%d from %I with seqno %d metric %d",
+	addr, tlv->plen, state->saddr, tlv->seqno, tlv->metric);
   if(tlv->flags & BABEL_FLAG_DEF_PREFIX) {
     state->prefix = addr;
   }
   if(tlv->flags & BABEL_FLAG_ROUTER_ID) {
-    u64 buf[2];
-    put_ipa(buf, addr);
-    state->router_id = buf[1];
+    u64 *buf = &addr;
+    memcpy(&state->router_id, buf+1, sizeof(u64));
   }
 }
 

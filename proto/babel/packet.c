@@ -56,7 +56,7 @@ static struct babel_tlv_data tlv_data[BABEL_TYPE_MAX] = {
    babel_get_addr_ihu, babel_put_addr_ihu},
   {sizeof(struct babel_tlv_router_id),
    babel_handle_router_id, babel_validate_length,
-   NULL, NULL,
+   babel_hton_router_id, babel_ntoh_router_id,
    NULL, NULL},
   {sizeof(struct babel_tlv_next_hop),
    babel_handle_next_hop, babel_validate_next_hop,
@@ -139,6 +139,16 @@ void babel_put_addr_ihu(struct babel_tlv_header *hdr, ip_addr addr)
   put_ip6(buf,addr);
   memcpy(tlv->addr, buf+8, 8);
   tlv->ae = BABEL_AE_IP6_LL;
+}
+void babel_hton_router_id(struct babel_tlv_header *hdr)
+{
+  struct babel_tlv_router_id *tlv = (struct babel_tlv_router_id *)hdr;
+  tlv->router_id = htobe64(tlv->router_id);
+}
+void babel_ntoh_router_id(struct babel_tlv_header *hdr)
+{
+  struct babel_tlv_router_id *tlv = (struct babel_tlv_router_id *)hdr;
+  tlv->router_id = be64toh(tlv->router_id);
 }
 int babel_validate_next_hop(struct babel_tlv_header *hdr)
 {

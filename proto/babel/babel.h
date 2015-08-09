@@ -48,16 +48,6 @@ struct babel_header {
   u16 length;
 };
 
-struct babel_parse_state {
-  struct proto *proto;
-  ip_addr saddr;
-  struct babel_interface *bif;
-  u64 router_id;
-  ip_addr prefix;
-  ip_addr next_hop;
-};
-
-
 enum babel_tlv_type_t {
   BABEL_TYPE_PAD0	   = 0,
   BABEL_TYPE_PADN	   = 1,
@@ -86,6 +76,19 @@ enum babel_ae_type_t {
   BABEL_AE_IP6_LL = 3,
   BABEL_AE_MAX
 };
+
+
+struct babel_parse_state {
+  struct proto *proto;
+  ip_addr saddr;
+  struct babel_interface *bif;
+  u64 router_id;
+  ip_addr prefix;
+  ip_addr next_hop;
+};
+
+
+
 
 struct babel_tlv_header {
   u8 type;
@@ -131,11 +134,14 @@ void babel_ntoh_ihu(struct babel_tlv_header *tlv);
 ip_addr babel_get_addr_ihu(struct babel_tlv_header *tlv, struct babel_parse_state *state);
 void babel_put_addr_ihu(struct babel_tlv_header *tlv, ip_addr addr);
 
+
 struct babel_tlv_router_id {
   struct babel_tlv_header header;
   u16 reserved;
-  u64 router_id;
+  u64 router_id __attribute__((packed));
 };
+void babel_hton_router_id(struct babel_tlv_header *tlv);
+void babel_ntoh_router_id(struct babel_tlv_header *tlv);
 
 struct babel_tlv_next_hop {
   struct babel_tlv_header header;
@@ -181,7 +187,7 @@ struct babel_tlv_seqno_request {
   u16 seqno;
   u8 hop_count;
   u8 reserved;
-  u64 router_id;
+  u64 router_id __attribute__((packed));
   /* optionally prefix */
 };
 void babel_hton_seqno_request(struct babel_tlv_header *tlv);
@@ -273,7 +279,7 @@ struct babel_source {
   node n;
   ip_addr prefix;
   u8 plen;
-  u64 router_id;
+  u64 router_id __attribute__((packed));
   u16 seqno;
   u16 metric;
   bird_clock_t updated;
