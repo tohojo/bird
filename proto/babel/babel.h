@@ -60,6 +60,13 @@ enum babel_tlv_type_t {
   BABEL_TYPE_UPDATE	   = 8,
   BABEL_TYPE_ROUTE_REQUEST = 9,
   BABEL_TYPE_SEQNO_REQUEST = 10,
+  /* extensions - not implemented
+  BABEL_TYPE_TS_PC = 11,
+  BABEL_TYPE_HMAC = 12,
+  BABEL_TYPE_SS_UPDATE = 13,
+  BABEL_TYPE_SS_REQUEST = 14,
+  BABEL_TYPE_SS_SEQNO_REQUEST = 15,
+  */
   BABEL_TYPE_MAX
 };
 

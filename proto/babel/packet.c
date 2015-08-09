@@ -76,6 +76,11 @@ static struct babel_tlv_data tlv_data[BABEL_TYPE_MAX] = {
    babel_get_addr_seqno_request, babel_put_addr_seqno_request},
 };
 
+static inline int validate_tlv(struct babel_tlv_header *tlv)
+{
+  return (tlv_data[tlv->type].validate != NULL && tlv_data[tlv->type].validate(tlv));
+}
+
 void babel_hton_ack_req(struct babel_tlv_header *hdr)
 {
   struct babel_tlv_ack_req *tlv = (struct babel_tlv_ack_req *)hdr;
@@ -329,8 +334,8 @@ void babel_send_to(struct babel_interface *bif, ip_addr dest)
 
   babel_packet_hton(pkt);
 
-  DBG( "Sending %d bytes from %I to %I\n", len, s->saddr, dest);
-  done = sk_send_to( s, len, dest, 0);
+  DBG( "Sending %d bytes to %I\n", len, dest);
+  done = sk_send_to(s, len, dest, 0);
   if(!done)
     log(L_WARN "Babel: TX queue full on %s", bif->ifname);
 }
@@ -357,7 +362,7 @@ int babel_process_packet(struct babel_header *pkt, int size,
   while((char *)tlv < p+size) {
     if(tlv->type > BABEL_TYPE_PADN
        && tlv->type < BABEL_TYPE_MAX
-       && tlv_data[tlv->type].validate(tlv)) {
+       && validate_tlv(tlv)) {
       babel_tlv_ntoh(tlv);
       res &= tlv_data[tlv->type].handle(tlv, &state);
     } else {
@@ -370,7 +375,7 @@ int babel_process_packet(struct babel_header *pkt, int size,
 
 int babel_validate_length(struct babel_tlv_header *hdr)
 {
-  DBG("Validate type: %d length: %d needed: %d\n", hdr->type, hdr->length,
-  tlv_data[hdr->type].struct_length - sizeof(struct babel_tlv_header));
+  /*DBG("Validate type: %d length: %d needed: %d\n", hdr->type, hdr->length,
+    tlv_data[hdr->type].struct_length - sizeof(struct babel_tlv_header));*/
   return (hdr->length >= tlv_data[hdr->type].struct_length - sizeof(struct babel_tlv_header));
 }

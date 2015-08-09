@@ -100,7 +100,6 @@ static struct babel_neighbor * get_neighbor(struct babel_interface *bif, ip_addr
   n->data = bn;
   init_list(&bn->routes);
   add_tail(&bif->neigh_list, NODE bn);
-  DBG("Scheduling event\n");
   ev_schedule(ev);
   return bn;
 }
@@ -254,7 +253,6 @@ static void babel_ihu_expiry(timer *t)
 /* update hello history according to Appendix A1 of the RFC */
 static void update_hello_history(struct babel_neighbor *bn, u16 seqno, u16 interval)
 {
-  DBG("Updating hello history for %I\n", bn->addr);
   if(seqno - bn->next_hello_seqno > 16 || bn->next_hello_seqno - seqno > 16) {
     /* note state reset - flush entries */
     bn->hello_map = bn->hello_n = 0;
@@ -282,7 +280,7 @@ int babel_handle_hello(struct babel_tlv_header *hdr, struct babel_parse_state *s
   struct proto *p = state->proto;
   struct babel_interface *bif = state->bif;
   struct babel_neighbor *bn = get_neighbor(bif, state->saddr);
-  TRACE(D_PACKETS, "Received Hello seqno %d interval %d from %I", tlv->seqno,
+  TRACE(D_PACKETS, "Handling hello seqno %d interval %d", tlv->seqno,
 	tlv->interval, state->saddr);
   update_hello_history(bn, tlv->seqno, tlv->interval);
   return 1;
@@ -296,8 +294,8 @@ int babel_handle_ihu(struct babel_tlv_header *hdr, struct babel_parse_state *sta
   ip_addr addr = babel_get_addr(hdr, state);
 
   if(!ipa_equal(addr, bif->iface->addr->ip)) return 0; // not for us
-  TRACE(D_PACKETS, "Received IHU rxcost %d interval %d from %I", tlv->rxcost,
-	tlv->interval, state->saddr);
+  TRACE(D_PACKETS, "Handling IHU rxcost %d interval %d", tlv->rxcost,
+	tlv->interval);
   struct babel_neighbor *bn = get_neighbor(bif, state->saddr);
   bn->txcost = tlv->rxcost;
   tm_start(bn->ihu_timer, 1.5*(tlv->interval/100));
@@ -309,7 +307,7 @@ int babel_handle_router_id(struct babel_tlv_header *hdr, struct babel_parse_stat
   struct babel_tlv_router_id *tlv = (struct babel_tlv_router_id *)hdr;
   struct proto *p = state->proto;
   state->router_id = tlv->router_id;
-  TRACE(D_PACKETS, "Received router ID %016lx", state->router_id);
+  TRACE(D_PACKETS, "Handling router ID %016lx", state->router_id);
   return 1;
 }
 
@@ -326,8 +324,8 @@ int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *
   struct proto *p = state->proto;
   struct babel_router *r;
   ip_addr addr = babel_get_addr(hdr, state);
-  TRACE(D_PACKETS, "Received update for %I/%d from %I with seqno %d metric %d",
-	addr, tlv->plen, state->saddr, tlv->seqno, tlv->metric);
+  TRACE(D_PACKETS, "Handling update for %I/%d with seqno %d metric %d",
+	addr, tlv->plen, tlv->seqno, tlv->metric);
   if(tlv->flags & BABEL_FLAG_DEF_PREFIX) {
     state->prefix = addr;
   }
