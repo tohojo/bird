@@ -121,6 +121,52 @@ static struct babel_neighbor * babel_get_neighbor(struct babel_interface *bif, i
 }
 
 
+static u16 babel_compute_rxcost(struct babel_neighbor *bn)
+{
+  struct babel_interface *bif = bn->bif;
+  u8 n, missed;
+  u16 map=bn->hello_map;
+
+  if(!map) return BABEL_INFINITY;
+  for(n=1;map&=map-1;n++); // number of bits set
+  missed = bn->hello_n-n;
+
+  if(bif->type == BABEL_IFACE_TYPE_WIRED) {
+    /* k-out-of-j selection - Appendix 2.1 in the RFC. */
+    DBG("Missed %d hellos from %I\n", missed, bn->addr);
+    // Link is bad if more than half the expected hellos were lost
+    return (missed > 0 && n/missed < 2) ? BABEL_INFINITY : bif->rxcost;
+  } else if(bif->type == BABEL_IFACE_TYPE_WIRELESS) {
+    /* ETX - Appendix 2.2 in the RFC */
+    double beta; /* FIXME is this right? */
+    if(!missed) return BABEL_RXCOST_WIRELESS;
+    beta = 1-missed/bn->hello_n;
+    return (beta > 0) ? BABEL_RXCOST_WIRELESS/beta : BABEL_RXCOST_WIRELESS;
+  }
+}
+
+
+static u16 compute_cost(struct babel_neighbor *bn)
+{
+  struct babel_interface *bif = bn->bif;
+  u16 rxcost = babel_compute_rxcost(bn);
+  if(bif->type == BABEL_IFACE_TYPE_WIRED) {
+    /* k-out-of-j selection - Appendix 2.1 in the RFC. */
+    return (rxcost == BABEL_INFINITY) ? rxcost : bn->txcost;
+  } else if(bif->type == BABEL_IFACE_TYPE_WIRELESS) {
+    /* ETX - Appendix 2.2 in the RFC */
+    return (MAX(bn->txcost, 256) * rxcost)/256;
+  }
+}
+
+/* Simple additive metric - Appendix 3.1 in the RFC */
+static u16 compute_metric(struct babel_neighbor *bn, u16 metric)
+{
+  u16 cost = compute_cost(bn);
+  return (cost == BABEL_INFINITY) ? cost : cost+metric;
+}
+
+
 static void babel_send_ack(struct babel_interface *bif, ip_addr dest, u16 nonce)
 {
   struct proto *p = bif->proto;
@@ -133,49 +179,6 @@ static void babel_send_ack(struct babel_interface *bif, ip_addr dest, u16 nonce)
 
   babel_send_to(bif, dest);
 }
-
-static u16 babel_compute_rxcost(struct babel_neighbor *bn)
-{
-  struct babel_interface *bif = bn->bif;
-  u8 n, missed;
-  u16 map=bn->hello_map;
-
-  if(!map) return BABEL_INFINITY;
-  for(n=1;map&=map-1;n++); // number of bits set
-  missed = bn->hello_n-n;
-
-  if(bif->type == BABEL_IFACE_TYPE_WIRED) {
-    DBG("Missed %d hellos from %I\n", missed, bn->addr);
-    // Link is bad if more than half the expected hellos were lost
-    return (missed > 0 && n/missed < 2) ? BABEL_INFINITY : bif->rxcost;
-  } else if(bif->type == BABEL_IFACE_TYPE_WIRELESS) {
-    double beta;
-    if(!missed) return BABEL_RXCOST_WIRELESS;
-    beta = 1-missed/bn->hello_n;
-    return (beta > 0) ? BABEL_RXCOST_WIRELESS/beta : BABEL_RXCOST_WIRELESS;
-  }
-}
-
-static u16 compute_cost(struct babel_neighbor *bn)
-{
-  struct babel_interface *bif = bn->bif;
-  u16 rxcost = babel_compute_rxcost(bn);
-  if(bif->type == BABEL_IFACE_TYPE_WIRED) {
-    return (rxcost == BABEL_INFINITY) ? rxcost : bn->txcost;
-  } else if(bif->type == BABEL_IFACE_TYPE_WIRELESS) {
-    return (MAX(bn->txcost, 256) * rxcost)/256;
-  }
-}
-
-
-
-static u16 compute_metric(struct babel_neighbor *bn, u16 metric)
-{
-  u16 cost = compute_cost(bn);
-  return (cost == BABEL_INFINITY) ? cost : cost+metric;
-}
-
-
 
 static void babel_add_ihu(struct babel_interface *bif, struct babel_neighbor *bn)
 {
