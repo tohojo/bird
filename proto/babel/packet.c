@@ -16,6 +16,13 @@
 #define TLV_SIZE(t) (t->type == BABEL_TYPE_PAD0 ? 1 : t->length + sizeof(struct babel_tlv_header))
 
 
+static ip_addr get_ip6_ll(u32 *addr)
+{
+    return ip6_or(ipa_build6(0xfe800000,0,0,0),
+		  ipa_build6(0,0,ntohl(addr[0]),ntohl(addr[1])));
+}
+
+
 struct babel_tlv_data {
   int struct_length;
   int (*handle)(struct babel_tlv_header *tlv,
@@ -117,8 +124,7 @@ ip_addr babel_get_addr_ihu(struct babel_tlv_header *hdr, struct babel_parse_stat
   if(tlv->ae == BABEL_AE_WILDCARD) {
     return bif->iface->addr->ip; /* FIXME: Correct? */
   } else if(tlv->ae == BABEL_AE_IP6_LL) {
-    return ip6_or(ipa_build6(0xfe800000,0,0,0),
-		  ipa_build6(0,0,ntohl(tlv->addr[0]),ntohl(tlv->addr[1])));
+    return get_ip6_ll(tlv->addr);
   }
   return IPA_NONE;
 }
@@ -136,15 +142,22 @@ void babel_put_addr_ihu(struct babel_tlv_header *hdr, ip_addr addr)
 }
 int babel_validate_next_hop(struct babel_tlv_header *hdr)
 {
+  struct babel_tlv_ihu *tlv = (struct babel_tlv_next_hop *)hdr;
+  // We don't speak IPv4, so only recognise IP6 LL next hops
+  if(tlv->ae != BABEL_AE_IP6_LL) return 0;
 }
 ip_addr babel_get_addr_next_hop(struct babel_tlv_header *hdr, struct babel_parse_state *state)
 {
+  struct babel_tlv_ihu *tlv = (struct babel_tlv_next_hop *)hdr;
+  return get_ip6_ll(tlv->addr);
 }
 void babel_put_addr_next_hop(struct babel_tlv_header *hdr, ip_addr addr)
 {
 }
 int babel_validate_update(struct babel_tlv_header *hdr)
 {
+  struct babel_tlv_update *tlv = (struct babel_tlv_update *)hdr;
+  if(tlv->ae == BABEL_AE_IP4) return 0; // we don't speak IPv4
 }
 void babel_hton_update(struct babel_tlv_header *hdr)
 {
@@ -162,6 +175,22 @@ void babel_ntoh_update(struct babel_tlv_header *hdr)
 }
 ip_addr babel_get_addr_update(struct babel_tlv_header *hdr, struct babel_parse_state *state)
 {
+  struct babel_tlv_update *tlv = (struct babel_tlv_update *)hdr;
+  char buf[16] = {0};
+  u8 len = tlv->plen/8;
+  if(tlv->plen % 8) len++;
+
+  /* fixed encodings */
+  if(tlv->ae == BABEL_AE_WILDCARD) return IPA_NONE;
+  if(tlv->ae == BABEL_AE_IP6_LL) return get_ip6_ll(tlv->addr);
+
+  /* if we have omitted bytes, get them from previous prefix */
+  if(tlv->omitted) put_ipa(buf, state->prefix);
+  /* if the prefix is longer than the omitted octets, copy the rest */
+  if(tlv->omitted < len) memcpy(buf+tlv->omitted, tlv->addr, len-tlv->omitted);
+  /* make sure the tail is zeroed */
+  if(len < 16) memset(buf+len, 0, 16-len);
+  return get_ipa(buf);
 }
 void babel_put_addr_update(struct babel_tlv_header *hdr, ip_addr addr)
 {
@@ -310,6 +339,8 @@ int babel_process_packet(struct babel_header *pkt, int size,
     .saddr = saddr,
     .bif = bif,
     .proto = proto,
+    .prefix = IPA_NONE,
+    .next_hop = saddr,
   };
   char *p = (char *)pkt;
   int res = 0;

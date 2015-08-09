@@ -279,10 +279,25 @@ int babel_handle_router_id(struct babel_tlv_header *hdr, struct babel_parse_stat
 
 int babel_handle_next_hop(struct babel_tlv_header *hdr, struct babel_parse_state *state)
 {
+  struct babel_tlv_next_hop *tlv = (struct babel_tlv_next_hop *)hdr;
+  state->next_hop = babel_get_addr(hdr, state);
+  return 1;
 }
 
 int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *state)
 {
+  struct babel_tlv_update *tlv = (struct babel_tlv_update *)hdr;
+  struct proto *p = state->proto;
+  struct babel_router *r;
+  ip_addr addr = babel_get_addr(hdr, state);
+  if(tlv->flags & BABEL_FLAG_DEF_PREFIX) {
+    state->prefix = addr;
+  }
+  if(tlv->flags & BABEL_FLAG_ROUTER_ID) {
+    u64 buf[2];
+    put_ipa(buf, addr);
+    state->router_id = buf[1];
+  }
 }
 
 int babel_handle_route_request(struct babel_tlv_header *hdr,
