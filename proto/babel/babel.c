@@ -38,91 +38,70 @@ static void babel_send_ihus(struct babel_interface *bif);
 static void babel_hello_expiry(timer *t);
 static void babel_ihu_expiry(timer *t);
 
-
-static struct babel_source * find_source(struct proto *p, ip_addr prefix,
-					 int plen, u64 router_id)
+static struct babel_entry * babel_get_entry(struct proto *p, ip_addr prefix, u8 plen)
 {
-  struct babel_source_prefix *sp = fib_find(&P->sources, &prefix, plen);
+  struct babel_entry *e = fib_find(&P->rtable, &prefix, plen);
+  if(e) return e;
+  e = fib_get(&P->rtable, &prefix, plen);
+  e->p = p;
+  init_list(&e->sources);
+  init_list(&e->routes);
+}
+
+static struct babel_source * babel_find_source(struct babel_entry *e, u64 router_id)
+{
   struct babel_source *s;
-  if(!sp) return NULL;
-  WALK_LIST(s, sp->sources)
+  WALK_LIST(s, e->sources)
     if(s->router_id == router_id)
       return s;
   return NULL;
 }
-static struct babel_source * get_source(struct proto *p, ip_addr prefix,
-					int plen, u64 router_id)
+
+static struct babel_source * babel_get_source(struct babel_entry *e, u64 router_id)
 {
-  struct babel_source_prefix *sp = fib_find(&P->sources, &prefix, plen);
-  struct babel_source *s, *source = NULL;
-  if(!sp) {
-    sp = fib_get(&P->sources, &prefix, plen);
-    init_list(&sp->sources);
-  }
-  WALK_LIST(s, sp->sources)
-    if(s->router_id == router_id)
-      source = s;
-  if(!source) {
-    source = mb_allocz(p->pool, sizeof(struct babel_source));
-    source->router_id = router_id;
-    source->prefix = prefix;
-    source->plen = plen;
-    add_tail(&sp->sources, NODE source);
-  }
-  return source;
+  struct babel_source *s = babel_find_source(e, router_id);
+  if(!s) return s;
+  s = mb_allocz(e->p->pool, sizeof(struct babel_source));
+  s->router_id = router_id;
+  s->e = e;
+  add_tail(&e->sources, NODE s);
+  return s;
 }
 
-static struct babel_entry * find_entry(struct proto *p, ip_addr prefix,
-				       int plen, struct babel_neighbor *n)
+static struct babel_route * babel_find_route(struct babel_entry *e, struct babel_neighbor *n)
 {
-  struct babel_entry_prefix *ep = fib_find(&P->rtable, &prefix, plen);
-  struct babel_entry *e;
-  if(!ep) return NULL;
-  WALK_LIST(e, ep->entries)
-    if(e->neigh == n)
-      return e;
+  struct babel_route *r;
+  WALK_LIST(r, e->routes)
+    if(r->neigh == n)
+      return r;
   return NULL;
 }
-static struct babel_entry * get_entry(struct proto *p, ip_addr prefix,
-				      int plen, struct babel_neighbor *n)
+static struct babel_route * babel_get_route(struct babel_entry *e, struct babel_neighbor *n)
 {
-  struct babel_entry_prefix *ep = fib_find(&P->rtable, &prefix, plen);
-  struct babel_entry *e, *entry = NULL;
-  if(!ep) {
-    ep = fib_get(&P->rtable, &prefix, plen);
-    init_list(&ep->entries);
-  }
-  WALK_LIST(e, ep->entries)
-    if(e->neigh == n)
-      entry = e;
-  if(!entry) {
-    entry = mb_allocz(p->pool, sizeof(struct babel_entry));
-    entry->neigh = n;
-    entry->prefix = prefix;
-    entry->plen = plen;
-    add_tail(&ep->entries, NODE entry);
-  }
-  return entry;
+  struct babel_route *r = babel_find_route(e,n);
+  if(r) return r;
+  r = mb_allocz(e->p->pool, sizeof(struct babel_route));
+  r->neigh = n;
+  r->e = e;
+  add_tail(&e->routes, NODE r);
+  return r;
 }
 
 
-static struct babel_neighbor * find_neighbor(struct babel_interface *bif, ip_addr addr)
+static struct babel_neighbor * babel_find_neighbor(struct babel_interface *bif, ip_addr addr)
 {
   struct proto *p = bif->proto;
   neighbor *n = neigh_find2(p, &addr, bif->iface, NEF_STICKY);
   return (n->data) ? n->data : NULL;
 }
 
-static struct babel_neighbor * get_neighbor(struct babel_interface *bif, ip_addr addr)
+static struct babel_neighbor * babel_get_neighbor(struct babel_interface *bif, ip_addr addr)
 {
   struct proto *p = bif->proto;
   neighbor *n = neigh_find2(p, &addr, bif->iface, NEF_STICKY);
   if (n->data) return n->data;
 
   struct babel_neighbor *bn = mb_allocz(bif->pool, sizeof(struct babel_neighbor));
-  event *ev = ev_new(bif->pool);
-  ev->hook = babel_send_ihus;
-  ev->data = bif;
   bn->bif = bif;
   bn->neigh = n;
   bn->addr = n->addr;
@@ -135,7 +114,7 @@ static struct babel_neighbor * get_neighbor(struct babel_interface *bif, ip_addr
   n->data = bn;
   init_list(&bn->routes);
   add_tail(&bif->neigh_list, NODE bn);
-  ev_schedule(ev);
+  ev_schedule(bif->ihu_event);
   return bn;
 }
 
@@ -217,11 +196,9 @@ static void babel_add_ihus(struct babel_interface *bif)
 static void babel_send_ihus(struct babel_interface *bif)
 {
   struct proto *p = bif->proto;
-  struct babel_tlv_header *hdr;
   TRACE(D_PACKETS, "Babel: Sending IHUs");
-  hdr = babel_new_packet(bif, 0);
+  babel_new_packet(bif, 0);
   babel_add_ihus(bif);
-
   babel_send(bif);
 }
 
@@ -335,7 +312,7 @@ int babel_handle_hello(struct babel_tlv_header *hdr, struct babel_parse_state *s
   struct babel_tlv_hello *tlv = (struct babel_tlv_hello *)hdr;
   struct proto *p = state->proto;
   struct babel_interface *bif = state->bif;
-  struct babel_neighbor *bn = get_neighbor(bif, state->saddr);
+  struct babel_neighbor *bn = babel_get_neighbor(bif, state->saddr);
   TRACE(D_PACKETS, "Handling hello seqno %d interval %d", tlv->seqno,
 	tlv->interval, state->saddr);
   update_hello_history(bn, tlv->seqno, tlv->interval);
@@ -352,7 +329,7 @@ int babel_handle_ihu(struct babel_tlv_header *hdr, struct babel_parse_state *sta
   if(!ipa_equal(addr, bif->iface->addr->ip)) return 0; // not for us
   TRACE(D_PACKETS, "Handling IHU rxcost %d interval %d", tlv->rxcost,
 	tlv->interval);
-  struct babel_neighbor *bn = get_neighbor(bif, state->saddr);
+  struct babel_neighbor *bn = babel_get_neighbor(bif, state->saddr);
   bn->txcost = tlv->rxcost;
   tm_start(bn->ihu_timer, 1.5*(tlv->interval/100));
   return 1;
@@ -374,17 +351,27 @@ int babel_handle_next_hop(struct babel_tlv_header *hdr, struct babel_parse_state
   return 1;
 }
 
+/**
+   From the RFC (section 3.5.1):
+
+   a route advertisement carrying the quintuple (prefix, plen, router-id, seqno,
+   metric) is feasible if one of the following conditions holds:
+
+   - metric is infinite; or
+
+   - no entry exists in the source table indexed by (id, prefix, plen); or
+
+   - an entry (prefix, plen, router-id, seqno', metric') exists in the source
+     table, and either
+
+     - seqno' < seqno or
+     - seqno = seqno' and metric < metric'.
+*/
 static inline int is_feasible(struct babel_source *s, u16 seqno, u16 metric)
 {
   if(!s || metric == BABEL_INFINITY) return 1;
   return (seqno > s->seqno
 	  || (seqno == s->seqno && metric < s->metric));
-}
-static int route_is_feasible(struct proto *p, ip_addr prefix, int plen, u64 router_id,
-			     u16 seqno, u16 metric)
-{
-  struct babel_source *s = find_source(p, prefix, plen, router_id);
-  return is_feasible(s, seqno, metric);
 }
 
 int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *state)
@@ -395,6 +382,7 @@ int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *
   struct babel_neighbor *n;
   struct babel_entry *e;
   struct babel_source *s;
+  struct babel_route *r;
   ip_addr prefix = babel_get_addr(hdr, state);
   TRACE(D_PACKETS, "Handling update for %I/%d with seqno %d metric %d",
 	prefix, tlv->plen, tlv->seqno, tlv->metric);
@@ -402,39 +390,79 @@ int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *
     state->prefix = prefix;
   }
   if(tlv->flags & BABEL_FLAG_ROUTER_ID) {
-    u64 *buf = &prefix;
+    u64 *buf = (u64*)&prefix;
     memcpy(&state->router_id, buf+1, sizeof(u64));
   }
-  s = find_source(p, prefix, tlv->plen, state->router_id);
-  n = find_neighbor(bif,state->saddr);
+  n = babel_find_neighbor(bif, state->saddr);
   if(!n) {
     DBG("Haven't heard from neighbor %I; ignoring update\n.", state->saddr);
     return 0;
   }
-  e = find_entry(p, prefix, tlv->plen, n);
-  if(!e) {
-    if(!is_feasible(s, tlv->seqno, tlv->metric)) return 0;
-    e = get_entry(p, prefix, tlv->plen, n);
-    e->advert_metric = tlv->metric;
-    e->router_id = state->router_id;
-    e->metric = compute_metric(n, tlv->metric);
-    e->next_hop = state->next_hop;
-    e->updated = now;
-  } else if(e->flags & BABEL_FLAG_SELECTED
+
+  /* RFC section 3.5.4:
+
+     When a Babel node receives an update (id, prefix, seqno, metric) from a
+     neighbour neigh with a link cost value equal to cost, it checks whether it
+     already has a routing table entry indexed by (neigh, id, prefix).
+
+     If no such entry exists:
+
+     o if the update is unfeasible, it is ignored;
+
+     o if the metric is infinite (the update is a retraction), the update is
+       ignored;
+
+     o otherwise, a new route table entry is created, indexed by (neigh, id,
+       prefix), with seqno equal to seqno and an advertised metric equal to the
+       metric carried by the update.
+
+     If such an entry exists:
+
+     o if the entry is currently installed and the update is unfeasible, then
+       the behaviour depends on whether the router-ids of the two entries match.
+       If the router-ids are different, the update is treated as though it were
+       a retraction (i.e., as though the metric were FFFF hexadecimal). If the
+       router-ids are equal, the update is ignored;
+
+     o otherwise (i.e., if either the update is feasible or the entry is not
+       currently installed), then the entry's sequence number, advertised
+       metric, metric, and router-id are updated and, unless the advertised
+       metric is infinite, the route's expiry timer is reset to a small multiple
+       of the Interval value included in the update.
+
+*/
+  e = babel_get_entry(p, prefix, tlv->plen);
+
+  s = babel_find_source(e, state->router_id); /* for feasibility */
+  r = babel_find_route(e, n); /* the route entry indexed by neighbour */
+
+  if(!r) {
+
+    if(!is_feasible(s, tlv->seqno, tlv->metric))
+      return 0; /* first two points above. is_feasible also returns false if the
+		   metric is infinite */
+
+    r = babel_get_route(e, n);
+    r->advert_metric = tlv->metric;
+    r->router_id = state->router_id;
+    r->metric = compute_metric(n, tlv->metric);
+    r->next_hop = state->next_hop;
+    r->updated = now;
+  } else if(r->flags & BABEL_FLAG_SELECTED
        && !is_feasible(s, tlv->seqno, tlv->metric)) {
 
-    /* RFC section 3.5.4: If the router-ids are different, the update is
-       treated as though it were a retraction (i.e., as though the metric were
-       FFFF hexadecimal). If the router-ids are equal, the update is ignored; */
+    /* route is installed and update is infeasible - check router id */
+
     if(state->router_id == s->router_id) return 0;
-    e->metric = BABEL_INFINITY;
+    r->metric = BABEL_INFINITY; /* retraction */
   } else {
-    e->seqno = tlv->seqno;
-    e->advert_metric = tlv->metric;
-    e->metric = compute_metric(n, tlv->metric);
-    e->router_id = state->router_id;
-    e->next_hop = state->next_hop;
-    if(tlv->metric != BABEL_INFINITY) e->expiry = now + (BABEL_EXPIRY_FACTOR*tlv->interval)/100;
+    /* last point above - update entry */
+    r->seqno = tlv->seqno;
+    r->advert_metric = tlv->metric;
+    r->metric = compute_metric(n, tlv->metric);
+    r->router_id = state->router_id;
+    r->next_hop = state->next_hop;
+    if(tlv->metric != BABEL_INFINITY) r->expiry = now + (BABEL_EXPIRY_FACTOR*tlv->interval)/100;
   }
 }
 
@@ -612,6 +640,11 @@ static struct babel_interface *new_iface(struct proto *p, struct iface *new,
   init_list(&bif->neigh_list);
   bif->hello_seqno = 1;
   bif->max_pkt_len = new->mtu - BABEL_OVERHEAD;
+
+  bif->ihu_event = ev_new(bif->pool);
+  bif->ihu_event->hook = babel_send_ihus;
+  bif->ihu_event->data = bif;
+
 
   bif->hello_timer = tm_new(bif->pool);
   bif->hello_timer->hook = babel_hello_timer;
@@ -821,8 +854,7 @@ static int
 babel_start(struct proto *p)
 {
   DBG( "Babel: starting instance...\n" );
-  fib_init( &P->rtable, p->pool, sizeof( struct babel_entry_prefix ), 0, NULL );
-  fib_init( &P->sources, p->pool, sizeof( struct babel_source_prefix ), 0, NULL );
+  fib_init( &P->rtable, p->pool, sizeof( struct babel_entry ), 0, NULL );
   init_list( &P->connections );
   init_list( &P->interfaces );
   P->timer = tm_new( p->pool );

@@ -249,6 +249,7 @@ struct babel_interface {
   u16 update_interval;
   timer * hello_timer;
   timer * update_timer;
+  event * ihu_event;
 };
 
 struct babel_patt {
@@ -278,32 +279,21 @@ struct babel_neighbor {
   list routes;
 };
 
-struct babel_source_prefix {
-  struct fib_node n;
-  list sources;
-};
+struct babel_entry;
 
 struct babel_source {
   node n;
-  ip_addr prefix;
-  u8 plen;
+  struct babel_entry *e;
   u64 router_id;
   u16 seqno;
   u16 metric;
   bird_clock_t updated;
 };
 
-struct babel_entry_prefix {
-  struct fib_node n;
-  list entries;
-};
-
-struct babel_entry {
+struct babel_route {
   node n;
-  ip_addr prefix;
-  u8 plen;
+  struct babel_entry *e;
   struct babel_neighbor *neigh;
-
   u16 seqno;
   u16 advert_metric;
   u16 metric;
@@ -316,6 +306,12 @@ struct babel_entry {
 };
 
 
+struct babel_entry {
+  struct fib_node n;
+  struct proto *p;
+  list sources;
+  list routes;
+};
 
 
 
@@ -330,7 +326,6 @@ struct babel_proto {
   timer *timer;
   list connections;
   struct fib rtable;
-  struct fib sources;
   list garbage;
   list interfaces;	/* Interfaces we really know about */
   u16 update_seqno;		/* To be increased on request */
