@@ -39,14 +39,21 @@ static void babel_hello_expiry(timer *t);
 static void babel_ihu_expiry(timer *t);
 static void babel_dump_entry(struct babel_entry *e);
 
+static void babel_init_entry(struct fib_node *n)
+{
+  struct babel_entry *e = (struct babel_entry *)n;
+  e->proto = NULL;
+  e->selected = NULL;
+  init_list(&e->sources);
+  init_list(&e->routes);
+}
+
 static struct babel_entry * babel_get_entry(struct proto *p, ip_addr prefix, u8 plen)
 {
   struct babel_entry *e = fib_find(&P->rtable, &prefix, plen);
   if(e) return e;
   e = fib_get(&P->rtable, &prefix, plen);
   e->proto = p;
-  init_list(&e->sources);
-  init_list(&e->routes);
   return e;
 }
 
@@ -206,10 +213,11 @@ static void babel_select_route(struct babel_entry *e, struct babel_interface *bi
   rte *rte;
   net *n;
   struct babel_route *r, *cur = e->selected;
-  if(!cur || 1) {
+  if(!cur) {
     r = HEAD(e->routes);
     n = net_get(p->table, e->n.prefix, e->n.pxlen);
     r->flags |= BABEL_FLAG_SELECTED;
+    e->selected = r;
     rte = babel_build_rte(p, r, n);
     rte_update(p, n, rte);
   }
@@ -921,7 +929,7 @@ static int
 babel_start(struct proto *p)
 {
   DBG( "Babel: starting instance...\n" );
-  fib_init( &P->rtable, p->pool, sizeof( struct babel_entry ), 0, NULL );
+  fib_init( &P->rtable, p->pool, sizeof( struct babel_entry ), 0, babel_init_entry );
   init_list( &P->connections );
   init_list( &P->interfaces );
   P->timer = tm_new( p->pool );

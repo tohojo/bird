@@ -309,9 +309,9 @@ struct babel_route {
 struct babel_entry {
   struct fib_node n;
   struct proto *proto;
+  struct babel_route *selected;
   list sources;
   list routes;
-  struct babel_route *selected;
 };
 
 
