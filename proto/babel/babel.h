@@ -53,6 +53,8 @@ struct babel_parse_state {
   ip_addr saddr;
   struct babel_interface *bif;
   u64 router_id;
+  ip_addr prefix;
+  ip_addr next_hop;
 };
 
 
@@ -209,6 +211,19 @@ int babel_handle_seqno_request(struct babel_tlv_header *tlv,
 				      struct babel_parse_state *state);
 int babel_validate_seqno_request(struct babel_tlv_header *hdr);
 
+struct babel_source {
+  struct fib_node n;
+  list routers;
+};
+
+struct babel_router {
+  node n;
+  struct babel_source *s;
+  u64 router_id;
+  u16 seqno;
+  u16 metric;
+  bird_clock_t updated;
+};
 
 struct babel_entry {
   struct fib_node n;
@@ -286,6 +301,7 @@ struct babel_proto {
   timer *timer;
   list connections;
   struct fib rtable;
+  struct fib sources;
   list garbage;
   list interfaces;	/* Interfaces we really know about */
   u16 update_seqno;		/* To be increased on request */

@@ -123,7 +123,8 @@ static void babel_hello_timer(timer *t)
   struct babel_interface *bif = t->data;
   struct proto *p = bif->proto;
   TRACE(D_EVENTS, "Babel: Hello timer fired for interface %s", bif->ifname);
-  babel_send_hello(bif, (bif->type == BABEL_IFACE_TYPE_WIRELESS || bif->hello_seqno % 3 == 0));
+  babel_send_hello(bif, (bif->type == BABEL_IFACE_TYPE_WIRELESS
+			 || bif->hello_seqno % BABEL_IHU_INTERVAL_FACTOR == 0));
   tm_start(t, bif->hello_interval);
 }
 
@@ -310,6 +311,25 @@ int babel_handle_seqno_request(struct babel_tlv_header *hdr,
 {
 }
 
+static struct babel_router * get_source_router(struct proto *p, ip_addr *addr,
+					       int plen, u64 router_id)
+{
+  struct babel_source *s = fib_find(&P->sources, addr, plen);
+  struct babel_router *r, *router = NULL;
+  if(!s) {
+    s = fib_get(&P->sources, addr, plen);
+    list_init(s->routers);
+  }
+  WALK_LIST(r, s->routers)
+    if(r->router_id == router_id)
+      router = r;
+  if(!router) {
+    router = mb_allocz(p->pool, sizeof(struct babel_router));
+    router->router_id = router_id;
+    router->s = s;
+  }
+  return router;
+}
 
 
 /*
@@ -576,6 +596,9 @@ static void
 babel_rt_notify(struct proto *p, struct rtable *table UNUSED, struct network *net,
 		struct rte *new, struct rte *old UNUSED, struct ea_list *attrs)
 {
+  struct babel_entry *e;
+
+
 }
 
 static void babel_neigh_notify(neighbor *n)
@@ -681,6 +704,7 @@ babel_start(struct proto *p)
 {
   DBG( "Babel: starting instance...\n" );
   fib_init( &P->rtable, p->pool, sizeof( struct babel_entry ), 0, NULL );
+  fib_init( &P->sources, p->pool, sizeof( struct babel_source ), 0, NULL );
   init_list( &P->connections );
   init_list( &P->interfaces );
   P->timer = tm_new( p->pool );
