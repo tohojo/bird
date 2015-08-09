@@ -293,11 +293,11 @@ struct babel_source {
 struct babel_route {
   node n;
   struct babel_entry *e;
-  struct babel_source *source;
   struct babel_neighbor *neigh;
   u16 seqno;
   u16 advert_metric;
   u16 metric;
+  u64 router_id;
   ip_addr next_hop;
 
   bird_clock_t updated, expiry;

@@ -449,7 +449,7 @@ int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *
 
     r = babel_get_route(e, n);
     r->advert_metric = tlv->metric;
-    r->source = s;
+    r->router_id = state->router_id;
     r->metric = compute_metric(n, tlv->metric);
     r->next_hop = state->next_hop;
     r->updated = now;
@@ -465,7 +465,7 @@ int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *
     r->seqno = tlv->seqno;
     r->advert_metric = tlv->metric;
     r->metric = compute_metric(n, tlv->metric);
-    r->source = s;
+    r->router_id = state->router_id;
     r->next_hop = state->next_hop;
     if(tlv->metric != BABEL_INFINITY) r->expiry = now + (BABEL_EXPIRY_FACTOR*tlv->interval)/100;
   }
@@ -502,7 +502,7 @@ static void babel_dump_route(struct babel_route *r)
 {
   debug("Babel: Route neigh %I seqno %d advert_metric %d metric %d router_id %0lx flags %d\n",
 	r->neigh->addr, r->seqno, r->advert_metric,
-	r->metric, r->source->router_id, r->flags);
+	r->metric, r->router_id, r->flags);
 }
 
 static void babel_dump_entry(struct babel_entry *e)
@@ -519,6 +519,8 @@ static void babel_dump(struct proto *p)
 
 static void babel_tx_err( sock *s, int err )
 {
+  //  struct babel_connection *c = ((struct babel_interface *)(s->data))->busy;
+  //struct proto *p = c->proto;
   log( L_ERR ": Unexpected error at Babel transmit: %M", /*p->name,*/ err );
 }
 
