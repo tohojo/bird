@@ -37,6 +37,7 @@ static struct babel_interface *new_iface(struct proto *p, struct iface *new,
 static void babel_send_ihus(struct babel_interface *bif);
 static void babel_hello_expiry(timer *t);
 static void babel_ihu_expiry(timer *t);
+static void babel_dump_entry(struct babel_entry *e);
 
 static struct babel_entry * babel_get_entry(struct proto *p, ip_addr prefix, u8 plen)
 {
@@ -46,6 +47,7 @@ static struct babel_entry * babel_get_entry(struct proto *p, ip_addr prefix, u8 
   e->p = p;
   init_list(&e->sources);
   init_list(&e->routes);
+  return e;
 }
 
 static struct babel_source * babel_find_source(struct babel_entry *e, u64 router_id)
@@ -395,7 +397,7 @@ int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *
   }
   n = babel_find_neighbor(bif, state->saddr);
   if(!n) {
-    DBG("Haven't heard from neighbor %I; ignoring update\n.", state->saddr);
+    DBG("Haven't heard from neighbor %I; ignoring update.\n", state->saddr);
     return 0;
   }
 
@@ -464,6 +466,7 @@ int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *
     r->next_hop = state->next_hop;
     if(tlv->metric != BABEL_INFINITY) r->expiry = now + (BABEL_EXPIRY_FACTOR*tlv->interval)/100;
   }
+  babel_dump_entry(e);
 }
 
 int babel_handle_route_request(struct babel_tlv_header *hdr,
@@ -485,6 +488,27 @@ int babel_handle_seqno_request(struct babel_tlv_header *hdr,
 /*
  * babel_start - initialize instance of babel
  */
+
+static void babel_dump_source(struct babel_source *s)
+{
+  debug("Babel: Source router_id %0lx seqno %d metric %d\n",
+	s->router_id, s->seqno, s->metric);
+}
+
+static void babel_dump_route(struct babel_route *r)
+{
+  debug("Babel: Route neigh %I seqno %d advert_metric %d metric %d router_id %0lx flags %d\n",
+	r->neigh->addr, r->seqno, r->advert_metric,
+	r->metric, r->router_id, r->flags);
+}
+
+static void babel_dump_entry(struct babel_entry *e)
+{
+  debug("Babel: Entry %I/%d:\n", e->n.prefix, e->n.pxlen);
+  struct babel_souce *s; struct babel_route *r;
+  WALK_LIST(s,e->sources) { debug(" "); babel_dump_source(s); }
+  WALK_LIST(r,e->routes) { debug(" "); babel_dump_route(r); }
+}
 
 static void babel_dump(struct proto *p)
 {
