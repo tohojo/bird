@@ -261,6 +261,8 @@ static void babel_select_route(struct babel_entry *e)
   if(cur && cur->neigh && ((!old && cur->metric < BABEL_INFINITY)
 			   || (old && old->u.babel.metric != cur->metric)))
     {
+      TRACE(D_EVENTS, "Picked new route for prefix %I/%d: router id %0lx metric %d",
+	    e->n.prefix, e->n.pxlen, cur->router_id, cur->metric);
       /* Notify the nest of the update. If we change router ID, we also trigger
 	 a global update. */
       rte_update(p, n, babel_build_rte(p, n, cur));
@@ -352,7 +354,6 @@ static void babel_send_update(struct babel_interface *bif)
   babel_new_packet(bif);
   FIB_WALK(&P->rtable, n) {
     e = (struct babel_entry *)n;
-    babel_dump_entry(e);
     r = e->selected;
     if(!r) continue;
     i++;
@@ -620,7 +621,6 @@ int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *
     if(tlv->metric != BABEL_INFINITY) r->expiry = now + (BABEL_EXPIRY_FACTOR*tlv->interval)/100;
   }
   babel_select_route(e);
-  babel_dump_entry(e);
   return 0;
 }
 
@@ -630,7 +630,7 @@ int babel_handle_route_request(struct babel_tlv_header *hdr,
   struct babel_tlv_update *tlv = (struct babel_tlv_update *)hdr;
   struct babel_interface *bif = state->bif;
   struct proto *p = state->proto;
-  ip_addr prefix = babel_get_addr(tlv, state);
+  ip_addr prefix = babel_get_addr(hdr, state);
 
   TRACE(D_PACKETS, "Handling route request for %I/%d on interface %s",
 	prefix, tlv->plen, bif->ifname);
@@ -958,7 +958,6 @@ babel_rt_notify(struct proto *p, struct rtable *table UNUSED, struct network *ne
     r->updated = now;
     r->flags = BABEL_FLAG_SELECTED;
     e->selected = r;
-    babel_dump_entry(e);
   }
 }
 
