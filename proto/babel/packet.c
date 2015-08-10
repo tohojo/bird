@@ -28,8 +28,9 @@ static ip_addr get_ip6_ll(u32 *addr)
 struct babel_tlv_data {
   int struct_length;
   int (*handle)(struct babel_tlv_header *tlv,
-		      struct babel_parse_state *state);
-  int (*validate)(struct babel_tlv_header *tlv);
+		struct babel_parse_state *state);
+  int (*validate)(struct babel_tlv_header *tlv,
+		  struct babel_parse_state *state);
   void (*hton)(struct babel_tlv_header *tlv);
   void (*ntoh)(struct babel_tlv_header *tlv);
   ip_addr (*get_addr)(struct babel_tlv_header *tlv,
@@ -78,9 +79,9 @@ static struct babel_tlv_data tlv_data[BABEL_TYPE_MAX] = {
    babel_get_addr_seqno_request, babel_put_addr_seqno_request},
 };
 
-static inline int validate_tlv(struct babel_tlv_header *tlv)
+static inline int validate_tlv(struct babel_tlv_header *tlv, struct babel_parse_state *state)
 {
-  return (tlv_data[tlv->type].validate != NULL && tlv_data[tlv->type].validate(tlv));
+  return (tlv_data[tlv->type].validate != NULL && tlv_data[tlv->type].validate(tlv, state));
 }
 
 void babel_hton_ack_req(struct babel_tlv_header *hdr)
@@ -105,7 +106,7 @@ void babel_ntoh_hello(struct babel_tlv_header *hdr)
   tlv->seqno = ntohs(tlv->seqno);
   tlv->interval = ntohs(tlv->interval);
 }
-int babel_validate_ihu(struct babel_tlv_header *hdr)
+int babel_validate_ihu(struct babel_tlv_header *hdr, struct babel_parse_state *state)
 {
   struct babel_tlv_ihu *tlv = (struct babel_tlv_ihu *)hdr;
   if(hdr->length < TLV_LENGTH(BABEL_TYPE_IHU)-sizeof(tlv->addr)) return 0;
@@ -157,24 +158,41 @@ void babel_ntoh_router_id(struct babel_tlv_header *hdr)
   struct babel_tlv_router_id *tlv = (struct babel_tlv_router_id *)hdr;
   tlv->router_id = be64toh(tlv->router_id);
 }
-int babel_validate_next_hop(struct babel_tlv_header *hdr)
+int babel_validate_next_hop(struct babel_tlv_header *hdr, struct babel_parse_state *state)
 {
-  struct babel_tlv_ihu *tlv = (struct babel_tlv_next_hop *)hdr;
-  // We don't speak IPv4, so only recognise IP6 LL next hops
+  struct babel_tlv_next_hop *tlv = (struct babel_tlv_next_hop *)hdr;
+  /* We don't speak IPv4, so only recognise IP6 LL next hops */
   if(tlv->ae != BABEL_AE_IP6_LL) return 0;
+  return babel_validate_length(hdr, state);
 }
 ip_addr babel_get_addr_next_hop(struct babel_tlv_header *hdr, struct babel_parse_state *state)
 {
-  struct babel_tlv_ihu *tlv = (struct babel_tlv_next_hop *)hdr;
+  struct babel_tlv_next_hop *tlv = (struct babel_tlv_next_hop *)hdr;
   return get_ip6_ll(tlv->addr);
 }
 void babel_put_addr_next_hop(struct babel_tlv_header *hdr, ip_addr addr)
 {
 }
-int babel_validate_update(struct babel_tlv_header *hdr)
+int babel_validate_update(struct babel_tlv_header *hdr, struct babel_parse_state *state)
 {
   struct babel_tlv_update *tlv = (struct babel_tlv_update *)hdr;
-  if(tlv->ae == BABEL_AE_IP4) return 0; // we don't speak IPv4
+  int min_length = TLV_LENGTH(BABEL_TYPE_UPDATE)-sizeof(tlv->addr);
+  u8 len = tlv->plen/8;
+  if(tlv->plen % 8) len++;
+
+  if(hdr->length < min_length) return 0;
+  if(tlv->ae == BABEL_AE_IP4   /* we don't speak IPv4 */
+     || tlv->ae >= BABEL_AE_MAX) /* invalid */
+     return 0;
+  /* Can only omit bits if a previous update defined a prefix to take them from */
+  if(tlv->omitted && ipa_equal(state->prefix, IPA_NONE))
+    return 0;
+
+  /* TLV should be large enough to old the entire prefix */
+  if(hdr->length < min_length + len-tlv->omitted)
+    return 0;
+
+  return 1;
 }
 void babel_hton_update(struct babel_tlv_header *hdr)
 {
@@ -215,7 +233,7 @@ void babel_put_addr_update(struct babel_tlv_header *hdr, ip_addr addr)
   tlv->ae = BABEL_AE_IP6;
   put_ipa(&tlv->addr, addr);
 }
-int babel_validate_route_request(struct babel_tlv_header *hdr)
+int babel_validate_route_request(struct babel_tlv_header *hdr, struct babel_parse_state *state)
 {
 }
 ip_addr babel_get_addr_route_request(struct babel_tlv_header *hdr, struct babel_parse_state *state)
@@ -224,7 +242,7 @@ ip_addr babel_get_addr_route_request(struct babel_tlv_header *hdr, struct babel_
 void babel_put_addr_route_request(struct babel_tlv_header *hdr, ip_addr addr)
 {
 }
-int babel_validate_seqno_request(struct babel_tlv_header *hdr)
+int babel_validate_seqno_request(struct babel_tlv_header *hdr, struct babel_parse_state *state)
 {
 }
 void babel_hton_seqno_request(struct babel_tlv_header *hdr)
@@ -282,13 +300,6 @@ void babel_put_addr(struct babel_tlv_header *hdr, ip_addr addr)
     tlv_data[hdr->type].put_addr(hdr, addr);
   }
 }
-
-
-static void copy_tlv(struct babel_tlv_header *dest, struct babel_tlv_header *src)
-{
-  memcpy(dest, src, TLV_SIZE(src));
-}
-
 
 void babel_new_packet(struct babel_interface *bif)
 {
@@ -354,7 +365,7 @@ int babel_process_packet(struct babel_header *pkt, int size,
   while((char *)tlv < p+size) {
     if(tlv->type > BABEL_TYPE_PADN
        && tlv->type < BABEL_TYPE_MAX
-       && validate_tlv(tlv)) {
+       && validate_tlv(tlv, &state)) {
       babel_tlv_ntoh(tlv);
       res &= tlv_data[tlv->type].handle(tlv, &state);
     } else {
@@ -365,7 +376,7 @@ int babel_process_packet(struct babel_header *pkt, int size,
   return res;
 }
 
-int babel_validate_length(struct babel_tlv_header *hdr)
+int babel_validate_length(struct babel_tlv_header *hdr, struct babel_parse_state *state)
 {
   /*DBG("Validate type: %d length: %d needed: %d\n", hdr->type, hdr->length,
     tlv_data[hdr->type].struct_length - sizeof(struct babel_tlv_header));*/

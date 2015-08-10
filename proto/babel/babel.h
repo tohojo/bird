@@ -205,23 +205,23 @@ void babel_put_addr_seqno_request(struct babel_tlv_header *tlv, ip_addr addr);
 
 /* Handlers */
 
-int babel_validate_length(struct babel_tlv_header *tlv);
+int babel_validate_length(struct babel_tlv_header *tlv, struct babel_parse_state *state);
 int babel_handle_ack_req(struct babel_tlv_header *tlv, struct babel_parse_state *state);
 int babel_handle_ack(struct babel_tlv_header *tlv, struct babel_parse_state *state);
 int babel_handle_hello(struct babel_tlv_header *tlv, struct babel_parse_state *state);
 int babel_handle_ihu(struct babel_tlv_header *tlv, struct babel_parse_state *state);
-int babel_validate_ihu(struct babel_tlv_header *hdr);
+int babel_validate_ihu(struct babel_tlv_header *hdr, struct babel_parse_state *state);
 int babel_handle_router_id(struct babel_tlv_header *tlv, struct babel_parse_state *state);
 int babel_handle_next_hop(struct babel_tlv_header *tlv, struct babel_parse_state *state);
-int babel_validate_next_hop(struct babel_tlv_header *hdr);
+int babel_validate_next_hop(struct babel_tlv_header *hdr, struct babel_parse_state *state);
 int babel_handle_update(struct babel_tlv_header *tlv, struct babel_parse_state *state);
-int babel_validate_update(struct babel_tlv_header *hdr);
+int babel_validate_update(struct babel_tlv_header *hdr, struct babel_parse_state *state);
 int babel_handle_route_request(struct babel_tlv_header *tlv,
 				      struct babel_parse_state *state);
-int babel_validate_route_request(struct babel_tlv_header *hdr);
+int babel_validate_route_request(struct babel_tlv_header *hdr, struct babel_parse_state *state);
 int babel_handle_seqno_request(struct babel_tlv_header *tlv,
 				      struct babel_parse_state *state);
-int babel_validate_seqno_request(struct babel_tlv_header *hdr);
+int babel_validate_seqno_request(struct babel_tlv_header *hdr, struct babel_parse_state *state);
 
 struct babel_packet {
   struct babel_header header;

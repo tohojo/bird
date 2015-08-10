@@ -543,6 +543,9 @@ int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *
     u64 *buf = (u64*)&prefix;
     memcpy(&state->router_id, buf+1, sizeof(u64));
   }
+  if(!state->router_id)
+    log(L_WARN "%s: Received update on %s with no preceding router id", p->name, bif->ifname);
+
   n = babel_find_neighbor(bif, state->saddr);
   if(!n) {
     DBG("Haven't heard from neighbor %I; ignoring update.\n", state->saddr);
