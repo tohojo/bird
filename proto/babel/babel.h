@@ -41,8 +41,6 @@
 #define BABEL_OVERHEAD (SIZE_OF_IP_HEADER+8+sizeof(struct babel_header))
 #define BABEL_INFINITY 0xFFFF
 
-#define TLV_LENGTH(t) (sizeof(t)-sizeof(struct babel_tlv_header))
-
 struct babel_header {
   u8 magic;
   u8 version;

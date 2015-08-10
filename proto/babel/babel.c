@@ -247,8 +247,8 @@ static void babel_select_route(struct babel_entry *e)
     cur->flags |= BABEL_FLAG_SELECTED;
     e->selected = cur;
   }
-  if(cur && ((!old && cur->metric < BABEL_INFINITY)
-	     || (old && old->u.babel.metric != cur->metric)))
+  if(cur && cur->neigh && ((!old && cur->metric < BABEL_INFINITY)
+			   || (old && old->u.babel.metric != cur->metric)))
     rte_update(p, n, babel_build_rte(p, n, cur));
 }
 
@@ -267,8 +267,6 @@ static void babel_add_ihu(struct babel_interface *bif, struct babel_neighbor *bn
 {
   struct babel_tlv_ihu *tlv;
   BABEL_ADD_TLV_SEND(tlv, bif, babel_add_tlv_ihu, IPA_NONE);
-  tlv->header.type = BABEL_TYPE_IHU;
-  tlv->header.length = TLV_LENGTH(struct babel_tlv_ihu);
   babel_put_addr_ihu(&tlv->header, bn->addr);
   tlv->rxcost = babel_compute_rxcost(bn);
   tlv->interval = bif->ihu_interval*100;
@@ -320,8 +318,6 @@ static int babel_add_router_id(struct babel_interface *bif, u64 router_id)
 {
   struct babel_tlv_router_id *rid = babel_add_tlv_router_id(bif);
   if(!rid) return 1;
-  rid->header.type = BABEL_TYPE_ROUTER_ID;
-  rid->header.length = TLV_LENGTH(struct babel_tlv_router_id);
   rid->router_id = router_id;
   return 0;
 }
@@ -329,23 +325,27 @@ static int babel_add_router_id(struct babel_interface *bif, u64 router_id)
 static void babel_send_update(struct babel_interface *bif)
 {
   struct proto *p = bif->proto;
-  struct babel_tlv_update *upd = NULL;
+  struct babel_tlv_update *upd;
   struct babel_entry *e;
   struct babel_route *r;
   struct babel_source *s;
   u64 router_id = 0;
   int res = 0, i = 0;
   TRACE(D_PACKETS, "Babel: Sending update");
+  babel_new_packet(bif);
   FIB_WALK(&P->rtable, n) {
     e = (struct babel_entry *)n;
+    babel_dump_entry(e);
     r = e->selected;
     if(!r) continue;
     i++;
 
     if(r->router_id != router_id) {
       res = babel_add_router_id(bif, r->router_id);
-      if(res == 0) upd = babel_add_tlv_update(bif);
+      if(res == 0)  upd = babel_add_tlv_update(bif);
       router_id = r->router_id;
+    } else {
+      upd = babel_add_tlv_update(bif);
     }
     if(res > 0 || !upd) {
       babel_send(bif);
@@ -353,8 +353,6 @@ static void babel_send_update(struct babel_interface *bif)
       upd = babel_add_tlv_update(bif);
       i = 1;
     }
-    upd->header.type = BABEL_TYPE_UPDATE;
-    upd->header.length = TLV_LENGTH(struct babel_tlv_update);
     upd->plen = e->n.pxlen;
     upd->interval = bif->update_interval*100;
     upd->seqno = r->seqno;
@@ -615,20 +613,23 @@ int babel_handle_seqno_request(struct babel_tlv_header *hdr,
 
 static void babel_dump_source(struct babel_source *s)
 {
-  debug("Babel: Source router_id %0lx seqno %d metric %d\n",
+  debug("Source router_id %0lx seqno %d metric %d\n",
 	s->router_id, s->seqno, s->metric);
 }
 
 static void babel_dump_route(struct babel_route *r)
 {
-  debug("Babel: Route neigh %I seqno %d advert_metric %d metric %d router_id %0lx flags %d\n",
-	r->neigh->addr, r->seqno, r->advert_metric,
+  debug("Route neigh %I seqno %d advert_metric %d metric %d router_id %0lx flags %d\n",
+	r->neigh ? r->neigh->addr : IPA_NONE, r->seqno, r->advert_metric,
 	r->metric, r->router_id, r->flags);
 }
 
 static void babel_dump_entry(struct babel_entry *e)
 {
   debug("Babel: Entry %I/%d:\n", e->n.prefix, e->n.pxlen);
+  debug(" Selected: ");
+  if(e->selected) babel_dump_route(e->selected);
+  else debug("None.\n");
   struct babel_source *s; struct babel_route *r;
   WALK_LIST(s,e->sources) { debug(" "); babel_dump_source(s); }
   WALK_LIST(r,e->routes) { debug(" "); babel_dump_route(r); }
@@ -636,6 +637,11 @@ static void babel_dump_entry(struct babel_entry *e)
 
 static void babel_dump(struct proto *p)
 {
+  struct babel_entry *e;
+  FIB_WALK(&P->rtable, n) {
+    e = (struct babel_entry *)n;
+    babel_dump_entry(e);
+  } FIB_WALK_END;
 }
 
 static void babel_tx_err( sock *s, int err )
@@ -895,8 +901,19 @@ babel_rt_notify(struct proto *p, struct rtable *table UNUSED, struct network *ne
 		struct rte *new, struct rte *old UNUSED, struct ea_list *attrs)
 {
   struct babel_entry *e;
+  struct babel_route *r;
 
-
+  TRACE(D_EVENTS, "Got route from nest: %I/%d", net->n.prefix, net->n.pxlen);
+  if(new) {
+    e = babel_get_entry(p, net->n.prefix, net->n.pxlen);
+    r = babel_get_route(e, NULL);
+    r->seqno = P->update_seqno;
+    r->router_id = proto_get_router_id(&P_CF->c);
+    r->updated = now;
+    r->flags = BABEL_FLAG_SELECTED;
+    e->selected = r;
+    babel_dump_entry(e);
+  }
 }
 
 static void babel_neigh_notify(neighbor *n)

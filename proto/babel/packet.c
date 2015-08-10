@@ -14,6 +14,8 @@
 #define FIRST_TLV(p) ((struct babel_tlv_header *)(((struct babel_header *) p) + 1))
 #define NEXT_TLV(t) (t = (void *)((char *)t) + TLV_SIZE(t))
 #define TLV_SIZE(t) (t->type == BABEL_TYPE_PAD0 ? 1 : t->length + sizeof(struct babel_tlv_header))
+#define TLV_LENGTH(t) (tlv_data[t].struct_length-sizeof(struct babel_tlv_header))
+
 
 
 static ip_addr get_ip6_ll(u32 *addr)
@@ -106,9 +108,9 @@ void babel_ntoh_hello(struct babel_tlv_header *hdr)
 int babel_validate_ihu(struct babel_tlv_header *hdr)
 {
   struct babel_tlv_ihu *tlv = (struct babel_tlv_ihu *)hdr;
-  if(hdr->length < TLV_LENGTH(struct babel_tlv_ihu)-sizeof(tlv->addr)) return 0;
+  if(hdr->length < TLV_LENGTH(BABEL_TYPE_IHU)-sizeof(tlv->addr)) return 0;
   return (tlv->ae == BABEL_AE_WILDCARD
-	  || (tlv->ae == BABEL_AE_IP6_LL && hdr->length >= TLV_LENGTH(struct babel_tlv_ihu)));
+	  || (tlv->ae == BABEL_AE_IP6_LL && hdr->length >= TLV_LENGTH(BABEL_TYPE_IHU)));
 }
 void babel_hton_ihu(struct babel_tlv_header *hdr)
 {
@@ -295,7 +297,6 @@ void babel_new_packet(struct babel_interface *bif)
   memset(hdr, 0, sizeof(struct babel_header));
   hdr->magic = BABEL_MAGIC;
   hdr->version = BABEL_VERSION;
-  hdr->length = 0;
 }
 
 struct babel_tlv_header * babel_add_tlv(struct babel_interface *bif, u16 type)
@@ -303,7 +304,7 @@ struct babel_tlv_header * babel_add_tlv(struct babel_interface *bif, u16 type)
   sock *s = bif->sock;
   struct babel_header *hdr = (void *) s->tbuf;
   struct babel_tlv_header *tlv;
-  int len = TLV_LENGTH(tlv_data[type].struct_length);
+  int len = tlv_data[type].struct_length;
   int pktlen = sizeof(struct babel_header)+hdr->length;
   if(pktlen+len > bif->max_pkt_len) {
     return NULL;
@@ -312,7 +313,7 @@ struct babel_tlv_header * babel_add_tlv(struct babel_interface *bif, u16 type)
   tlv = (struct babel_tlv_header *)((char*)hdr+pktlen);
   memset(tlv, 0, len);
   tlv->type = type;
-  tlv->length = len;
+  tlv->length = TLV_LENGTH(type);
   return tlv;
 }
 
