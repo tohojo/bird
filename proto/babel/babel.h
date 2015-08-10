@@ -267,6 +267,7 @@ struct babel_neighbor {
   struct babel_interface *bif;
   neighbor *neigh;
   ip_addr addr;
+  pool *pool;
   u16 txcost;
   u8 hello_n;
   u16 hello_map;
@@ -308,6 +309,7 @@ struct babel_route {
 struct babel_entry {
   struct fib_node n;
   struct proto *proto;
+  pool *pool;
   struct babel_route *selected;
   list sources;
   list routes;

@@ -59,7 +59,15 @@ static struct babel_entry * babel_get_entry(struct proto *p, ip_addr prefix, u8 
   if(e) return e;
   e = fib_get(&P->rtable, &prefix, plen);
   e->proto = p;
+  e->pool = rp_new(p->pool, "Babel entry");
   return e;
+}
+
+void babel_flush_entry(struct babel_entry *e)
+{
+  struct proto *p = e->proto;
+  rfree(e->pool);
+  if(p) fib_delete(&P->rtable, e);
 }
 
 static struct babel_source * babel_find_source(struct babel_entry *e, u64 router_id)
@@ -75,7 +83,7 @@ static struct babel_source * babel_get_source(struct babel_entry *e, u64 router_
 {
   struct babel_source *s = babel_find_source(e, router_id);
   if(s) return s;
-  s = mb_allocz(e->proto->pool, sizeof(struct babel_source));
+  s = mb_allocz(e->pool, sizeof(struct babel_source));
   s->router_id = router_id;
   s->e = e;
   add_tail(&e->sources, NODE s);
@@ -94,7 +102,7 @@ static struct babel_route * babel_get_route(struct babel_entry *e, struct babel_
 {
   struct babel_route *r = babel_find_route(e,n);
   if(r) return r;
-  r = mb_allocz(e->proto->pool, sizeof(struct babel_route));
+  r = mb_allocz(e->pool, sizeof(struct babel_route));
   r->neigh = n;
   r->e = e;
   add_tail(&e->routes, NODE r);
@@ -114,14 +122,15 @@ static struct babel_neighbor * babel_get_neighbor(struct babel_interface *bif, i
   struct proto *p = bif->proto;
   neighbor *n = neigh_find2(p, &addr, bif->iface, NEF_STICKY);
   if (n->data) return n->data;
-
-  struct babel_neighbor *bn = mb_allocz(bif->pool, sizeof(struct babel_neighbor));
+  pool *pool = rp_new(bif->pool, "Babel neighbor");
+  struct babel_neighbor *bn = mb_allocz(pool, sizeof(struct babel_neighbor));
   bn->bif = bif;
+  bn->pool = pool;
   bn->neigh = n;
   bn->addr = n->addr;
   bn->txcost = BABEL_INFINITY;
-  bn->hello_timer = tm_new_set(bif->pool, babel_hello_expiry, bn, 0, 0);
-  bn->ihu_timer = tm_new_set(bif->pool, babel_ihu_expiry, bn, 0, 0);
+  bn->hello_timer = tm_new_set(bn->pool, babel_hello_expiry, bn, 0, 0);
+  bn->ihu_timer = tm_new_set(bn->pool, babel_ihu_expiry, bn, 0, 0);
   n->data = bn;
   init_list(&bn->routes);
   add_tail(&bif->neigh_list, NODE bn);
@@ -330,7 +339,6 @@ static void babel_hello_timer(timer *t)
   TRACE(D_EVENTS, "Babel: Hello timer fired for interface %s", bif->ifname);
   babel_send_hello(bif, (bif->type == BABEL_IFACE_TYPE_WIRELESS
 			 || bif->hello_seqno % BABEL_IHU_INTERVAL_FACTOR == 0));
-  tm_start(t, bif->hello_interval);
 }
 
 static int babel_add_router_id(struct babel_interface *bif, u64 router_id)
@@ -404,7 +412,6 @@ static void babel_update_timer(timer *t)
   struct proto *p = bif->proto;
   TRACE(D_EVENTS, "Update timer firing");
   babel_send_update(bif);
-  tm_start(t, bif->update_interval);
 }
 
 
@@ -432,12 +439,9 @@ static void babel_flush_neighbor(struct babel_neighbor *bn)
 {
   struct proto *p = bn->bif->proto;
   TRACE(D_EVENTS, "Flushing neighbor %I", bn->addr);
-  tm_stop(bn->hello_timer);
-  tm_stop(bn->ihu_timer);
-  rfree(bn->hello_timer);
-  rfree(bn->ihu_timer);
   rem_node(NODE bn);
   bn->neigh->data = NULL;
+  rfree(bn->pool);
   mb_free(bn);
 }
 
@@ -624,6 +628,22 @@ int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *
   return 0;
 }
 
+/* A retraction is an update with an infinite metric. */
+static void babel_send_retraction(struct babel_interface *bif, ip_addr prefix, int plen)
+{
+  struct proto *p = bif->proto;
+  struct babel_tlv_update *upd;
+  babel_new_packet(bif);
+  babel_add_router_id(bif, proto_get_router_id(&P_CF->c));
+  upd = babel_add_tlv_update(bif);
+  upd->plen = plen;
+  upd->interval = bif->update_interval*100;
+  upd->seqno = P->update_seqno;
+  upd->metric = BABEL_INFINITY;
+  babel_put_addr(&upd->header, prefix);
+  babel_send(bif);
+}
+
 int babel_handle_route_request(struct babel_tlv_header *hdr,
 				      struct babel_parse_state *state)
 {
@@ -631,15 +651,25 @@ int babel_handle_route_request(struct babel_tlv_header *hdr,
   struct babel_interface *bif = state->bif;
   struct proto *p = state->proto;
   ip_addr prefix = babel_get_addr(hdr, state);
+  struct babel_entry *e;
 
   TRACE(D_PACKETS, "Handling route request for %I/%d on interface %s",
 	prefix, tlv->plen, bif->ifname);
 
-  /* wildcard request - full update on the interface */
+  /* Wildcard request - full update on the interface */
   if(ipa_equal(prefix,IPA_NONE)) {
     babel_send_update(bif);
     return 0;
   }
+  /* Non-wildcard request - see if we have an entry for the route. If not, send
+     a retraction, otherwise send an update. */
+  e = babel_find_entry(p, prefix, tlv->plen);
+  if(!e) {
+    babel_send_retraction(bif, prefix, tlv->plen);
+  } else {
+    babel_send_update(bif);
+  }
+  return 0;
 }
 
 int babel_handle_seqno_request(struct babel_tlv_header *hdr,
@@ -805,7 +835,7 @@ static struct babel_interface *new_iface(struct proto *p, struct iface *new,
   if(!new) return NULL;
 
   bif = mb_allocz(p->pool, sizeof( struct babel_interface ));
-  bif->pool = rp_new(p->pool, bif->ifname);
+  bif->pool = rp_new(p->pool, new->name);
   bif->iface = new;
   bif->ifname = new->name;
   bif->proto = p;
@@ -847,8 +877,8 @@ static struct babel_interface *new_iface(struct proto *p, struct iface *new,
   bif->ihu_event->data = bif;
 
 
-  bif->hello_timer = tm_new_set(bif->pool, babel_hello_timer, bif, 0, 0);
-  bif->update_timer = tm_new_set(bif->pool, babel_update_timer, bif, 0, 0);
+  bif->hello_timer = tm_new_set(bif->pool, babel_hello_timer, bif, 0, bif->hello_interval);
+  bif->update_timer = tm_new_set(bif->pool, babel_update_timer, bif, 0, bif->update_interval);
 
   bif->sock = sk_new( bif->pool );
   bif->sock->type = SK_UDP;
@@ -941,24 +971,36 @@ babel_store_tmp_attrs(struct rte *rt, struct ea_list *attrs)
  */
 static void
 babel_rt_notify(struct proto *p, struct rtable *table UNUSED, struct network *net,
-		struct rte *new, struct rte *old UNUSED, struct ea_list *attrs)
+		struct rte *new, struct rte *old, struct ea_list *attrs)
 {
   struct babel_entry *e;
   struct babel_route *r;
 
   TRACE(D_EVENTS, "Got route from nest: %I/%d", net->n.prefix, net->n.pxlen);
   if(new) {
-    e = babel_find_entry(p, net->n.prefix, net->n.pxlen);
-    if(e) return;
-
     e = babel_get_entry(p, net->n.prefix, net->n.pxlen);
-    r = babel_get_route(e, NULL);
-    r->seqno = P->update_seqno;
-    r->router_id = proto_get_router_id(&P_CF->c);
-    r->updated = now;
-    r->flags = BABEL_FLAG_SELECTED;
-    e->selected = r;
+    r = (e->selected) ? e->selected : babel_get_route(e, NULL);
+
+    if(!r->neigh) {
+      r->seqno = P->update_seqno;
+      r->router_id = proto_get_router_id(&P_CF->c);
+      r->updated = now;
+      r->flags = BABEL_FLAG_SELECTED;
+      r->metric = 0;
+      e->selected = r;
+    }
+  } else if(old) {
+    /* route has gone away; send retraction */
+    e = babel_find_entry(p, net->n.prefix, net->n.pxlen);
+    if(e && !e->selected->neigh) {
+      /* no neighbour, so our route */
+      e->selected->metric = BABEL_INFINITY;
+      e->selected->updated = now;
+    }
+  } else {
+    return;
   }
+  ev_schedule(P->update_event);
 }
 
 static void babel_neigh_notify(neighbor *n)
