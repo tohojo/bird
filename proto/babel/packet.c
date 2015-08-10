@@ -209,6 +209,9 @@ ip_addr babel_get_addr_update(struct babel_tlv_header *hdr, struct babel_parse_s
 }
 void babel_put_addr_update(struct babel_tlv_header *hdr, ip_addr addr)
 {
+  struct babel_tlv_update *tlv = (struct babel_tlv_update *)hdr;
+  tlv->ae = BABEL_AE_IP6;
+  put_ipa(&tlv->addr, addr);
 }
 int babel_validate_route_request(struct babel_tlv_header *hdr)
 {

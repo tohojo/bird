@@ -45,8 +45,8 @@ babel_iface_item:
  | TX PRIORITY expr { BABEL_IPATT->tx_priority = $3; }
  | TYPE WIRED { BABEL_IPATT->type = BABEL_IFACE_TYPE_WIRED; }
  | TYPE WIRELESS { BABEL_IPATT->type = BABEL_IFACE_TYPE_WIRELESS; }
- | HELLO_INTERVAL expr ';'	{ BABEL_IPATT->hello_interval = $2; }
- | UPDATE_INTERVAL expr ';'	{ BABEL_IPATT->update_interval = $2; }
+ | HELLO_INTERVAL expr { BABEL_IPATT->hello_interval = $2; }
+ | UPDATE_INTERVAL expr { BABEL_IPATT->update_interval = $2; }
  ;
 
 babel_iface_opts:

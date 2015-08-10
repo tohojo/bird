@@ -69,7 +69,7 @@ static struct babel_source * babel_find_source(struct babel_entry *e, u64 router
 static struct babel_source * babel_get_source(struct babel_entry *e, u64 router_id)
 {
   struct babel_source *s = babel_find_source(e, router_id);
-  if(!s) return s;
+  if(s) return s;
   s = mb_allocz(e->proto->pool, sizeof(struct babel_source));
   s->router_id = router_id;
   s->e = e;
@@ -318,10 +318,70 @@ static void babel_hello_timer(timer *t)
   tm_start(t, bif->hello_interval);
 }
 
+static int babel_add_router_id(struct babel_interface *bif, u64 router_id)
+{
+  struct proto *p = bif->proto;
+  struct babel_tlv_router_id *rid;
+  rid = BABEL_NEW_PACKET(bif, struct babel_tlv_router_id);
+  if(!rid) return 1;
+  rid->header.type = BABEL_TYPE_ROUTER_ID;
+  rid->header.length = TLV_LENGTH(struct babel_tlv_router_id);
+  rid->router_id = router_id;
+  return 0;
+}
+
+static void babel_send_update(struct babel_interface *bif)
+{
+  struct proto *p = bif->proto;
+  struct babel_tlv_update *upd;
+  struct babel_entry *e;
+  struct babel_route *r;
+  struct babel_source *s;
+  u64 router_id = 0;
+  int res = 0, i = 0;
+  TRACE(D_PACKETS, "Babel: Sending update");
+  FIB_WALK(&P->rtable, n) {
+    e = (struct babel_entry *)n;
+    r = e->selected;
+    if(!r) continue;
+    i++;
+
+    if(r->router_id != router_id) {
+      res = babel_add_router_id(bif, r->router_id);
+      if(res == 0) upd = BABEL_ADD_TLV(bif, struct babel_tlv_update);
+      router_id = r->router_id;
+    }
+    if(res > 0 || !upd) {
+      babel_send(bif);
+      babel_add_router_id(bif, router_id);
+      upd = BABEL_ADD_TLV(bif, struct babel_tlv_update);
+      i = 1;
+    }
+    upd->header.type = BABEL_TYPE_UPDATE;
+    upd->header.length = TLV_LENGTH(struct babel_tlv_update);
+    upd->plen = e->n.pxlen;
+    upd->interval = bif->update_interval*100;
+    upd->seqno = r->seqno;
+    upd->metric = r->metric;
+    babel_put_addr(&upd->header, e->n.prefix);
+
+    s = babel_get_source(e, r->router_id);
+    if(upd->seqno > s->seqno
+       || (upd->seqno == s->seqno && upd->metric < s->metric)) {
+      s->seqno = upd->seqno;
+      s->metric = upd->metric;
+      s->updated = now;
+    }
+  } FIB_WALK_END;
+  if(i > 0) babel_send(bif);
+}
 
 static void babel_update_timer(timer *t)
 {
+  DBG("Babel: Update timer firing.\n");
   struct babel_interface *bif = t->data;
+  babel_send_update(bif);
+  tm_start(t, bif->update_interval);
 }
 
 
@@ -514,6 +574,7 @@ int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *
     r->router_id = state->router_id;
     r->metric = compute_metric(n, tlv->metric);
     r->next_hop = state->next_hop;
+    r->seqno = tlv->seqno;
     r->updated = now;
   } else if(r->flags & BABEL_FLAG_SELECTED
        && !is_feasible(s, tlv->seqno, tlv->metric)) {
@@ -529,6 +590,7 @@ int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *
     r->metric = compute_metric(n, tlv->metric);
     r->router_id = state->router_id;
     r->next_hop = state->next_hop;
+    r->seqno = tlv->seqno;
     if(tlv->metric != BABEL_INFINITY) r->expiry = now + (BABEL_EXPIRY_FACTOR*tlv->interval)/100;
   }
   babel_select_route(e);
@@ -741,7 +803,7 @@ static struct babel_interface *new_iface(struct proto *p, struct iface *new,
 
 
   bif->hello_timer = tm_new_set(bif->pool, babel_hello_timer, bif, 0, 0);
-  bif->update_timer = tm_new_set(bif->pool, babel_update_time, bif, 0, 0);
+  bif->update_timer = tm_new_set(bif->pool, babel_update_timer, bif, 0, 0);
 
   bif->sock = sk_new( bif->pool );
   bif->sock->type = SK_UDP;
