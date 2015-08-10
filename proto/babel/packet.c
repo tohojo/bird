@@ -70,13 +70,13 @@ static struct babel_tlv_data tlv_data[BABEL_TYPE_MAX] = {
    babel_hton_update, babel_ntoh_update,
    babel_get_addr_update, babel_put_addr_update},
   {sizeof(struct babel_tlv_route_request),
-   babel_handle_route_request, babel_validate_route_request,
+   babel_handle_route_request, babel_validate_request,
    NULL, NULL,
-   babel_get_addr_route_request, babel_put_addr_route_request},
+   babel_get_addr_request, babel_put_addr_request},
   {sizeof(struct babel_tlv_seqno_request),
-   babel_handle_seqno_request, babel_validate_seqno_request,
+   babel_handle_seqno_request, babel_validate_request,
    babel_hton_seqno_request, babel_ntoh_seqno_request,
-   babel_get_addr_seqno_request, babel_put_addr_seqno_request},
+   babel_get_addr_request, babel_put_addr_request},
 };
 
 static inline int validate_tlv(struct babel_tlv_header *tlv, struct babel_parse_state *state)
@@ -233,13 +233,15 @@ void babel_put_addr_update(struct babel_tlv_header *hdr, ip_addr addr)
   tlv->ae = BABEL_AE_IP6;
   put_ipa(&tlv->addr, addr);
 }
-int babel_validate_route_request(struct babel_tlv_header *hdr, struct babel_parse_state *state)
+int babel_validate_request(struct babel_tlv_header *hdr, struct babel_parse_state *state)
 {
+  /* Validates both seqno and route_request. Works because ae and plen fields
+     are in the same place. */
   struct babel_tlv_route_request *tlv = (struct babel_tlv_route_request *)hdr;
   u8 len = tlv->plen/8;
   if(tlv->plen % 8) len++;
   /* enough space to hold the prefix */
-  if(hdr->length < TLV_LENGTH(BABEL_TYPE_ROUTE_REQUEST) - sizeof(struct babel_tlv_header) + len)
+  if(hdr->length < TLV_LENGTH(hdr->type) - sizeof(tlv->addr) + len)
     return 0;
   /* wildcard requests must have plen 0 */
   if(tlv->ae == BABEL_AE_WILDCARD && tlv->plen > 0)
@@ -251,7 +253,7 @@ int babel_validate_route_request(struct babel_tlv_header *hdr, struct babel_pars
 
   return 1;
 }
-ip_addr babel_get_addr_route_request(struct babel_tlv_header *hdr,
+ip_addr babel_get_addr_request(struct babel_tlv_header *hdr,
 				     struct babel_parse_state *state)
 {
   struct babel_tlv_route_request *tlv = (struct babel_tlv_route_request *)hdr;
@@ -261,10 +263,13 @@ ip_addr babel_get_addr_route_request(struct babel_tlv_header *hdr,
 
   /* fixed encoding */
   if(tlv->ae == BABEL_AE_WILDCARD) return IPA_NONE;
-  memcpy(buf, tlv->addr, len);
+  if(hdr->type == BABEL_TYPE_SEQNO_REQUEST)
+    memcpy(buf, ((struct babel_tlv_seqno_request *)tlv)->addr, len);
+  else
+    memcpy(buf, tlv->addr, len);
   return get_ipa(buf);
 }
-void babel_put_addr_route_request(struct babel_tlv_header *hdr, ip_addr addr)
+void babel_put_addr_request(struct babel_tlv_header *hdr, ip_addr addr)
 {
   struct babel_tlv_route_request *tlv = (struct babel_tlv_route_request *)hdr;
   char buf[16];
@@ -273,24 +278,17 @@ void babel_put_addr_route_request(struct babel_tlv_header *hdr, ip_addr addr)
   put_ipa(buf, addr);
   memcpy(tlv->addr, buf, len);
 }
-int babel_validate_seqno_request(struct babel_tlv_header *hdr, struct babel_parse_state *state)
-{
-}
 void babel_hton_seqno_request(struct babel_tlv_header *hdr)
 {
   struct babel_tlv_seqno_request *tlv = (struct babel_tlv_seqno_request *)hdr;
   tlv->seqno = htons(tlv->seqno);
+  tlv->router_id = htobe64(tlv->router_id);
 }
 void babel_ntoh_seqno_request(struct babel_tlv_header *hdr)
 {
   struct babel_tlv_seqno_request *tlv = (struct babel_tlv_seqno_request *)hdr;
   tlv->seqno = ntohs(tlv->seqno);
-}
-ip_addr babel_get_addr_seqno_request(struct babel_tlv_header *hdr, struct babel_parse_state *state)
-{
-}
-void babel_put_addr_seqno_request(struct babel_tlv_header *hdr, ip_addr addr)
-{
+  tlv->router_id = be64toh(tlv->router_id);
 }
 static void babel_tlv_hton(struct babel_tlv_header *hdr)
 {

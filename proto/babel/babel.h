@@ -182,9 +182,10 @@ struct babel_tlv_route_request {
   u8 plen;
   u32 addr[4];
 };
-ip_addr babel_get_addr_route_request(struct babel_tlv_header *tlv,
+/* works for both types of request */
+ip_addr babel_get_addr_request(struct babel_tlv_header *tlv,
 				     struct babel_parse_state *state);
-void babel_put_addr_route_request(struct babel_tlv_header *tlv, ip_addr addr);
+void babel_put_addr_request(struct babel_tlv_header *tlv, ip_addr addr);
 
 struct babel_tlv_seqno_request {
   struct babel_tlv_header header;
@@ -194,13 +195,10 @@ struct babel_tlv_seqno_request {
   u8 hop_count;
   u8 reserved;
   u64 router_id __attribute__((packed));
-  /* optionally prefix */
+  u32 addr[4];
 };
 void babel_hton_seqno_request(struct babel_tlv_header *tlv);
 void babel_ntoh_seqno_request(struct babel_tlv_header *tlv);
-ip_addr babel_get_addr_seqno_request(struct babel_tlv_header *tlv,
-				     struct babel_parse_state *state);
-void babel_put_addr_seqno_request(struct babel_tlv_header *tlv, ip_addr addr);
 
 
 /* Handlers */
@@ -218,10 +216,9 @@ int babel_handle_update(struct babel_tlv_header *tlv, struct babel_parse_state *
 int babel_validate_update(struct babel_tlv_header *hdr, struct babel_parse_state *state);
 int babel_handle_route_request(struct babel_tlv_header *tlv,
 				      struct babel_parse_state *state);
-int babel_validate_route_request(struct babel_tlv_header *hdr, struct babel_parse_state *state);
+int babel_validate_request(struct babel_tlv_header *hdr, struct babel_parse_state *state);
 int babel_handle_seqno_request(struct babel_tlv_header *tlv,
 				      struct babel_parse_state *state);
-int babel_validate_seqno_request(struct babel_tlv_header *hdr, struct babel_parse_state *state);
 
 struct babel_packet {
   struct babel_header header;
@@ -331,6 +328,7 @@ struct babel_proto {
   list garbage;
   list interfaces;	/* Interfaces we really know about */
   u16 update_seqno;		/* To be increased on request */
+  u64 router_id;
   event *update_event;  /* For triggering global updates */
 };
 

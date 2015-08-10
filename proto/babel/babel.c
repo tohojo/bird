@@ -379,6 +379,8 @@ static void babel_send_update(struct babel_interface *bif)
       upd = babel_add_tlv_update(bif);
       i = 1;
     }
+    if(r->router_id == P->router_id && r->seqno < P->update_seqno)
+      r->seqno = P->update_seqno;
     upd->plen = e->n.pxlen;
     upd->interval = bif->update_interval*100;
     upd->seqno = r->seqno;
@@ -634,7 +636,7 @@ static void babel_send_retraction(struct babel_interface *bif, ip_addr prefix, i
   struct proto *p = bif->proto;
   struct babel_tlv_update *upd;
   babel_new_packet(bif);
-  babel_add_router_id(bif, proto_get_router_id(&P_CF->c));
+  babel_add_router_id(bif, P->router_id);
   upd = babel_add_tlv_update(bif);
   upd->plen = plen;
   upd->interval = bif->update_interval*100;
@@ -672,9 +674,69 @@ int babel_handle_route_request(struct babel_tlv_header *hdr,
   return 0;
 }
 
+/* The RFC section 3.8.1.2 on seqno requests:
+
+   When a node receives a seqno request for a given router-id and sequence
+   number, it checks whether its routing table contains a selected entry for
+   that prefix; if no such entry exists, or the entry has infinite metric, it
+   ignores the request.
+
+   If a selected route for the given prefix exists, and either the router-ids
+   are different or the router-ids are equal and the entry's sequence number is
+   no smaller than the requested sequence number, it MUST send an update for the
+   given prefix.
+
+   If the router-ids match but the requested seqno is larger than the route
+   entry's, the node compares the router-id against its own router-id. If the
+   router-id is its own, then it increases its sequence number by 1 and sends an
+   update. A node MUST NOT increase its sequence number by more than 1 in
+   response to a route request.
+
+   If the requested router-id is not its own, the received request's hop count
+   is 2 or more, and the node has a route (not necessarily a feasible one) for
+   the requested prefix that does not use the requestor as a next hop, the node
+   SHOULD forward the request. It does so by decreasing the hop count and
+   sending the request in a unicast packet destined to a neighbour that
+   advertises the given prefix (not necessarily the selected neighbour) and that
+   is distinct from the neighbour from which the request was received.
+
+   A node SHOULD maintain a list of recently forwarded requests and forward the
+   reply in a timely manner. A node SHOULD compare every incoming request
+   against its list of recently forwarded requests and avoid forwarding it if it
+   is redundant.
+*/
 int babel_handle_seqno_request(struct babel_tlv_header *hdr,
 				      struct babel_parse_state *state)
 {
+  struct babel_tlv_seqno_request *tlv = (struct babel_tlv_seqno_request *)hdr;
+  struct babel_interface *bif = state->bif;
+  struct proto *p = state->proto;
+  ip_addr prefix = babel_get_addr(hdr, state);
+  struct babel_entry *e;
+  struct babel_route *r;
+
+  TRACE(D_PACKETS, "Handling seqno request for %I/%d router_id %0lx seqno %d hop count %d",
+	prefix, tlv->plen, tlv->router_id, tlv->seqno, tlv->hop_count);
+
+  e = babel_find_entry(p, prefix, tlv->plen);
+  if(!e || !e->selected || e->selected->metric == BABEL_INFINITY) return 1;
+
+  r = e->selected;
+  if(r->router_id != tlv->router_id || r->seqno >= tlv->seqno) {
+    babel_send_update(bif); /* FIXME: good enough to send on one interface? */
+    return 0;
+  }
+
+  /* seqno is larger; check if we own the router id */
+  if(tlv->router_id == P->router_id) {
+    P->update_seqno++;
+    ev_schedule(P->update_event);
+    return 0;
+  }
+
+  /* FIXME: SHOULD forward request */
+  return 1;
+
 }
 
 
@@ -983,7 +1045,7 @@ babel_rt_notify(struct proto *p, struct rtable *table UNUSED, struct network *ne
 
     if(!r->neigh) {
       r->seqno = P->update_seqno;
-      r->router_id = proto_get_router_id(&P_CF->c);
+      r->router_id = P->router_id;
       r->updated = now;
       r->flags = BABEL_FLAG_SELECTED;
       r->metric = 0;
@@ -1102,6 +1164,7 @@ babel_start(struct proto *p)
   P->timer = tm_new_set(p->pool, babel_timer, p, 0, 1);
   tm_start( P->timer, 2 );
   P->update_seqno = 1;
+  P->router_id = proto_get_router_id(&P_CF->c);
   P->update_event = ev_new(p->pool);
   P->update_event->hook = babel_global_update;
   P->update_event->data = p;
