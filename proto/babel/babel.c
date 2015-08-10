@@ -156,6 +156,7 @@ static inline int is_feasible(struct babel_source *s, u16 seqno, u16 metric)
 static u16 babel_compute_rxcost(struct babel_neighbor *bn)
 {
   struct babel_interface *bif = bn->bif;
+  struct proto *p = bif->proto;
   u8 n, missed;
   u16 map=bn->hello_map;
 
@@ -174,6 +175,8 @@ static u16 babel_compute_rxcost(struct babel_neighbor *bn)
     if(!missed) return BABEL_RXCOST_WIRELESS;
     beta = 1-missed/bn->hello_n;
     return (beta > 0) ? BABEL_RXCOST_WIRELESS/beta : BABEL_RXCOST_WIRELESS;
+  } else {
+    BAD("Unknown interface type!");
   }
 }
 
@@ -181,6 +184,7 @@ static u16 babel_compute_rxcost(struct babel_neighbor *bn)
 static u16 compute_cost(struct babel_neighbor *bn)
 {
   struct babel_interface *bif = bn->bif;
+  struct proto *p = bif->proto;
   u16 rxcost = babel_compute_rxcost(bn);
   if(rxcost == BABEL_INFINITY) return rxcost;
   else if(bif->type == BABEL_IFACE_TYPE_WIRED) {
@@ -189,6 +193,8 @@ static u16 compute_cost(struct babel_neighbor *bn)
   } else if(bif->type == BABEL_IFACE_TYPE_WIRELESS) {
     /* ETX - Appendix 2.2 in the RFC */
     return (MAX(bn->txcost, 256) * rxcost)/256;
+  } else {
+    BAD("Unknown interface type!");
   }
 }
 
@@ -254,7 +260,13 @@ static void babel_select_route(struct babel_entry *e)
   }
   if(cur && cur->neigh && ((!old && cur->metric < BABEL_INFINITY)
 			   || (old && old->u.babel.metric != cur->metric)))
-    rte_update(p, n, babel_build_rte(p, n, cur));
+    {
+      /* Notify the nest of the update. If we change router ID, we also trigger
+	 a global update. */
+      rte_update(p, n, babel_build_rte(p, n, cur));
+      if(!old || old->u.babel.router_id != cur->router_id)
+	ev_schedule(P->update_event);
+    }
 }
 
 static void babel_send_ack(struct babel_interface *bif, ip_addr dest, u16 nonce)
@@ -336,7 +348,7 @@ static void babel_send_update(struct babel_interface *bif)
   struct babel_source *s;
   u64 router_id = 0;
   int res = 0, i = 0;
-  TRACE(D_PACKETS, "Babel: Sending update");
+  TRACE(D_PACKETS, "Sending update on %s", bif->ifname);
   babel_new_packet(bif);
   FIB_WALK(&P->rtable, n) {
     e = (struct babel_entry *)n;
@@ -375,10 +387,21 @@ static void babel_send_update(struct babel_interface *bif)
   if(i > 0) babel_send(bif);
 }
 
+/* Sends and update on all interfaces. */
+static void babel_global_update(void *arg)
+{
+  struct proto *p = arg;
+  struct babel_interface *bif;
+  TRACE(D_EVENTS, "Sending global update. Seqno %d", P->update_seqno);
+  WALK_LIST(bif, P->interfaces)
+    babel_send_update(bif);
+}
+
 static void babel_update_timer(timer *t)
 {
-  DBG("Babel: Update timer firing.\n");
   struct babel_interface *bif = t->data;
+  struct proto *p = bif->proto;
+  TRACE(D_EVENTS, "Update timer firing");
   babel_send_update(bif);
   tm_start(t, bif->update_interval);
 }
@@ -400,6 +423,8 @@ int babel_handle_ack(struct babel_tlv_header *hdr, struct babel_parse_state *sta
   struct babel_tlv_ack *tlv = (struct babel_tlv_ack *)hdr;
   struct proto *p = state->proto;
   TRACE(D_PACKETS, "Received ACK nonce %d", tlv->nonce);
+  /* We don't send any ACK requests, so no need to do anything with ACKs. */
+  return 1;
 }
 
 static void babel_flush_neighbor(struct babel_neighbor *bn)
@@ -1020,6 +1045,9 @@ babel_start(struct proto *p)
   P->timer = tm_new_set(p->pool, babel_timer, p, 0, 1);
   tm_start( P->timer, 2 );
   P->update_seqno = 1;
+  P->update_event = ev_new(p->pool);
+  P->update_event->hook = babel_global_update;
+  P->update_event->data = p;
   DBG( "Babel: ...done\n");
   return PS_UP;
 }

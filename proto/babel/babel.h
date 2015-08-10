@@ -329,6 +329,7 @@ struct babel_proto {
   list garbage;
   list interfaces;	/* Interfaces we really know about */
   u16 update_seqno;		/* To be increased on request */
+  event *update_event;  /* For triggering global updates */
 };
 
 
