@@ -115,12 +115,8 @@ static struct babel_neighbor * babel_get_neighbor(struct babel_interface *bif, i
   bn->neigh = n;
   bn->addr = n->addr;
   bn->txcost = BABEL_INFINITY;
-  bn->hello_timer = tm_new(bif->pool);
-  bn->hello_timer->data = bn;
-  bn->hello_timer->hook = babel_hello_expiry;
-  bn->ihu_timer = tm_new(bif->pool);
-  bn->ihu_timer->data = bn;
-  bn->ihu_timer->hook = babel_ihu_expiry;
+  bn->hello_timer = tm_new_set(bif->pool, babel_hello_expiry, bn, 0, 0);
+  bn->ihu_timer = tm_new_set(bif->pool, babel_ihu_expiry, bn, 0, 0);
   n->data = bn;
   init_list(&bn->routes);
   add_tail(&bif->neigh_list, NODE bn);
@@ -744,13 +740,8 @@ static struct babel_interface *new_iface(struct proto *p, struct iface *new,
   bif->ihu_event->data = bif;
 
 
-  bif->hello_timer = tm_new(bif->pool);
-  bif->hello_timer->hook = babel_hello_timer;
-  bif->hello_timer->data = bif;
-
-  bif->update_timer = tm_new(bif->pool);
-  bif->update_timer->hook = babel_update_timer;
-  bif->update_timer->data = bif;
+  bif->hello_timer = tm_new_set(bif->pool, babel_hello_timer, bif, 0, 0);
+  bif->update_timer = tm_new_set(bif->pool, babel_update_time, bif, 0, 0);
 
   bif->sock = sk_new( bif->pool );
   bif->sock->type = SK_UDP;
@@ -784,7 +775,7 @@ static struct babel_interface *new_iface(struct proto *p, struct iface *new,
   log(L_ERR "%s: Cannot open socket for %s", p->name,  bif->iface ?  bif->iface->name : "(dummy)" );
   if (bif->iface) {
     rfree(bif->pool);
-    mb_free( bif);
+    mb_free(bif);
     return NULL;
   }
 
@@ -946,10 +937,7 @@ babel_start(struct proto *p)
   fib_init( &P->rtable, p->pool, sizeof( struct babel_entry ), 0, babel_init_entry );
   init_list( &P->connections );
   init_list( &P->interfaces );
-  P->timer = tm_new( p->pool );
-  P->timer->data = p;
-  P->timer->recurrent = 1;
-  P->timer->hook = babel_timer;
+  P->timer = tm_new_set(p->pool, babel_timer, p, 0, 1);
   tm_start( P->timer, 2 );
   P->update_seqno = 1;
   DBG( "Babel: ...done\n");
