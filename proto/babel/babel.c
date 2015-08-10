@@ -1069,6 +1069,7 @@ static void babel_neigh_notify(neighbor *n)
 {
   struct proto *p = n->proto;
   struct babel_neighbor *bn = n->data;
+  DBG("Neighbor: bn %d scope %d flags %d\n", bn, n->scope, n->flags);
   if(n->scope <= 0) {
     TRACE(D_EVENTS, "Babel: Neighbor lost");
   } else {
