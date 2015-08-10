@@ -246,7 +246,7 @@ int babel_validate_route_request(struct babel_tlv_header *hdr, struct babel_pars
     return 0;
 
   /* We don't speak IPv4, and prefixes cannot be link-local addresses. */
-  if(tlv->ae != BABEL_AE_IP6)
+  if(tlv->ae != BABEL_AE_IP6 && tlv->ae != BABEL_AE_WILDCARD)
     return 0;
 
   return 1;
