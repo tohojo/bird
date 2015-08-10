@@ -343,10 +343,50 @@ void babel_send_to( struct babel_interface *bif, ip_addr dest );
 int babel_process_packet(struct babel_header *pkt, int size,
 			 ip_addr saddr, int port, struct babel_interface *bif);
 ip_addr babel_get_addr(struct babel_tlv_header *hdr, struct babel_parse_state *state);
-
-#define BABEL_NEW_PACKET(bif,t) ((t *)babel_new_packet(bif,sizeof(t)))
-struct babel_tlv_header * babel_new_packet(struct babel_interface *bif, u16 len);
-#define BABEL_ADD_TLV(bif,t) ((t *)babel_add_tlv(bif,sizeof(t)))
+void babel_put_addr(struct babel_tlv_header *hdr, ip_addr addr);
+void babel_new_packet(struct babel_interface *bif);
 struct babel_tlv_header * babel_add_tlv(struct babel_interface *bif, u16 len);
-#define BABEL_ADD_TLV_SEND(bif,t,dest) ((t *)babel_add_tlv_send(bif,sizeof(t),dest))
-struct babel_tlv_header * babel_add_tlv_send(struct babel_interface *bif, u16 len, ip_addr dest);
+#define BABEL_ADD_TLV_SEND(tlv,bif,func,addr) do {			\
+    tlv=func(bif);							\
+    if(!tlv) {								\
+      babel_send_to(bif,addr);						\
+      babel_new_packet(bif);						\
+      tlv=func(bif);							\
+    }} while (0);
+
+inline struct babel_tlv_ack_req * babel_add_tlv_ack_req(struct babel_interface *bif)
+{
+  return (struct babel_tlv_ack_req *) babel_add_tlv(bif, BABEL_TYPE_ACK_REQ);
+}
+inline struct babel_tlv_ack * babel_add_tlv_ack(struct babel_interface *bif)
+{
+  return (struct babel_tlv_ack *) babel_add_tlv(bif, BABEL_TYPE_ACK);
+}
+inline struct babel_tlv_hello * babel_add_tlv_hello(struct babel_interface *bif)
+{
+  return (struct babel_tlv_hello *) babel_add_tlv(bif, BABEL_TYPE_HELLO);
+}
+inline struct babel_tlv_ihu * babel_add_tlv_ihu(struct babel_interface *bif)
+{
+  return (struct babel_tlv_ihu *) babel_add_tlv(bif, BABEL_TYPE_IHU);
+}
+inline struct babel_tlv_router_id * babel_add_tlv_router_id(struct babel_interface *bif)
+{
+  return (struct babel_tlv_router_id *) babel_add_tlv(bif, BABEL_TYPE_ROUTER_ID);
+}
+inline struct babel_tlv_next_hop * babel_add_tlv_next_hop(struct babel_interface *bif)
+{
+  return (struct babel_tlv_next_hop *) babel_add_tlv(bif, BABEL_TYPE_NEXT_HOP);
+}
+inline struct babel_tlv_update * babel_add_tlv_update(struct babel_interface *bif)
+{
+  return (struct babel_tlv_update *) babel_add_tlv(bif, BABEL_TYPE_UPDATE);
+}
+inline struct babel_tlv_route_request * babel_add_tlv_route_request(struct babel_interface *bif)
+{
+  return (struct babel_tlv_route_request *) babel_add_tlv(bif, BABEL_TYPE_ROUTE_REQUEST);
+}
+inline struct babel_tlv_seqno_request * babel_add_tlv_seqno_request(struct babel_interface *bif)
+{
+  return (struct babel_tlv_seqno_request *) babel_add_tlv(bif, BABEL_TYPE_SEQNO_REQUEST);
+}

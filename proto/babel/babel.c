@@ -34,7 +34,7 @@
 
 static struct babel_interface *new_iface(struct proto *p, struct iface *new,
 					 unsigned long flags, struct iface_patt *patt);
-static void babel_send_ihus(struct babel_interface *bif);
+static void babel_send_ihus(void *bif);
 static void babel_hello_expiry(timer *t);
 static void babel_ihu_expiry(timer *t);
 static void babel_dump_entry(struct babel_entry *e);
@@ -257,18 +257,16 @@ static void babel_send_ack(struct babel_interface *bif, ip_addr dest, u16 nonce)
   struct proto *p = bif->proto;
   struct babel_tlv_ack *tlv;
   TRACE(D_PACKETS, "Babel: Sending ACK to %I with nonce %d\n", dest, nonce);
-  tlv = BABEL_NEW_PACKET(bif, struct babel_tlv_ack);
-  tlv->header.type = BABEL_TYPE_ACK;
-  tlv->header.length = TLV_LENGTH(struct babel_tlv_ack);
+  babel_new_packet(bif);
+  tlv = babel_add_tlv_ack(bif);
   tlv->nonce = nonce;
-
   babel_send_to(bif, dest);
 }
 
 static void babel_add_ihu(struct babel_interface *bif, struct babel_neighbor *bn)
 {
   struct babel_tlv_ihu *tlv;
-  tlv = BABEL_ADD_TLV_SEND(bif, struct babel_tlv_ihu, IPA_NONE);
+  BABEL_ADD_TLV_SEND(tlv, bif, babel_add_tlv_ihu, IPA_NONE);
   tlv->header.type = BABEL_TYPE_IHU;
   tlv->header.length = TLV_LENGTH(struct babel_tlv_ihu);
   babel_put_addr_ihu(&tlv->header, bn->addr);
@@ -283,11 +281,12 @@ static void babel_add_ihus(struct babel_interface *bif)
     babel_add_ihu(bif,bn);
 }
 
-static void babel_send_ihus(struct babel_interface *bif)
+static void babel_send_ihus(void *arg)
 {
+  struct babel_interface *bif = arg;
   struct proto *p = bif->proto;
   TRACE(D_PACKETS, "Babel: Sending IHUs");
-  babel_new_packet(bif, 0);
+  babel_new_packet(bif);
   babel_add_ihus(bif);
   babel_send(bif);
 }
@@ -297,9 +296,8 @@ static void babel_send_hello(struct babel_interface *bif, u8 send_ihu)
   struct proto *p = bif->proto;
   struct babel_tlv_hello *tlv;
   TRACE(D_PACKETS, "Babel: Sending hello");
-  tlv = BABEL_NEW_PACKET(bif, struct babel_tlv_hello);
-  tlv->header.type = BABEL_TYPE_HELLO;
-  tlv->header.length = TLV_LENGTH(struct babel_tlv_hello);
+  babel_new_packet(bif);
+  tlv = babel_add_tlv_hello(bif);
   tlv->seqno = bif->hello_seqno++;
   tlv->interval = bif->hello_interval*100;
 
@@ -320,9 +318,7 @@ static void babel_hello_timer(timer *t)
 
 static int babel_add_router_id(struct babel_interface *bif, u64 router_id)
 {
-  struct proto *p = bif->proto;
-  struct babel_tlv_router_id *rid;
-  rid = BABEL_NEW_PACKET(bif, struct babel_tlv_router_id);
+  struct babel_tlv_router_id *rid = babel_add_tlv_router_id(bif);
   if(!rid) return 1;
   rid->header.type = BABEL_TYPE_ROUTER_ID;
   rid->header.length = TLV_LENGTH(struct babel_tlv_router_id);
@@ -333,7 +329,7 @@ static int babel_add_router_id(struct babel_interface *bif, u64 router_id)
 static void babel_send_update(struct babel_interface *bif)
 {
   struct proto *p = bif->proto;
-  struct babel_tlv_update *upd;
+  struct babel_tlv_update *upd = NULL;
   struct babel_entry *e;
   struct babel_route *r;
   struct babel_source *s;
@@ -348,13 +344,13 @@ static void babel_send_update(struct babel_interface *bif)
 
     if(r->router_id != router_id) {
       res = babel_add_router_id(bif, r->router_id);
-      if(res == 0) upd = BABEL_ADD_TLV(bif, struct babel_tlv_update);
+      if(res == 0) upd = babel_add_tlv_update(bif);
       router_id = r->router_id;
     }
     if(res > 0 || !upd) {
       babel_send(bif);
       babel_add_router_id(bif, router_id);
-      upd = BABEL_ADD_TLV(bif, struct babel_tlv_update);
+      upd = babel_add_tlv_update(bif);
       i = 1;
     }
     upd->header.type = BABEL_TYPE_UPDATE;
@@ -466,7 +462,7 @@ int babel_handle_hello(struct babel_tlv_header *hdr, struct babel_parse_state *s
   TRACE(D_PACKETS, "Handling hello seqno %d interval %d", tlv->seqno,
 	tlv->interval, state->saddr);
   update_hello_history(bn, tlv->seqno, tlv->interval);
-  return 1;
+  return 0;
 }
 
 int babel_handle_ihu(struct babel_tlv_header *hdr, struct babel_parse_state *state)
@@ -476,13 +472,13 @@ int babel_handle_ihu(struct babel_tlv_header *hdr, struct babel_parse_state *sta
   struct babel_interface *bif = state->bif;
   ip_addr addr = babel_get_addr(hdr, state);
 
-  if(!ipa_equal(addr, bif->addr)) return 0; // not for us
+  if(!ipa_equal(addr, bif->addr)) return 1; // not for us
   TRACE(D_PACKETS, "Handling IHU rxcost %d interval %d", tlv->rxcost,
 	tlv->interval);
   struct babel_neighbor *bn = babel_get_neighbor(bif, state->saddr);
   bn->txcost = tlv->rxcost;
   tm_start(bn->ihu_timer, 1.5*(tlv->interval/100));
-  return 1;
+  return 0;
 }
 
 int babel_handle_router_id(struct babel_tlv_header *hdr, struct babel_parse_state *state)
@@ -491,14 +487,13 @@ int babel_handle_router_id(struct babel_tlv_header *hdr, struct babel_parse_stat
   struct proto *p = state->proto;
   state->router_id = tlv->router_id;
   TRACE(D_PACKETS, "Handling router ID %016lx", state->router_id);
-  return 1;
+  return 0;
 }
 
 int babel_handle_next_hop(struct babel_tlv_header *hdr, struct babel_parse_state *state)
 {
-  struct babel_tlv_next_hop *tlv = (struct babel_tlv_next_hop *)hdr;
   state->next_hop = babel_get_addr(hdr, state);
-  return 1;
+  return 0;
 }
 
 int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *state)
@@ -523,7 +518,7 @@ int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *
   n = babel_find_neighbor(bif, state->saddr);
   if(!n) {
     DBG("Haven't heard from neighbor %I; ignoring update.\n", state->saddr);
-    return 0;
+    return 1;
   }
 
   /* RFC section 3.5.4:
@@ -566,7 +561,7 @@ int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *
   if(!r) {
 
     if(!is_feasible(s, tlv->seqno, tlv->metric))
-      return 0; /* first two points above. is_feasible also returns false if the
+      return 1; /* first two points above. is_feasible also returns false if the
 		   metric is infinite */
 
     r = babel_get_route(e, n);
@@ -581,7 +576,7 @@ int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *
 
     /* route is installed and update is infeasible - check router id */
 
-    if(state->router_id == s->router_id) return 0;
+    if(state->router_id == s->router_id) return 1;
     r->metric = BABEL_INFINITY; /* retraction */
   } else {
     /* last point above - update entry */
@@ -595,6 +590,7 @@ int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *
   }
   babel_select_route(e);
   babel_dump_entry(e);
+  return 0;
 }
 
 int babel_handle_route_request(struct babel_tlv_header *hdr,
@@ -633,7 +629,7 @@ static void babel_dump_route(struct babel_route *r)
 static void babel_dump_entry(struct babel_entry *e)
 {
   debug("Babel: Entry %I/%d:\n", e->n.prefix, e->n.pxlen);
-  struct babel_souce *s; struct babel_route *r;
+  struct babel_source *s; struct babel_route *r;
   WALK_LIST(s,e->sources) { debug(" "); babel_dump_source(s); }
   WALK_LIST(r,e->routes) { debug(" "); babel_dump_route(r); }
 }

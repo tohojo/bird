@@ -288,22 +288,22 @@ static void copy_tlv(struct babel_tlv_header *dest, struct babel_tlv_header *src
 }
 
 
-struct babel_tlv_header * babel_new_packet(struct babel_interface *bif, u16 len)
+void babel_new_packet(struct babel_interface *bif)
 {
   sock *s = bif->sock;
   struct babel_header *hdr = (void *) s->tbuf;
-  memset(hdr, 0, sizeof(struct babel_header)+len);
+  memset(hdr, 0, sizeof(struct babel_header));
   hdr->magic = BABEL_MAGIC;
   hdr->version = BABEL_VERSION;
-  hdr->length = len;
-  return FIRST_TLV(hdr);
+  hdr->length = 0;
 }
 
-struct babel_tlv_header * babel_add_tlv(struct babel_interface *bif, u16 len)
+struct babel_tlv_header * babel_add_tlv(struct babel_interface *bif, u16 type)
 {
   sock *s = bif->sock;
   struct babel_header *hdr = (void *) s->tbuf;
   struct babel_tlv_header *tlv;
+  int len = TLV_LENGTH(tlv_data[type].struct_length);
   int pktlen = sizeof(struct babel_header)+hdr->length;
   if(pktlen+len > bif->max_pkt_len) {
     return NULL;
@@ -311,20 +311,8 @@ struct babel_tlv_header * babel_add_tlv(struct babel_interface *bif, u16 len)
   hdr->length+=len;
   tlv = (struct babel_tlv_header *)((char*)hdr+pktlen);
   memset(tlv, 0, len);
-  return tlv;
-}
-
-struct babel_tlv_header * babel_add_tlv_send(struct babel_interface *bif, u16 len, ip_addr dest)
-{
-  struct babel_tlv_header *tlv = babel_add_tlv(bif, len);
-  if(!tlv) {
-    if(ipa_equal(dest, IPA_NONE)) {
-      babel_send(bif);
-    } else {
-      babel_send_to(bif, dest);
-    }
-    tlv = babel_new_packet(bif, len);
-  }
+  tlv->type = type;
+  tlv->length = len;
   return tlv;
 }
 
