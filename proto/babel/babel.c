@@ -624,20 +624,17 @@ static void babel_dump_source(struct babel_source *s)
 
 static void babel_dump_route(struct babel_route *r)
 {
-  debug("Route neigh %I seqno %d advert_metric %d metric %d router_id %0lx flags %d\n",
+  debug("Route neigh %I seqno %d metric %d/%d router_id %0lx\n",
 	r->neigh ? r->neigh->addr : IPA_NONE, r->seqno, r->advert_metric,
-	r->metric, r->router_id, r->flags);
+	r->metric, r->router_id);
 }
 
 static void babel_dump_entry(struct babel_entry *e)
 {
   debug("Babel: Entry %I/%d:\n", e->n.prefix, e->n.pxlen);
-  debug(" Selected: ");
-  if(e->selected) babel_dump_route(e->selected);
-  else debug("None.\n");
   struct babel_source *s; struct babel_route *r;
   WALK_LIST(s,e->sources) { debug(" "); babel_dump_source(s); }
-  WALK_LIST(r,e->routes) { debug(" "); babel_dump_route(r); }
+  WALK_LIST(r,e->routes) { debug(r==e->selected?" * " : " "); babel_dump_route(r); }
 }
 
 static void babel_dump(struct proto *p)
