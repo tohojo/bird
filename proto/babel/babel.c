@@ -114,6 +114,7 @@ static struct babel_neighbor * babel_get_neighbor(struct babel_interface *bif, i
   bn->bif = bif;
   bn->neigh = n;
   bn->addr = n->addr;
+  bn->txcost = BABEL_INFINITY;
   bn->hello_timer = tm_new(bif->pool);
   bn->hello_timer->data = bn;
   bn->hello_timer->hook = babel_hello_expiry;
@@ -127,6 +128,29 @@ static struct babel_neighbor * babel_get_neighbor(struct babel_interface *bif, i
   return bn;
 }
 
+
+/**
+   From the RFC (section 3.5.1):
+
+   a route advertisement carrying the quintuple (prefix, plen, router-id, seqno,
+   metric) is feasible if one of the following conditions holds:
+
+   - metric is infinite; or
+
+   - no entry exists in the source table indexed by (id, prefix, plen); or
+
+   - an entry (prefix, plen, router-id, seqno', metric') exists in the source
+     table, and either
+
+     - seqno' < seqno or
+     - seqno = seqno' and metric < metric'.
+*/
+static inline int is_feasible(struct babel_source *s, u16 seqno, u16 metric)
+{
+  if(!s || metric == BABEL_INFINITY) return 1;
+  return (seqno > s->seqno
+	  || (seqno == s->seqno && metric < s->metric));
+}
 
 static u16 babel_compute_rxcost(struct babel_neighbor *bn)
 {
@@ -157,9 +181,10 @@ static u16 compute_cost(struct babel_neighbor *bn)
 {
   struct babel_interface *bif = bn->bif;
   u16 rxcost = babel_compute_rxcost(bn);
-  if(bif->type == BABEL_IFACE_TYPE_WIRED) {
+  if(rxcost == BABEL_INFINITY) return rxcost;
+  else if(bif->type == BABEL_IFACE_TYPE_WIRED) {
     /* k-out-of-j selection - Appendix 2.1 in the RFC. */
-    return (rxcost == BABEL_INFINITY) ? rxcost : bn->txcost;
+    return bn->txcost;
   } else if(bif->type == BABEL_IFACE_TYPE_WIRELESS) {
     /* ETX - Appendix 2.2 in the RFC */
     return (MAX(bn->txcost, 256) * rxcost)/256;
@@ -181,9 +206,10 @@ babel_rte_same(struct rte *new, struct rte *old)
 
 static int babel_rte_better(struct rte *new, struct rte *old)
 {
+  return new->u.babel.metric < old->u.babel.metric;
 }
 
-static rte * babel_build_rte(struct proto *p, struct babel_route *r, net *n)
+static rte * babel_build_rte(struct proto *p, net *n, struct babel_route *r)
 {
   rta *a, A;
   rte *rte;
@@ -207,22 +233,28 @@ static rte * babel_build_rte(struct proto *p, struct babel_route *r, net *n)
 }
 
 /* Route selection algorithm. Just select the route with the lowest metric. */
-static void babel_select_route(struct babel_entry *e, struct babel_interface *bif)
+static void babel_select_route(struct babel_entry *e)
 {
   struct proto *p = e->proto;
-  rte *rte;
-  net *n;
+  net *n = net_get(p->table, e->n.prefix, e->n.pxlen);
+  rte *old = rte_find(n, p->main_source);
   struct babel_route *r, *cur = e->selected;
-  if(!cur) {
-    r = HEAD(e->routes);
-    n = net_get(p->table, e->n.prefix, e->n.pxlen);
-    r->flags |= BABEL_FLAG_SELECTED;
-    e->selected = r;
-    rte = babel_build_rte(p, r, n);
-    rte_update(p, n, rte);
-  }
-}
 
+  WALK_LIST(r, e->routes)
+    if(!cur || (r->metric < cur->metric
+		&& is_feasible(babel_find_source(e, r->router_id),
+			       r->seqno, r->advert_metric)))
+      cur = r;
+
+  if(cur != e->selected) {
+    if(e->selected) e->selected->flags &= ~(BABEL_FLAG_SELECTED);
+    cur->flags |= BABEL_FLAG_SELECTED;
+    e->selected = cur;
+  }
+  if(cur && ((!old && cur->metric < BABEL_INFINITY)
+	     || (old && old->u.babel.metric != cur->metric)))
+    rte_update(p, n, babel_build_rte(p, n, cur));
+}
 
 static void babel_send_ack(struct babel_interface *bif, ip_addr dest, u16 nonce)
 {
@@ -413,29 +445,6 @@ int babel_handle_next_hop(struct babel_tlv_header *hdr, struct babel_parse_state
   return 1;
 }
 
-/**
-   From the RFC (section 3.5.1):
-
-   a route advertisement carrying the quintuple (prefix, plen, router-id, seqno,
-   metric) is feasible if one of the following conditions holds:
-
-   - metric is infinite; or
-
-   - no entry exists in the source table indexed by (id, prefix, plen); or
-
-   - an entry (prefix, plen, router-id, seqno', metric') exists in the source
-     table, and either
-
-     - seqno' < seqno or
-     - seqno = seqno' and metric < metric'.
-*/
-static inline int is_feasible(struct babel_source *s, u16 seqno, u16 metric)
-{
-  if(!s || metric == BABEL_INFINITY) return 1;
-  return (seqno > s->seqno
-	  || (seqno == s->seqno && metric < s->metric));
-}
-
 int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *state)
 {
   struct babel_tlv_update *tlv = (struct babel_tlv_update *)hdr;
@@ -526,8 +535,8 @@ int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *
     r->next_hop = state->next_hop;
     if(tlv->metric != BABEL_INFINITY) r->expiry = now + (BABEL_EXPIRY_FACTOR*tlv->interval)/100;
   }
+  babel_select_route(e);
   babel_dump_entry(e);
-  babel_select_route(e, bif);
 }
 
 int babel_handle_route_request(struct babel_tlv_header *hdr,
@@ -897,6 +906,7 @@ babel_init_config(struct babel_proto_config *c)
 static void
 babel_get_route_info(rte *rte, byte *buf, ea_list *attrs)
 {
+  buf += bsprintf(buf, " (%d)", rte->u.babel.metric);
 }
 
 
