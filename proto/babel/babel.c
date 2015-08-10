@@ -649,7 +649,7 @@ static void babel_send_retraction(struct babel_interface *bif, ip_addr prefix, i
 int babel_handle_route_request(struct babel_tlv_header *hdr,
 				      struct babel_parse_state *state)
 {
-  struct babel_tlv_update *tlv = (struct babel_tlv_update *)hdr;
+  struct babel_tlv_route_request *tlv = (struct babel_tlv_route_request *)hdr;
   struct babel_interface *bif = state->bif;
   struct proto *p = state->proto;
   ip_addr prefix = babel_get_addr(hdr, state);
@@ -723,7 +723,7 @@ int babel_handle_seqno_request(struct babel_tlv_header *hdr,
 
   r = e->selected;
   if(r->router_id != tlv->router_id || r->seqno >= tlv->seqno) {
-    babel_send_update(bif); /* FIXME: good enough to send on one interface? */
+    babel_send_update(bif); /* FIXME: should only be an update per request */
     return 0;
   }
 
