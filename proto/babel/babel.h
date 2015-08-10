@@ -234,6 +234,7 @@ struct babel_interface {
   node n;
   struct proto *proto;
   struct iface *iface;
+  ip_addr addr;
   pool *pool;
   char *ifname;
   sock *sock;

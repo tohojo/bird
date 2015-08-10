@@ -420,7 +420,7 @@ int babel_handle_ihu(struct babel_tlv_header *hdr, struct babel_parse_state *sta
   struct babel_interface *bif = state->bif;
   ip_addr addr = babel_get_addr(hdr, state);
 
-  if(!ipa_equal(addr, bif->iface->addr->ip)) return 0; // not for us
+  if(!ipa_equal(addr, bif->addr)) return 0; // not for us
   TRACE(D_PACKETS, "Handling IHU rxcost %d interval %d", tlv->rxcost,
 	tlv->interval);
   struct babel_neighbor *bn = babel_get_neighbor(bif, state->saddr);
@@ -660,7 +660,7 @@ babel_add_if(struct object_lock *lock)
 static void
 babel_if_notify(struct proto *p, unsigned c, struct iface *iface)
 {
-  DBG("Babel: if notify\n");
+  DBG("Babel: if notify: %s\n", iface->name);
   if (iface->flags & IF_IGNORE)
     return;
   if (c & IF_CHANGE_DOWN) {
@@ -706,6 +706,10 @@ static struct babel_interface *new_iface(struct proto *p, struct iface *new,
   bif->iface = new;
   bif->ifname = new->name;
   bif->proto = p;
+  struct ifa* ifa;
+  WALK_LIST(ifa, new->addrs)
+    if(ipa_is_link_local(ifa->ip))
+      bif->addr = ifa->ip;
   if (PATT) {
     bif->rxcost = PATT->rxcost;
     bif->type = PATT->type;
