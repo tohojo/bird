@@ -48,9 +48,14 @@ static void babel_init_entry(struct fib_node *n)
   init_list(&e->routes);
 }
 
+
+static inline struct babel_entry * babel_find_entry(struct proto *p, ip_addr prefix, u8 plen)
+{
+  return fib_find(&P->rtable, &prefix, plen);
+}
 static struct babel_entry * babel_get_entry(struct proto *p, ip_addr prefix, u8 plen)
 {
-  struct babel_entry *e = fib_find(&P->rtable, &prefix, plen);
+  struct babel_entry *e = babel_find_entry(p, prefix, plen);
   if(e) return e;
   e = fib_get(&P->rtable, &prefix, plen);
   e->proto = p;
@@ -905,6 +910,9 @@ babel_rt_notify(struct proto *p, struct rtable *table UNUSED, struct network *ne
 
   TRACE(D_EVENTS, "Got route from nest: %I/%d", net->n.prefix, net->n.pxlen);
   if(new) {
+    e = babel_find_entry(p, net->n.prefix, net->n.pxlen);
+    if(e) return;
+
     e = babel_get_entry(p, net->n.prefix, net->n.pxlen);
     r = babel_get_route(e, NULL);
     r->seqno = P->update_seqno;
