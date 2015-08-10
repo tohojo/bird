@@ -627,6 +627,19 @@ int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *
 int babel_handle_route_request(struct babel_tlv_header *hdr,
 				      struct babel_parse_state *state)
 {
+  struct babel_tlv_update *tlv = (struct babel_tlv_update *)hdr;
+  struct babel_interface *bif = state->bif;
+  struct proto *p = state->proto;
+  ip_addr prefix = babel_get_addr(tlv, state);
+
+  TRACE(D_PACKETS, "Handling route request for %I/%d on interface %s",
+	prefix, tlv->plen, bif->ifname);
+
+  /* wildcard request - full update on the interface */
+  if(ipa_equal(prefix,IPA_NONE)) {
+    babel_send_update(bif);
+    return 0;
+  }
 }
 
 int babel_handle_seqno_request(struct babel_tlv_header *hdr,

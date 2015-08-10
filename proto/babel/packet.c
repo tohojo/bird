@@ -235,12 +235,43 @@ void babel_put_addr_update(struct babel_tlv_header *hdr, ip_addr addr)
 }
 int babel_validate_route_request(struct babel_tlv_header *hdr, struct babel_parse_state *state)
 {
+  struct babel_tlv_route_request *tlv = (struct babel_tlv_route_request *)hdr;
+  u8 len = tlv->plen/8;
+  if(tlv->plen % 8) len++;
+  /* enough space to hold the prefix */
+  if(hdr->length < TLV_LENGTH(BABEL_TYPE_ROUTE_REQUEST) - sizeof(struct babel_tlv_header) + len)
+    return 0;
+  /* wildcard requests must have plen 0 */
+  if(tlv->ae == BABEL_AE_WILDCARD && tlv->plen > 0)
+    return 0;
+
+  /* We don't speak IPv4, and prefixes cannot be link-local addresses. */
+  if(tlv->ae != BABEL_AE_IP6)
+    return 0;
+
+  return 1;
 }
-ip_addr babel_get_addr_route_request(struct babel_tlv_header *hdr, struct babel_parse_state *state)
+ip_addr babel_get_addr_route_request(struct babel_tlv_header *hdr,
+				     struct babel_parse_state *state)
 {
+  struct babel_tlv_route_request *tlv = (struct babel_tlv_route_request *)hdr;
+  char buf[16];
+  u8 len = tlv->plen/8;
+  if(tlv->plen % 8) len++;
+
+  /* fixed encoding */
+  if(tlv->ae == BABEL_AE_WILDCARD) return IPA_NONE;
+  memcpy(buf, tlv->addr, len);
+  return get_ipa(buf);
 }
 void babel_put_addr_route_request(struct babel_tlv_header *hdr, ip_addr addr)
 {
+  struct babel_tlv_route_request *tlv = (struct babel_tlv_route_request *)hdr;
+  char buf[16];
+  u8 len = tlv->plen/8;
+  if(tlv->plen % 8) len++;
+  put_ipa(buf, addr);
+  memcpy(tlv->addr, buf, len);
 }
 int babel_validate_seqno_request(struct babel_tlv_header *hdr, struct babel_parse_state *state)
 {
