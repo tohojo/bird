@@ -456,8 +456,7 @@ static void babel_flush_neighbor(struct babel_neighbor *bn)
   bn->neigh->data = NULL;
   WALK_LIST_FIRST(r, bn->routes)
     babel_flush_route(r->r);
-  rfree(bn->pool);
-  mb_free(bn);
+  rfree(bn->pool); // contains the neighbor itself
 }
 
 static void babel_hello_expiry(timer *t)
