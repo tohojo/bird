@@ -29,9 +29,6 @@
 #define TRACE(level, msg, args...) do { if (p->debug & level) { log(L_TRACE "%s: " msg, p->name , ## args); } } while(0)
 #define BAD( x ) { log( L_REMOTE "%s: " x, p->name ); return 1; }
 
-
-
-
 static struct babel_interface *new_iface(struct proto *p, struct iface *new,
 					 unsigned long flags, struct iface_patt *patt);
 static void babel_send_ihus(void *bif);
@@ -258,6 +255,27 @@ static rte * babel_build_rte(struct proto *p, net *n, struct babel_route *r)
   return rte;
 }
 
+static void babel_send_seqno_request(struct babel_entry *e)
+{
+  struct proto *p = e->proto;
+  struct babel_route *r = e->selected;
+  struct babel_source *s = babel_find_source(e, r->router_id);
+  struct babel_interface *bif;
+  struct babel_tlv_seqno_request *tlv;
+  if(s) {
+    WALK_LIST(bif, P->interfaces) {
+      babel_new_packet(bif);
+      tlv = babel_add_tlv_seqno_request(bif);
+      tlv->plen = e->n.pxlen;
+      tlv->seqno = s->seqno + 1;
+      tlv->hop_count = BABEL_INITIAL_HOP_COUNT;
+      tlv->router_id = r->router_id;
+      babel_put_addr(&tlv->header, e->n.prefix);
+      babel_send(bif);
+    }
+  }
+}
+
 /* Route selection algorithm. Just select the route with the lowest metric. */
 static void babel_select_route(struct babel_entry *e)
 {
@@ -266,20 +284,15 @@ static void babel_select_route(struct babel_entry *e)
   rte *old = rte_find(n, p->main_source);
   struct babel_route *r, *cur = e->selected;
 
+  /* try to find the best feasible route */
   WALK_LIST(r, e->routes)
-    if(!cur || (r->metric < cur->metric
-		&& is_feasible(babel_find_source(e, r->router_id),
-			       r->seqno, r->advert_metric)))
+    if((!cur || r->metric < cur->metric)
+       && is_feasible(babel_find_source(e, r->router_id),
+		      r->seqno, r->advert_metric))
       cur = r;
 
-  if(cur != e->selected) {
-    if(e->selected) e->selected->flags &= ~(BABEL_FLAG_SELECTED);
-    cur->flags |= BABEL_FLAG_SELECTED;
-    e->selected = cur;
-  }
   if(cur && cur->neigh && ((!old && cur->metric < BABEL_INFINITY)
-			   || (old && old->u.babel.metric != cur->metric)))
-    {
+			   || (old && old->u.babel.metric != cur->metric))) {
       TRACE(D_EVENTS, "Picked new route for prefix %I/%d: router id %0lx metric %d",
 	    e->n.prefix, e->n.pxlen, cur->router_id, cur->metric);
       /* Notify the nest of the update. If we change router ID, we also trigger
@@ -287,7 +300,12 @@ static void babel_select_route(struct babel_entry *e)
       rte_update(p, n, babel_build_rte(p, n, cur));
       if(!old || old->u.babel.router_id != cur->router_id)
 	ev_schedule(P->update_event);
-    }
+  } else if(!cur) {
+    /* Couldn't find a feasible route. Send seqno request if we have unfeasible routes */
+    if(e->selected)
+      babel_send_seqno_request(e);
+  }
+  e->selected = cur;
 }
 
 static void babel_send_ack(struct babel_interface *bif, ip_addr dest, u16 nonce)
@@ -389,6 +407,9 @@ static void babel_send_update(struct babel_interface *bif)
       upd = babel_add_tlv_update(bif);
       i = 1;
     }
+
+    /* Our own seqno might have changed, in which case we update the routes we
+       originate. */
     if(r->router_id == P->router_id && r->seqno < P->update_seqno)
       r->seqno = P->update_seqno;
     upd->plen = e->n.pxlen;
@@ -397,6 +418,7 @@ static void babel_send_update(struct babel_interface *bif)
     upd->metric = r->metric;
     babel_put_addr(&upd->header, e->n.prefix);
 
+    /* Update feasibility distance. */
     s = babel_get_source(e, r->router_id);
     if(upd->seqno > s->seqno
        || (upd->seqno == s->seqno && upd->metric < s->metric)) {
@@ -621,8 +643,8 @@ int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *
     r->next_hop = state->next_hop;
     r->seqno = tlv->seqno;
     r->updated = now;
-  } else if(r->flags & BABEL_FLAG_SELECTED
-       && !is_feasible(s, tlv->seqno, tlv->metric)) {
+  } else if(r == r->e->selected
+	    && !is_feasible(s, tlv->seqno, tlv->metric)) {
 
     /* route is installed and update is infeasible - check router id */
 
@@ -686,6 +708,30 @@ int babel_handle_route_request(struct babel_tlv_header *hdr,
   return 0;
 }
 
+void babel_forward_seqno_request(struct babel_entry *e,
+				 struct babel_tlv_seqno_request *in,
+				 ip_addr sender)
+{
+  struct babel_route *r;
+  struct babel_interface *bif;
+  struct babel_tlv_seqno_request *out;
+  WALK_LIST(r, e->routes) {
+    if(r->router_id == in->router_id && r->neigh
+       && !ipa_equal(r->neigh->addr,sender)) {
+      bif = r->neigh->bif;
+      babel_new_packet(bif);
+      out = babel_add_tlv_seqno_request(bif);
+      out->plen = in->plen;
+      out->seqno = in->seqno;
+      out->hop_count = in->hop_count-1;
+      out->router_id = in->router_id;
+      babel_put_addr(&out->header, e->n.prefix);
+      babel_send_to(bif, r->neigh->addr);
+      return;
+    }
+  }
+}
+
 /* The RFC section 3.8.1.2 on seqno requests:
 
    When a node receives a seqno request for a given router-id and sequence
@@ -746,7 +792,10 @@ int babel_handle_seqno_request(struct babel_tlv_header *hdr,
     return 0;
   }
 
-  /* FIXME: SHOULD forward request */
+  if(tlv->hop_count > 1) {
+    babel_forward_seqno_request(e, tlv, state->saddr);
+  }
+
   return 1;
 
 }
@@ -840,7 +889,6 @@ kill_iface(struct babel_interface *bif)
   WALK_LIST_FIRST(bn, bif->neigh_list)
     babel_flush_neighbor(bn);
   rfree(bif->pool);
-  mb_free(bif);
 }
 
 
@@ -905,11 +953,13 @@ static struct babel_interface *new_iface(struct proto *p, struct iface *new,
 {
   struct babel_interface * bif;
   struct babel_patt *PATT = (struct babel_patt *) patt;
+  pool *pool;
 
   if(!new) return NULL;
 
-  bif = mb_allocz(p->pool, sizeof( struct babel_interface ));
-  bif->pool = rp_new(p->pool, new->name);
+  pool = rp_new(p->pool, new->name);
+  bif = mb_allocz(pool, sizeof( struct babel_interface ));
+  bif->pool = pool;
   bif->iface = new;
   bif->ifname = new->name;
   bif->proto = p;
@@ -1059,7 +1109,6 @@ babel_rt_notify(struct proto *p, struct rtable *table UNUSED, struct network *ne
       r->seqno = P->update_seqno;
       r->router_id = P->router_id;
       r->updated = now;
-      r->flags = BABEL_FLAG_SELECTED;
       r->metric = 0;
       e->selected = r;
     }

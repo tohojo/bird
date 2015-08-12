@@ -36,6 +36,7 @@
 #define BABEL_EXPIRY_FACTOR	3.5
 #define BABEL_RXCOST_WIRED	96
 #define BABEL_RXCOST_WIRELESS	256
+#define BABEL_INITIAL_HOP_COUNT 255
 
 /* ip header + udp header + babel header */
 #define BABEL_OVERHEAD (SIZE_OF_IP_HEADER+8+sizeof(struct babel_header))
@@ -304,8 +305,6 @@ struct babel_route {
   ip_addr next_hop;
 
   bird_clock_t updated, expiry;
-#define BABEL_FLAG_SELECTED 1
-  u8 flags;
 };
 
 
