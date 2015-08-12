@@ -105,8 +105,18 @@ static struct babel_route * babel_get_route(struct babel_entry *e, struct babel_
   r = mb_allocz(e->pool, sizeof(struct babel_route));
   r->neigh = n;
   r->e = e;
+  r->neigh_route.r = r;
   add_tail(&e->routes, NODE r);
+  if(n) add_tail(&n->routes, NODE &r->neigh_route);
   return r;
+}
+
+static void babel_flush_route(struct babel_route *r)
+{
+  DBG("Flush route\n");
+  rem_node(NODE r);
+  rem_node(NODE &r->neigh_route);
+  mb_free(r);
 }
 
 
@@ -440,9 +450,12 @@ int babel_handle_ack(struct babel_tlv_header *hdr, struct babel_parse_state *sta
 static void babel_flush_neighbor(struct babel_neighbor *bn)
 {
   struct proto *p = bn->bif->proto;
+  struct neighbor_route *r;
   TRACE(D_EVENTS, "Flushing neighbor %I", bn->addr);
   rem_node(NODE bn);
   bn->neigh->data = NULL;
+  WALK_LIST_FIRST(r, bn->routes)
+    babel_flush_route(r->r);
   rfree(bn->pool);
   mb_free(bn);
 }
@@ -825,7 +838,7 @@ kill_iface(struct babel_interface *bif)
 {
   DBG( "Babel: Interface %s disappeared\n", bif->iface->name);
   struct babel_neighbor *bn;
-  WALK_LIST(bn, bif->neigh_list)
+  WALK_LIST_FIRST(bn, bif->neigh_list)
     babel_flush_neighbor(bn);
   rfree(bif->pool);
   mb_free(bif);
