@@ -301,9 +301,14 @@ static void babel_select_route(struct babel_entry *e)
       if(!old || old->u.babel.router_id != cur->router_id)
 	ev_schedule(P->update_event);
   } else if(!cur) {
-    /* Couldn't find a feasible route. Send seqno request if we have unfeasible routes */
-    if(e->selected)
+    /* Couldn't find a feasible route. If we have a selected route, that means
+       it just became infeasible; so set it's metric to infinite and install it
+       (as unreachable), then send a seqno request. */
+    if(e->selected) {
+      e->selected->metric = BABEL_INFINITY;
+      rte_update(p, n, babel_build_rte(p, n, e->selected));
       babel_send_seqno_request(e);
+    }
   }
   e->selected = cur;
 }
