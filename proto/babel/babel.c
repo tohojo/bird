@@ -32,9 +32,9 @@
 static struct babel_interface *new_iface(struct proto *p, struct iface *new,
 					 unsigned long flags, struct iface_patt *patt);
 static void babel_send_ihus(void *bif);
-static void babel_hello_expiry(timer *t);
-static void babel_ihu_expiry(timer *t);
-static void babel_source_expiry(timer *t);
+static void expire_hello(timer *t);
+static void expire_ihu(timer *t);
+static void expire_source(timer *t);
 static void babel_dump_entry(struct babel_entry *e);
 
 static void babel_init_entry(struct fib_node *n)
@@ -58,15 +58,15 @@ static struct babel_entry * babel_get_entry(struct proto *p, ip_addr prefix, u8 
   e = fib_get(&P->rtable, &prefix, plen);
   e->proto = p;
   e->pool = rp_new(p->pool, "Babel entry");
-  e->source_expiry = tm_new_set(e->pool, babel_source_expiry, e, 0, BABEL_SOURCE_EXPIRY);
-  tm_start(e->source_expiry, BABEL_SOURCE_EXPIRY);
+  e->source_expiry_timer = tm_new_set(e->pool, expire_source, e, 0, BABEL_SOURCE_EXPIRY);
+  tm_start(e->source_expiry_timer, BABEL_SOURCE_EXPIRY);
   return e;
 }
 
 void babel_flush_entry(struct babel_entry *e)
 {
   struct proto *p = e->proto;
-  tm_stop(e->source_expiry);
+  tm_stop(e->source_expiry_timer);
   rfree(e->pool);
   if(p) fib_delete(&P->rtable, e);
 }
@@ -92,7 +92,7 @@ static struct babel_source * babel_get_source(struct babel_entry *e, u64 router_
   return s;
 }
 
-static void babel_source_expiry(timer *t)
+static void expire_source(timer *t)
 {
   struct babel_entry *e = t->data;
   struct babel_source *n, *nx;
@@ -153,8 +153,8 @@ static struct babel_neighbor * babel_get_neighbor(struct babel_interface *bif, i
   bn->neigh = n;
   bn->addr = n->addr;
   bn->txcost = BABEL_INFINITY;
-  bn->hello_timer = tm_new_set(bn->pool, babel_hello_expiry, bn, 0, 0);
-  bn->ihu_timer = tm_new_set(bn->pool, babel_ihu_expiry, bn, 0, 0);
+  bn->hello_timer = tm_new_set(bn->pool, expire_hello, bn, 0, 0);
+  bn->ihu_timer = tm_new_set(bn->pool, expire_ihu, bn, 0, 0);
   n->data = bn;
   init_list(&bn->routes);
   add_tail(&bif->neigh_list, NODE bn);
@@ -504,7 +504,7 @@ static void babel_flush_neighbor(struct babel_neighbor *bn)
   rfree(bn->pool); // contains the neighbor itself
 }
 
-static void babel_hello_expiry(timer *t)
+static void expire_hello(timer *t)
 {
   struct babel_neighbor *bn = t->data;
   bn->hello_map <<= 1;
@@ -514,7 +514,7 @@ static void babel_hello_expiry(timer *t)
   }
 }
 
-static void babel_ihu_expiry(timer *t)
+static void expire_ihu(timer *t)
 {
   struct babel_neighbor *bn = t->data;
   bn->txcost = BABEL_INFINITY;

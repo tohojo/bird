@@ -334,7 +334,7 @@ struct babel_entry {
   struct babel_route *selected;
   list sources;
   list routes;
-  timer *source_expiry;
+  timer *source_expiry_timer;
 };
 
 
