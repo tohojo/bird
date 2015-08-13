@@ -39,6 +39,7 @@
 #define BABEL_INITIAL_HOP_COUNT 255
 
 #define BABEL_SEQNO_REQUEST_EXPIRY 60
+#define BABEL_SOURCE_EXPIRY 300
 
 /* ip header + udp header + babel header */
 #define BABEL_OVERHEAD (SIZE_OF_IP_HEADER+8+sizeof(struct babel_header))
@@ -333,6 +334,7 @@ struct babel_entry {
   struct babel_route *selected;
   list sources;
   list routes;
+  timer *source_expiry;
 };
 
 

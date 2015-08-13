@@ -34,6 +34,7 @@ static struct babel_interface *new_iface(struct proto *p, struct iface *new,
 static void babel_send_ihus(void *bif);
 static void babel_hello_expiry(timer *t);
 static void babel_ihu_expiry(timer *t);
+static void babel_source_expiry(timer *t);
 static void babel_dump_entry(struct babel_entry *e);
 
 static void babel_init_entry(struct fib_node *n)
@@ -57,12 +58,15 @@ static struct babel_entry * babel_get_entry(struct proto *p, ip_addr prefix, u8 
   e = fib_get(&P->rtable, &prefix, plen);
   e->proto = p;
   e->pool = rp_new(p->pool, "Babel entry");
+  e->source_expiry = tm_new_set(e->pool, babel_source_expiry, e, 0, BABEL_SOURCE_EXPIRY);
+  tm_start(e->source_expiry, BABEL_SOURCE_EXPIRY);
   return e;
 }
 
 void babel_flush_entry(struct babel_entry *e)
 {
   struct proto *p = e->proto;
+  tm_stop(e->source_expiry);
   rfree(e->pool);
   if(p) fib_delete(&P->rtable, e);
 }
@@ -82,9 +86,22 @@ static struct babel_source * babel_get_source(struct babel_entry *e, u64 router_
   if(s) return s;
   s = mb_allocz(e->pool, sizeof(struct babel_source));
   s->router_id = router_id;
+  s->updated = now;
   s->e = e;
   add_tail(&e->sources, NODE s);
   return s;
+}
+
+static void babel_source_expiry(timer *t)
+{
+  struct babel_entry *e = t->data;
+  struct babel_source *n, *nx;
+  WALK_LIST_DELSAFE(n, nx, e->sources) {
+    if(n->updated < now-BABEL_SOURCE_EXPIRY) {
+      rem_node(NODE n);
+      mb_free(n);
+    }
+  }
 }
 
 static struct babel_route * babel_find_route(struct babel_entry *e, struct babel_neighbor *n)
@@ -426,11 +443,11 @@ static void babel_send_update(struct babel_interface *bif)
 
     /* Update feasibility distance. */
     s = babel_get_source(e, r->router_id);
+    s->updated = now;
     if(upd->seqno > s->seqno
        || (upd->seqno == s->seqno && upd->metric < s->metric)) {
       s->seqno = upd->seqno;
       s->metric = upd->metric;
-      s->updated = now;
     }
   } FIB_WALK_END;
   if(i > 0) babel_send(bif);
