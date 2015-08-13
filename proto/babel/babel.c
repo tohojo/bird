@@ -224,6 +224,7 @@ static u16 compute_metric(struct babel_neighbor *bn, u16 metric)
 static int
 babel_rte_same(struct rte *new, struct rte *old)
 {
+  return new->u.babel.router_id == old->u.babel.router_id;
 }
 
 
