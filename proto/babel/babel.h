@@ -38,6 +38,8 @@
 #define BABEL_RXCOST_WIRELESS	256
 #define BABEL_INITIAL_HOP_COUNT 255
 
+#define BABEL_SEQNO_REQUEST_EXPIRY 60
+
 /* ip header + udp header + babel header */
 #define BABEL_OVERHEAD (SIZE_OF_IP_HEADER+8+sizeof(struct babel_header))
 #define BABEL_INFINITY 0xFFFF
@@ -225,6 +227,22 @@ struct babel_packet {
   struct babel_header header;
 };
 
+/* Stores forwarded seqno requests for duplicate suppression. */
+struct babel_seqno_request {
+  node n;
+  ip_addr prefix;
+  u8 plen;
+  u64 router_id;
+  u16 seqno;
+  bird_clock_t updated;
+};
+
+struct babel_seqno_request_cache {
+  pool *pool;
+  list entries;
+  timer *timer;
+};
+
 
 struct babel_interface {
   node n;
@@ -328,13 +346,12 @@ struct babel_proto_config {
 struct babel_proto {
   struct proto inherited;
   timer *timer;
-  list connections;
   struct fib rtable;
-  list garbage;
   list interfaces;	/* Interfaces we really know about */
   u16 update_seqno;		/* To be increased on request */
   u64 router_id;
   event *update_event;  /* For triggering global updates */
+  struct babel_seqno_request_cache *seqno_cache;
 };
 
 

@@ -708,16 +708,56 @@ int babel_handle_route_request(struct babel_tlv_header *hdr,
   return 0;
 }
 
+static void expire_seqno_requests(timer *t) {
+  struct babel_seqno_request_cache *c = t->data;
+  struct babel_seqno_request *n, *nx;
+  WALK_LIST_DELSAFE(n, nx, c->entries) {
+    if(n->updated < now-BABEL_SEQNO_REQUEST_EXPIRY) {
+      rem_node(NODE n);
+      mb_free(n);
+    }
+  }
+}
+
+/* Checks the seqno request cache for a matching request and returns failure if
+   found. Otherwise, a new entry is stored in the cache. */
+static int cache_seqno_request(struct proto *p, ip_addr prefix, u8 plen,
+			       u64 router_id, u16 seqno)
+{
+  struct babel_seqno_request_cache *c = P->seqno_cache;
+  struct babel_seqno_request *r;
+  WALK_LIST(r, c->entries) {
+    if(ipa_equal(r->prefix, prefix) && r->plen == plen &&
+       r->router_id == router_id && r->seqno == seqno)
+      return 0;
+  }
+
+  /* no entries found */
+  r = mb_allocz(c->pool, sizeof(struct babel_seqno_request));
+  r->prefix = prefix;
+  r->plen = plen;
+  r->router_id = router_id;
+  r->seqno = seqno;
+  r->updated = now;
+  add_tail(&c->entries, NODE r);
+  return 1;
+}
+
 void babel_forward_seqno_request(struct babel_entry *e,
 				 struct babel_tlv_seqno_request *in,
 				 ip_addr sender)
 {
+  struct proto *p = e->proto;
   struct babel_route *r;
   struct babel_interface *bif;
   struct babel_tlv_seqno_request *out;
+  TRACE(D_PACKETS, "Forwarding seqno request for %I/%d router_id %0lx",
+	e->n.prefix, e->n.pxlen, in->router_id);
   WALK_LIST(r, e->routes) {
     if(r->router_id == in->router_id && r->neigh
        && !ipa_equal(r->neigh->addr,sender)) {
+      if(!cache_seqno_request(p, e->n.prefix, e->n.pxlen, in->router_id, in->seqno))
+	return;
       bif = r->neigh->bif;
       babel_new_packet(bif);
       out = babel_add_tlv_seqno_request(bif);
@@ -1219,9 +1259,9 @@ babel_copy_config(struct proto_config *dest, struct proto_config *src)
 static int
 babel_start(struct proto *p)
 {
+  pool *pool;
   DBG( "Babel: starting instance...\n" );
   fib_init( &P->rtable, p->pool, sizeof( struct babel_entry ), 0, babel_init_entry );
-  init_list( &P->connections );
   init_list( &P->interfaces );
   P->timer = tm_new_set(p->pool, babel_timer, p, 0, 1);
   tm_start( P->timer, 2 );
@@ -1230,6 +1270,14 @@ babel_start(struct proto *p)
   P->update_event = ev_new(p->pool);
   P->update_event->hook = babel_global_update;
   P->update_event->data = p;
+
+  pool = rp_new(p->pool, "Seqno request cache");
+  P->seqno_cache = mb_allocz(pool, sizeof(struct babel_seqno_request_cache));
+  P->seqno_cache->pool = pool;
+  init_list(&P->seqno_cache->entries);
+  P->seqno_cache->timer = tm_new_set(pool, expire_seqno_requests,
+				     P->seqno_cache, 0, BABEL_SEQNO_REQUEST_EXPIRY);
+  tm_start(P->seqno_cache->timer, BABEL_SEQNO_REQUEST_EXPIRY);
   DBG( "Babel: ...done\n");
   return PS_UP;
 }
