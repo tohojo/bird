@@ -505,14 +505,14 @@ static void update_hello_history(struct babel_neighbor *bn, u16 seqno, u16 inter
     /* note state reset - flush entries */
     bn->hello_map = bn->hello_n = 0;
   } else if(seqno < bn->next_hello_seqno) {
-    u8 diff = bn->next_hello_seqno - seqno;
     /* sending node increased interval; reverse history */
+    u8 diff = bn->next_hello_seqno - seqno;
     bn->hello_map >>= diff;
     bn->hello_n -= MAX(bn->hello_n-diff, 0);
   } else if(seqno > bn->next_hello_seqno) {
-    u8 diff = seqno - bn->next_hello_seqno;
     /* sending node decreased interval; fast-forward */
-    bn->hello_map <<= seqno - bn->next_hello_seqno;
+    u8 diff = seqno - bn->next_hello_seqno;
+    bn->hello_map <<= diff;
     bn->hello_n = MIN(bn->hello_n+diff, 16);
   }
   /* current entry */
