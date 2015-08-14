@@ -306,6 +306,10 @@ static void babel_send_seqno_request(struct babel_entry *e)
   struct babel_source *s = babel_find_source(e, r->router_id);
   struct babel_interface *bif;
   struct babel_tlv_seqno_request *tlv;
+
+  TRACE(D_PACKETS, "Sending seqno request for %I/%d router_id %0lx",
+	e->n.prefix, e->n.pxlen, r->router_id);
+
   if(s) {
     WALK_LIST(bif, P->interfaces) {
       babel_new_packet(bif);
