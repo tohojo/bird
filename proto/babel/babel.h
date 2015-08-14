@@ -1,4 +1,4 @@
-/*
+/*  -*- c-file-style: "gnu"; -*-
  * Structures for the Babel protocol
  *
  */
@@ -34,6 +34,7 @@
 #define BABEL_UPDATE_INTERVAL_FACTOR	4
 #define BABEL_IHU_INTERVAL_FACTOR	3
 #define BABEL_EXPIRY_FACTOR	3.5
+#define BABEL_HOLD_TIME 10   /* expiry time for our own routes */
 #define BABEL_RXCOST_WIRED	96
 #define BABEL_RXCOST_WIRELESS	256
 #define BABEL_INITIAL_HOP_COUNT 255
@@ -322,8 +323,8 @@ struct babel_route {
   u16 metric;
   u64 router_id;
   ip_addr next_hop;
-
-  bird_clock_t updated, expiry;
+  timer * expiry_timer;
+  u16 expire_interval;
 };
 
 

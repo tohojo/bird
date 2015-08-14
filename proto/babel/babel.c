@@ -1,4 +1,5 @@
-/*
+/*  -*- c-file-style: "gnu"; -*-
+ *
  *	The Babel protocol
  *
  *	Copyright (c) 2015 Toke Høiland-Jørgensen
@@ -35,7 +36,9 @@ static void babel_send_ihus(void *bif);
 static void expire_hello(timer *t);
 static void expire_ihu(timer *t);
 static void expire_source(timer *t);
+static void expire_route(timer *t);
 static void babel_dump_entry(struct babel_entry *e);
+static void babel_select_route(struct babel_entry *e);
 
 static void babel_init_entry(struct fib_node *n)
 {
@@ -95,6 +98,8 @@ static struct babel_source * babel_get_source(struct babel_entry *e, u64 router_
 static void expire_source(timer *t)
 {
   struct babel_entry *e = t->data;
+  struct proto *p = e->proto;
+  TRACE(D_EVENTS, "Source expiry timer for %I/%d fired", e->n.prefix, e->n.pxlen);
   struct babel_source *n, *nx;
   WALK_LIST_DELSAFE(n, nx, e->sources) {
     if(n->updated < now-BABEL_SOURCE_EXPIRY) {
@@ -120,6 +125,7 @@ static struct babel_route * babel_get_route(struct babel_entry *e, struct babel_
   r->neigh = n;
   r->e = e;
   r->neigh_route.r = r;
+  r->expiry_timer = tm_new_set(e->pool, expire_route, r, 0, 0);
   add_tail(&e->routes, NODE r);
   if(n) add_tail(&n->routes, NODE &r->neigh_route);
   return r;
@@ -127,10 +133,26 @@ static struct babel_route * babel_get_route(struct babel_entry *e, struct babel_
 
 static void babel_flush_route(struct babel_route *r)
 {
-  DBG("Flush route\n");
+  DBG("Flush route %I/%d router_id %0lx\n",
+      r->e->n.prefix, r->e->n.pxlen, r->router_id);
+  tm_stop(r->expiry_timer);
   rem_node(NODE r);
-  rem_node(NODE &r->neigh_route);
+  if(r->neigh) rem_node(NODE &r->neigh_route);
+  if(r->e->selected == r) r->e->selected = NULL;
   mb_free(r);
+}
+static void expire_route(timer *t)
+{
+  struct babel_route *r = t->data;
+  struct proto *p = r->e->proto;
+  TRACE(D_EVENTS, "Route expiry timer for %I/%d router_id %0lx fired",
+	r->e->n.prefix, r->e->n.pxlen, r->router_id);
+  if(r->metric < BABEL_INFINITY)
+    r->metric = BABEL_INFINITY;
+  else
+    babel_flush_route(r);
+
+  babel_select_route(r->e);
 }
 
 
@@ -200,7 +222,7 @@ static u16 babel_compute_rxcost(struct babel_neighbor *bn)
   if(bif->type == BABEL_IFACE_TYPE_WIRED) {
     /* k-out-of-j selection - Appendix 2.1 in the RFC. */
     DBG("Missed %d hellos from %I\n", missed, bn->addr);
-    // Link is bad if more than half the expected hellos were lost
+    /* Link is bad if more than half the expected hellos were lost */
     return (missed > 0 && n/missed < 2) ? BABEL_INFINITY : bif->rxcost;
   } else if(bif->type == BABEL_IFACE_TYPE_WIRELESS) {
     /* ETX - Appendix 2.2 in the RFC */
@@ -372,7 +394,7 @@ static void babel_send_hello(struct babel_interface *bif, u8 send_ihu)
 {
   struct proto *p = bif->proto;
   struct babel_tlv_hello *tlv;
-  TRACE(D_PACKETS, "Babel: Sending hello");
+  TRACE(D_PACKETS, "Babel: Sending hello on interface %s", bif->ifname);
   babel_new_packet(bif);
   tlv = babel_add_tlv_hello(bif);
   tlv->seqno = bif->hello_seqno++;
@@ -386,8 +408,6 @@ static void babel_send_hello(struct babel_interface *bif, u8 send_ihu)
 static void babel_hello_timer(timer *t)
 {
   struct babel_interface *bif = t->data;
-  struct proto *p = bif->proto;
-  TRACE(D_EVENTS, "Babel: Hello timer fired for interface %s", bif->ifname);
   babel_send_hello(bif, (bif->type == BABEL_IFACE_TYPE_WIRELESS
 			 || bif->hello_seqno % BABEL_IHU_INTERVAL_FACTOR == 0));
 }
@@ -665,7 +685,6 @@ int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *
     r->metric = compute_metric(n, tlv->metric);
     r->next_hop = state->next_hop;
     r->seqno = tlv->seqno;
-    r->updated = now;
   } else if(r == r->e->selected
 	    && !is_feasible(s, tlv->seqno, tlv->metric)) {
 
@@ -681,7 +700,10 @@ int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *
     r->router_id = state->router_id;
     r->next_hop = state->next_hop;
     r->seqno = tlv->seqno;
-    if(tlv->metric != BABEL_INFINITY) r->expiry = now + (BABEL_EXPIRY_FACTOR*tlv->interval)/100;
+    if(tlv->metric != BABEL_INFINITY) {
+      r->expire_interval = (BABEL_EXPIRY_FACTOR*tlv->interval)/100;
+      tm_start(r->expiry_timer, r->expire_interval);
+    }
   }
   babel_select_route(e);
   return 0;
@@ -1171,7 +1193,6 @@ babel_rt_notify(struct proto *p, struct rtable *table UNUSED, struct network *ne
     if(!r->neigh) {
       r->seqno = P->update_seqno;
       r->router_id = P->router_id;
-      r->updated = now;
       r->metric = 0;
       e->selected = r;
     }
@@ -1181,7 +1202,8 @@ babel_rt_notify(struct proto *p, struct rtable *table UNUSED, struct network *ne
     if(e && !e->selected->neigh) {
       /* no neighbour, so our route */
       e->selected->metric = BABEL_INFINITY;
-      e->selected->updated = now;
+      tm_start(e->selected->expiry_timer, BABEL_HOLD_TIME);
+      babel_select_route(e);
     }
   } else {
     return;
