@@ -1198,7 +1198,7 @@ babel_rt_notify(struct proto *p, struct rtable *table UNUSED, struct network *ne
   } else if(old) {
     /* route has gone away; send retraction */
     e = babel_find_entry(p, net->n.prefix, net->n.pxlen);
-    if(e && !e->selected->neigh) {
+    if(e && e->selected && !e->selected->neigh) {
       /* no neighbour, so our route */
       e->selected->metric = BABEL_INFINITY;
       tm_start(e->selected->expiry_timer, BABEL_HOLD_TIME);
