@@ -107,6 +107,8 @@ static void expire_source(timer *t)
       mb_free(n);
     }
   }
+  if(EMPTY_LIST(e->sources) && EMPTY_LIST(e->routes))
+    babel_flush_entry(e);
 }
 
 static struct babel_route * babel_find_route(struct babel_entry *e, struct babel_neighbor *n)
