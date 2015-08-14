@@ -675,9 +675,8 @@ int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *
 
   if(!r) {
 
-    if(!is_feasible(s, tlv->seqno, tlv->metric))
-      return 1; /* first two points above. is_feasible also returns false if the
-		   metric is infinite */
+    if(!is_feasible(s, tlv->seqno, tlv->metric) || tlv->metric == BABEL_INFINITY)
+      return 1;
 
     r = babel_get_route(e, n);
     r->advert_metric = tlv->metric;
