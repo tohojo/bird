@@ -350,6 +350,11 @@ static void babel_select_route(struct babel_entry *e)
       e->selected->metric = BABEL_INFINITY;
       rte_update(p, n, babel_build_rte(p, n, e->selected));
       babel_send_seqno_request(e);
+    } else {
+      /* No route currently selected, and no new one selected; this means we
+	 don't have a route to this destination anymore (and were probably
+	 called from an expiry timer). Remove the route from the nest. */
+      rte_update(p, n, NULL);
     }
   }
   e->selected = cur;
