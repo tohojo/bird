@@ -147,10 +147,12 @@ static void expire_route(timer *t)
   struct proto *p = r->e->proto;
   TRACE(D_EVENTS, "Route expiry timer for %I/%d router_id %0lx fired",
 	r->e->n.prefix, r->e->n.pxlen, r->router_id);
-  if(r->metric < BABEL_INFINITY)
+  if(r->metric < BABEL_INFINITY) {
     r->metric = BABEL_INFINITY;
-  else
+    tm_start(r->expiry_timer, r->expiry_interval);
+  } else {
     babel_flush_route(r);
+  }
 
   babel_select_route(r->e);
 }
@@ -700,8 +702,8 @@ int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *
     r->next_hop = state->next_hop;
     r->seqno = tlv->seqno;
     if(tlv->metric != BABEL_INFINITY) {
-      r->expire_interval = (BABEL_EXPIRY_FACTOR*tlv->interval)/100;
-      tm_start(r->expiry_timer, r->expire_interval);
+      r->expiry_interval = (BABEL_EXPIRY_FACTOR*tlv->interval)/100;
+      tm_start(r->expiry_timer, r->expiry_interval);
     }
   }
   babel_select_route(e);

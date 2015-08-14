@@ -324,7 +324,7 @@ struct babel_route {
   u64 router_id;
   ip_addr next_hop;
   timer * expiry_timer;
-  u16 expire_interval;
+  u16 expiry_interval;
 };
 
 
