@@ -1236,24 +1236,6 @@ static void babel_neigh_notify(neighbor *n)
 }
 
 
-/*
- * babel_rte_insert - we maintain linked list of "our" entries in main
- * routing table, so that we can timeout them correctly. babel_timer()
- * walks the list.
- */
-static void
-babel_rte_insert(net *net UNUSED, rte *rte)
-{
-}
-
-/*
- * babel_rte_remove - link list maintenance
- */
-static void
-babel_rte_remove(net *net UNUSED, rte *rte)
-{
-}
-
 static struct proto *
 babel_init(struct proto_config *cfg)
 {
@@ -1268,8 +1250,6 @@ babel_init(struct proto_config *cfg)
   p->store_tmp_attrs = babel_store_tmp_attrs;
   p->rte_better = babel_rte_better;
   p->rte_same = babel_rte_same;
-  p->rte_insert = babel_rte_insert;
-  p->rte_remove = babel_rte_remove;
 
   return p;
 }
