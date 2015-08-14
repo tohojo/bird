@@ -1280,6 +1280,7 @@ babel_get_attr(eattr *a, byte *buf, int buflen UNUSED)
 static int
 babel_reconfigure(struct proto *p, struct proto_config *c)
 {
+  return 0;
 }
 
 static void
