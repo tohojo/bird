@@ -1,4 +1,4 @@
-/**
+/**  -*- c-file-style: "gnu"; -*-
  * packet.c
  *
  * Toke Høiland-Jørgensen
@@ -180,6 +180,9 @@ int babel_validate_update(struct babel_tlv_header *hdr, struct babel_parse_state
   u8 len = tlv->plen/8;
   if(tlv->plen % 8) len++;
 
+  if(tlv->plen > MAX_PREFIX_LENGTH)
+    return 0;
+
   if(hdr->length < min_length) return 0;
   if(tlv->ae == BABEL_AE_IP4   /* we don't speak IPv4 */
      || tlv->ae >= BABEL_AE_MAX) /* invalid */
@@ -240,6 +243,10 @@ int babel_validate_request(struct babel_tlv_header *hdr, struct babel_parse_stat
   struct babel_tlv_route_request *tlv = (struct babel_tlv_route_request *)hdr;
   u8 len = tlv->plen/8;
   if(tlv->plen % 8) len++;
+
+  if(tlv->plen > MAX_PREFIX_LENGTH)
+    return 0;
+
   /* enough space to hold the prefix */
   if(hdr->length < TLV_LENGTH(hdr->type) - sizeof(tlv->addr) + len)
     return 0;
@@ -391,6 +398,16 @@ int babel_process_packet(struct babel_header *pkt, int size,
   };
   char *p = (char *)pkt;
   int res = 0;
+
+  pkt->length = ntohs(pkt->length);
+  if(pkt->magic != BABEL_MAGIC
+     || pkt->version != BABEL_VERSION
+     || pkt->length > size - sizeof(struct babel_header)) {
+    DBG("Invalid packet: magic %d version %d length %d size %d\n",
+	pkt->magic, pkt->version, pkt->length, size);
+    return 1;
+  }
+
   while((char *)tlv < p+size) {
     if(tlv->type > BABEL_TYPE_PADN
        && tlv->type < BABEL_TYPE_MAX
