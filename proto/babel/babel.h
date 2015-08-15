@@ -35,7 +35,8 @@
 #define BABEL_HELLO_INTERVAL_WIRELESS 4
 #define BABEL_UPDATE_INTERVAL_FACTOR  4
 #define BABEL_IHU_INTERVAL_FACTOR     3
-#define BABEL_EXPIRY_FACTOR           3.5
+#define BABEL_HELLO_EXPIRY_FACTOR     1.5
+#define BABEL_ROUTE_EXPIRY_FACTOR     3.5
 #define BABEL_HOLD_TIME               10 /* expiry time for our own routes */
 #define BABEL_RXCOST_WIRED            96
 #define BABEL_RXCOST_WIRELESS         256
@@ -268,9 +269,9 @@ struct babel_interface {
   u16 ihu_interval;
   u16 update_interval;
 
-  timer * hello_timer;
-  timer * update_timer;
-  event * ihu_event;
+  timer *hello_timer;
+  timer *update_timer;
+  event *ihu_event;
 };
 
 struct babel_patt {

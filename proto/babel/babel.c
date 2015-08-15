@@ -573,8 +573,9 @@ static void update_hello_history(struct babel_neighbor *bn, u16 seqno, u16 inter
   }
   /* current entry */
   bn->hello_map = (bn->hello_map << 1) | 1;
+  bn->next_hello_seqno = seqno+1;
   if(bn->hello_n < 16) bn->hello_n++;
-  tm_start(bn->hello_timer, (1.5*interval)/100);
+  tm_start(bn->hello_timer, (BABEL_HELLO_EXPIRY_FACTOR*interval)/100);
 }
 
 
@@ -713,7 +714,7 @@ int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *
     r->next_hop = state->next_hop;
     r->seqno = tlv->seqno;
     if(tlv->metric != BABEL_INFINITY) {
-      r->expiry_interval = (BABEL_EXPIRY_FACTOR*tlv->interval)/100;
+      r->expiry_interval = (BABEL_ROUTE_EXPIRY_FACTOR*tlv->interval)/100;
       tm_start(r->expiry_timer, r->expiry_interval);
     }
   }
