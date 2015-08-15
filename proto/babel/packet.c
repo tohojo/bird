@@ -257,7 +257,7 @@ ip_addr babel_get_addr_request(struct babel_tlv_header *hdr,
 				     struct babel_parse_state *state)
 {
   struct babel_tlv_route_request *tlv = (struct babel_tlv_route_request *)hdr;
-  char buf[16];
+  char buf[16] = {0};
   u8 len = tlv->plen/8;
   if(tlv->plen % 8) len++;
 
@@ -272,7 +272,7 @@ ip_addr babel_get_addr_request(struct babel_tlv_header *hdr,
 void babel_put_addr_request(struct babel_tlv_header *hdr, ip_addr addr)
 {
   struct babel_tlv_route_request *tlv = (struct babel_tlv_route_request *)hdr;
-  char buf[16];
+  char buf[16] = {0};
   u8 len = tlv->plen/8;
   if(tlv->plen % 8) len++;
   put_ipa(buf, addr);
