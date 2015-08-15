@@ -928,10 +928,27 @@ static void babel_dump_entry(struct babel_entry *e)
   WALK_LIST(s,e->sources) { debug(" "); babel_dump_source(s); }
   WALK_LIST(r,e->routes) { debug(r==e->selected?" * " : " "); babel_dump_route(r); }
 }
+static void babel_dump_neighbor(struct babel_neighbor *bn)
+{
+  debug("Neighbor %I txcost %d hello_map %x next seqno %d\n",
+	bn->addr, bn->txcost, bn->hello_map, bn->next_hello_seqno);
+}
+static void babel_dump_interface(struct babel_interface *bif)
+{
+  struct babel_neighbor *bn;
+  debug("Babel: Interface %s addr %I rxcost %d type %d hello seqno %d intervals %d %d %d\n",
+	bif->ifname, bif->addr, bif->rxcost, bif->type, bif->hello_seqno,
+	bif->hello_interval, bif->ihu_interval, bif->update_interval);
+  WALK_LIST(bn,bif->neigh_list) { debug(" "); babel_dump_neighbor(bn); }
+
+}
 
 static void babel_dump(struct proto *p)
 {
   struct babel_entry *e;
+  struct babel_interface *bif;
+  debug("Babel: router id %0xl update seqno %d\n", P->router_id, P->update_seqno);
+  WALK_LIST(bif, P->interfaces) {babel_dump_interface(bif);}
   FIB_WALK(&P->rtable, n) {
     e = (struct babel_entry *)n;
     babel_dump_entry(e);
@@ -1089,7 +1106,6 @@ static struct babel_interface *new_iface(struct proto *p, struct iface *new,
     }
     bif->ihu_interval = bif->hello_interval*BABEL_IHU_INTERVAL_FACTOR;
   }
-  init_list(&bif->tlv_queue);
   init_list(&bif->neigh_list);
   bif->hello_seqno = 1;
   bif->max_pkt_len = new->mtu - BABEL_OVERHEAD;
