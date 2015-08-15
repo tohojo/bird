@@ -1142,17 +1142,24 @@ static struct babel_interface *new_iface(struct proto *p, struct iface *new,
 
 
 static struct ea_list *
-babel_gen_attrs(struct linpool *pool, int metric)
+babel_gen_attrs(struct linpool *pool, int metric, u64 router_id)
 {
-  struct ea_list *l = lp_alloc(pool, sizeof(struct ea_list) + 1*sizeof(eattr));
+  struct ea_list *l = lp_alloc(pool, sizeof(struct ea_list) + 2*sizeof(eattr));
+  struct adata *rid = lp_alloc(pool, sizeof(struct adata) + sizeof(u64));
+  rid->length = sizeof(u64);
+  memcpy(&rid->data, &router_id, sizeof(u64));
 
   l->next = NULL;
   l->flags = EALF_SORTED;
-  l->count = 1;
+  l->count = 2;
   l->attrs[0].id = EA_BABEL_METRIC;
   l->attrs[0].flags = 0;
   l->attrs[0].type = EAF_TYPE_INT | EAF_TEMP;
   l->attrs[0].u.data = metric;
+  l->attrs[1].id = EA_BABEL_ROUTER_ID;
+  l->attrs[1].flags = 0;
+  l->attrs[1].type = EAF_TYPE_OPAQUE | EAF_TEMP;
+  l->attrs[1].u.ptr = rid;
   return l;
 }
 
@@ -1169,7 +1176,7 @@ babel_import_control(struct proto *p, struct rte **rt, struct ea_list **attrs, s
     return 1;
 
   if ((*rt)->attrs->source != RTS_BABEL) {
-    struct ea_list *new = babel_gen_attrs(pool, 1);
+    struct ea_list *new = babel_gen_attrs(pool, 1, P->router_id);
     new->next = *attrs;
     *attrs = new;
   }
@@ -1179,11 +1186,15 @@ babel_import_control(struct proto *p, struct rte **rt, struct ea_list **attrs, s
 static struct ea_list *
 babel_make_tmp_attrs(struct rte *rt, struct linpool *pool)
 {
+  return babel_gen_attrs(pool, rt->u.babel.metric, rt->u.babel.router_id);
 }
 
 static void
 babel_store_tmp_attrs(struct rte *rt, struct ea_list *attrs)
 {
+  eattr *rid = ea_find(attrs, EA_BABEL_ROUTER_ID);
+  rt->u.babel.router_id = rid ? *((u64*) rid->u.ptr->data) : 0;
+  rt->u.babel.metric = ea_get_int(attrs, EA_BABEL_METRIC, 0);
 }
 
 /*
