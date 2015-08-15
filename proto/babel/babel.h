@@ -55,22 +55,22 @@ struct babel_header {
 };
 
 enum babel_tlv_type_t {
-  BABEL_TYPE_PAD0          = 0,
-  BABEL_TYPE_PADN          = 1,
-  BABEL_TYPE_ACK_REQ       = 2,
-  BABEL_TYPE_ACK           = 3,
-  BABEL_TYPE_HELLO         = 4,
-  BABEL_TYPE_IHU           = 5,
-  BABEL_TYPE_ROUTER_ID     = 6,
-  BABEL_TYPE_NEXT_HOP      = 7,
-  BABEL_TYPE_UPDATE        = 8,
-  BABEL_TYPE_ROUTE_REQUEST = 9,
-  BABEL_TYPE_SEQNO_REQUEST = 10,
+  BABEL_TYPE_PAD0             = 0,
+  BABEL_TYPE_PADN             = 1,
+  BABEL_TYPE_ACK_REQ          = 2,
+  BABEL_TYPE_ACK              = 3,
+  BABEL_TYPE_HELLO            = 4,
+  BABEL_TYPE_IHU              = 5,
+  BABEL_TYPE_ROUTER_ID        = 6,
+  BABEL_TYPE_NEXT_HOP         = 7,
+  BABEL_TYPE_UPDATE           = 8,
+  BABEL_TYPE_ROUTE_REQUEST    = 9,
+  BABEL_TYPE_SEQNO_REQUEST    = 10,
   /* extensions - not implemented
-  BABEL_TYPE_TS_PC = 11,
-  BABEL_TYPE_HMAC = 12,
-  BABEL_TYPE_SS_UPDATE = 13,
-  BABEL_TYPE_SS_REQUEST = 14,
+  BABEL_TYPE_TS_PC            = 11,
+  BABEL_TYPE_HMAC             = 12,
+  BABEL_TYPE_SS_UPDATE        = 13,
+  BABEL_TYPE_SS_REQUEST       = 14,
   BABEL_TYPE_SS_SEQNO_REQUEST = 15,
   */
   BABEL_TYPE_MAX
