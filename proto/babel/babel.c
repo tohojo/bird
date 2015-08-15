@@ -557,6 +557,7 @@ static void expire_ihu(timer *t)
 /* update hello history according to Appendix A1 of the RFC */
 static void update_hello_history(struct babel_neighbor *bn, u16 seqno, u16 interval)
 {
+  /* FIXME: seqno wrapping */
   if(seqno - bn->next_hello_seqno > 16 || bn->next_hello_seqno - seqno > 16) {
     /* note state reset - flush entries */
     bn->hello_map = bn->hello_n = 0;
@@ -878,6 +879,7 @@ int babel_handle_seqno_request(struct babel_tlv_header *hdr,
   if(!e || !e->selected || e->selected->metric == BABEL_INFINITY) return 1;
 
   r = e->selected;
+  /* FIXME: seqno wrapping */
   if(r->router_id != tlv->router_id || r->seqno >= tlv->seqno) {
     babel_send_update(bif); /* FIXME: should only be an update per request */
     return 0;
