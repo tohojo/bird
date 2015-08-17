@@ -340,7 +340,7 @@ static void babel_select_route(struct babel_entry *e)
       cur = r;
 
   if(cur && cur->neigh && ((!old && cur->metric < BABEL_INFINITY)
-			   || (old && old->u.babel.metric != cur->metric))) {
+			   || (old && old->u.babel.router_id != cur->router_id))) {
       TRACE(D_EVENTS, "Picked new route for prefix %I/%d: router id %0lx metric %d",
 	    e->n.prefix, e->n.pxlen, cur->router_id, cur->metric);
       /* Notify the nest of the update. If we change router ID, we also trigger
