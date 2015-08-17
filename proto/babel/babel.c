@@ -345,6 +345,7 @@ static void babel_select_route(struct babel_entry *e)
 	    e->n.prefix, e->n.pxlen, cur->router_id, cur->metric);
       /* Notify the nest of the update. If we change router ID, we also trigger
 	 a global update. */
+      e->selected = cur;
       rte_update(p, n, babel_build_rte(p, n, cur));
       if(!old || old->u.babel.router_id != cur->router_id)
 	ev_schedule(P->update_event);
@@ -360,10 +361,10 @@ static void babel_select_route(struct babel_entry *e)
       /* No route currently selected, and no new one selected; this means we
 	 don't have a route to this destination anymore (and were probably
 	 called from an expiry timer). Remove the route from the nest. */
+      e->selected = cur;
       rte_update(p, n, NULL);
     }
   }
-  e->selected = cur;
 }
 
 static void babel_send_ack(struct babel_interface *bif, ip_addr dest, u16 nonce)
