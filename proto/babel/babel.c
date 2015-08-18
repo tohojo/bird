@@ -5,7 +5,6 @@
  *	Copyright (c) 2015 Toke Høiland-Jørgensen
  *
  *	Can be freely distributed and used under the terms of the GNU GPL.
- *	Partly based on the RIP protocol module.
  *
  *	FIXME: Requires IPv6
  */
@@ -13,9 +12,26 @@
 /**
  * DOC: The Babel protocol
  *
- *  Babel (RFC6126) is a loop-avoiding distance-vector routing protocol that is
- *  robust and efficient both in ordinary wired networks and in wireless mesh
- *  networks.
+ * Babel (RFC6126) is a loop-avoiding distance-vector routing protocol that is
+ * robust and efficient both in ordinary wired networks and in wireless mesh
+ * networks.
+ *
+ * The Babel protocol keeps state for each neighbour in a &babel_neighbor
+ * struct, tracking received hellos and I Heard You (IHU) messages. A
+ * &babel_interface struct keeps hello and update timers for each interface, and
+ * a separate hello seqno is maintained for each interface.
+ *
+ * For each prefix, Babel keeps track of both the possible routes
+ * (with next hop and router IDs), as well as the feasibility distance for each
+ * prefix and router id. The prefix itself is tracked in a &babel_entry struct,
+ * while the possible routes for the prefix are tracked as &babel_route entries
+ * and the feasibility distance is maintained through &babel_source structures.
+ *
+ * The main route selection is done in babel_select_route(). This is called when
+ * an update for a prefix is received, when a new prefix is received from the
+ * nest, and when a prefix expiry timer fires. It performs feasibility checks on
+ * the available routes for the prefix and selects the one with the lowest
+ * metric.
  */
 
 #undef LOCAL_DEBUG
@@ -340,7 +356,22 @@ static void babel_send_seqno_request(struct babel_entry *e)
   }
 }
 
-/* Route selection algorithm. Just select the route with the lowest metric. */
+/**
+ * babel_select_route:
+ * @e: Babel entry to select the best route for.
+ *
+ * Select the best feasible route for a given prefix. This just selects the
+ * feasible route with the lowest metric. If this results in switching upstream
+ * router (identified by router id), the nest is notified of the new route.
+ *
+ * If no feasible route is available for a prefix that previously had a route
+ * selected, a seqno request is sent to try to get a valid route. In the
+ * meantime, the route is marked as infeasible in the nest (to blackhole packets
+ * going to it, as per the RFC).
+ *
+ * If no feasible route is available, and no previous route is selected, the
+ * route is removed from the nest entirely.
+ */
 static void babel_select_route(struct babel_entry *e)
 {
   struct proto *p = e->proto;
