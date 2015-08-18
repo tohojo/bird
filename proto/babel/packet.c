@@ -1,8 +1,12 @@
 /**  -*- c-file-style: "gnu"; -*-
- * packet.c
  *
- * Toke Høiland-Jørgensen
- * 2015-08-07
+ *	The Babel protocol
+ *
+ *	Copyright (c) 2015 Toke Høiland-Jørgensen
+ *
+ *	Can be freely distributed and used under the terms of the GNU GPL.
+ *
+ *	This files contains the packet and TLV handling routines for the protocol.
  */
 
 #undef LOCAL_DEBUG

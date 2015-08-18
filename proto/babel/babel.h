@@ -1,6 +1,12 @@
 /*  -*- c-file-style: "gnu"; -*-
- * Structures for the Babel protocol
  *
+ *	The Babel protocol
+ *
+ *	Copyright (c) 2015 Toke Høiland-Jørgensen
+ *
+ *	Can be freely distributed and used under the terms of the GNU GPL.
+ *
+ *	This file contains the data structures used by Babel.
  */
 
 #include "nest/bird.h"

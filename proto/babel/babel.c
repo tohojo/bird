@@ -6,7 +6,8 @@
  *
  *	Can be freely distributed and used under the terms of the GNU GPL.
  *
- *	FIXME: Requires IPv6
+ *	This file contains the main routines for handling and sending TLVs, as
+ *	well as timers and interaction with the nest.
  */
 
 /**
@@ -1008,9 +1009,7 @@ static void babel_dump(struct proto *p)
 
 static void babel_tx_err( sock *s, int err )
 {
-  //  struct babel_connection *c = ((struct babel_interface *)(s->data))->busy;
-  //struct proto *p = c->proto;
-  log( L_ERR ": Unexpected error at Babel transmit: %M", /*p->name,*/ err );
+  log( L_ERR ": Unexpected error at Babel transmit: %M", err );
 }
 
 
