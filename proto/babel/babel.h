@@ -224,10 +224,6 @@ int babel_validate_request(struct babel_tlv_header *hdr, struct babel_parse_stat
 int babel_handle_seqno_request(struct babel_tlv_header *tlv,
                                struct babel_parse_state *state);
 
-struct babel_packet {
-  struct babel_header header;
-};
-
 /* Stores forwarded seqno requests for duplicate suppression. */
 struct babel_seqno_request {
   node n;

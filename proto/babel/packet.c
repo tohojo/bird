@@ -311,16 +311,16 @@ static void babel_tlv_ntoh(struct babel_tlv_header *hdr)
   }
 }
 
-static void babel_packet_hton(struct babel_packet *pkt)
+static void babel_packet_hton(struct babel_header *hdr)
 {
-  struct babel_tlv_header *tlv = FIRST_TLV(pkt);
-  int len = pkt->header.length+sizeof(struct babel_header);
-  char *p = (char *)pkt;
+  struct babel_tlv_header *tlv = FIRST_TLV(hdr);
+  int len = hdr->length+sizeof(struct babel_header);
+  char *p = (char *)hdr;
   while((char *)tlv < p+len) {
     babel_tlv_hton(tlv);
     NEXT_TLV(tlv);
   }
-  pkt->header.length = htons(pkt->header.length);
+  hdr->length = htons(hdr->length);
 }
 
 ip_addr babel_get_addr(struct babel_tlv_header *hdr, struct babel_parse_state *state)
@@ -367,11 +367,11 @@ struct babel_tlv_header * babel_add_tlv(struct babel_interface *bif, u16 type)
 void babel_send_to(struct babel_interface *bif, ip_addr dest)
 {
   sock *s = bif->sock;
-  struct babel_packet *pkt = (void *) s->tbuf;
-  int len = pkt->header.length+sizeof(struct babel_header);
+  struct babel_header *hdr = (void *) s->tbuf;
+  int len = hdr->length+sizeof(struct babel_header);
   int done;
 
-  babel_packet_hton(pkt);
+  babel_packet_hton(hdr);
 
   DBG( "Sending %d bytes to %I\n", len, dest);
   done = sk_send_to(s, len, dest, 0);
