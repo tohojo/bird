@@ -30,6 +30,21 @@
 #define TRACE(level, msg, args...) do { if (p->debug & level) { log(L_TRACE "%s: " msg, p->name , ## args); } } while(0)
 #define BAD( x ) { log( L_REMOTE "%s: " x, p->name ); return 1; }
 
+/* computes a-b % 65535 for u16 datatypes */
+static inline u16 diff_mod64k(u16 a, u16 b)
+{
+  return a >= b ? a-b : 0xffff-b+a;
+}
+/* Is one number larger than another mod 65535? Since diff_mod64k is always >=
+   0, just use a simple cutoff value to determine if the difference is small
+   enough that one is really larger. Since these comparisons are only made for
+   values that should not differ by more than a few numbers, this should be
+   safe.*/
+static inline u16 ge_mod64k(u16 a, u16 b)
+{
+  return diff_mod64k(a,b) < 0xfff0;
+}
+
 static struct babel_interface *new_iface(struct proto *p, struct iface *new,
 					 unsigned long flags, struct iface_patt *patt);
 static void babel_send_ihus(void *bif);
@@ -39,6 +54,7 @@ static void expire_source(timer *t);
 static void expire_route(timer *t);
 static void babel_dump_entry(struct babel_entry *e);
 static void babel_select_route(struct babel_entry *e);
+
 
 static void babel_init_entry(struct fib_node *n)
 {
@@ -558,18 +574,21 @@ static void expire_ihu(timer *t)
 /* update hello history according to Appendix A1 of the RFC */
 static void update_hello_history(struct babel_neighbor *bn, u16 seqno, u16 interval)
 {
-  /* FIXME: seqno wrapping */
-  if(seqno - bn->next_hello_seqno > 16 || bn->next_hello_seqno - seqno > 16) {
+  u8 diff;
+  if(seqno == bn->next_hello_seqno) {/* do nothing */}
+  /* if the expected and seen seqnos are within 16 of each other (mod 65535),
+     the modular difference is going to be less than 16 for one of the
+     directions. Otherwise, the values differ too much, so just reset. */
+  else if(diff_mod64k(seqno, bn->next_hello_seqno) > 16 &&
+     diff_mod64k(bn->next_hello_seqno,seqno) > 16) {
     /* note state reset - flush entries */
     bn->hello_map = bn->hello_n = 0;
-  } else if(seqno < bn->next_hello_seqno) {
+  } else if((diff = diff_mod64k(bn->next_hello_seqno,seqno)) <= 16) {
     /* sending node increased interval; reverse history */
-    u8 diff = bn->next_hello_seqno - seqno;
     bn->hello_map >>= diff;
     bn->hello_n -= MAX(bn->hello_n-diff, 0);
-  } else if(seqno > bn->next_hello_seqno) {
+  } else if((diff = diff_mod64k(seqno,bn->next_hello_seqno)) <= 16) {
     /* sending node decreased interval; fast-forward */
-    u8 diff = seqno - bn->next_hello_seqno;
     bn->hello_map <<= diff;
     bn->hello_n = MIN(bn->hello_n+diff, 16);
   }
@@ -880,8 +899,7 @@ int babel_handle_seqno_request(struct babel_tlv_header *hdr,
   if(!e || !e->selected || e->selected->metric == BABEL_INFINITY) return 1;
 
   r = e->selected;
-  /* FIXME: seqno wrapping */
-  if(r->router_id != tlv->router_id || r->seqno >= tlv->seqno) {
+  if(r->router_id != tlv->router_id || ge_mod64k(r->seqno, tlv->seqno) >= 0) {
     babel_send_update(bif); /* FIXME: should only be an update per request */
     return 0;
   }
