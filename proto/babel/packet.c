@@ -390,11 +390,11 @@ int babel_process_packet(struct babel_header *pkt, int size,
   struct babel_tlv_header *tlv = FIRST_TLV(pkt);
   struct proto *proto = bif->proto;
   struct babel_parse_state state = {
-    .saddr = saddr,
-    .bif = bif,
-    .proto = proto,
-    .prefix = IPA_NONE,
-    .next_hop = saddr,
+    .proto	  = proto,
+    .bif	  = bif,
+    .saddr	  = saddr,
+    .prefix	  = IPA_NONE,
+    .next_hop	  = saddr,
   };
   char *p = (char *)pkt;
   int res = 0;
@@ -419,6 +419,8 @@ int babel_process_packet(struct babel_header *pkt, int size,
     }
     NEXT_TLV(tlv);
   }
+  if(state.needs_update)
+    babel_send_update(bif);
   return res;
 }
 

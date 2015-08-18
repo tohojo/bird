@@ -94,6 +94,7 @@ struct babel_parse_state {
   u64     router_id;
   ip_addr prefix;
   ip_addr next_hop;
+  u8 needs_update;
 };
 
 
@@ -371,6 +372,7 @@ void babel_init_config(struct babel_proto_config *c);
 /* Packet mangling code - packet.c */
 void babel_send( struct babel_interface *bif );
 void babel_send_to( struct babel_interface *bif, ip_addr dest );
+void babel_send_update(struct babel_interface *bif);
 int babel_process_packet(struct babel_header *pkt, int size,
                          ip_addr saddr, int port, struct babel_interface *bif);
 ip_addr babel_get_addr(struct babel_tlv_header *hdr, struct babel_parse_state *state);

@@ -450,7 +450,7 @@ static int babel_add_router_id(struct babel_interface *bif, u64 router_id)
   return 0;
 }
 
-static void babel_send_update(struct babel_interface *bif)
+void babel_send_update(struct babel_interface *bif)
 {
   struct proto *p = bif->proto;
   struct babel_tlv_update *upd;
@@ -773,7 +773,7 @@ int babel_handle_route_request(struct babel_tlv_header *hdr,
 
   /* Wildcard request - full update on the interface */
   if(ipa_equal(prefix,IPA_NONE)) {
-    babel_send_update(bif);
+    state->needs_update = 1;
     return 0;
   }
   /* Non-wildcard request - see if we have an entry for the route. If not, send
@@ -782,7 +782,7 @@ int babel_handle_route_request(struct babel_tlv_header *hdr,
   if(!e) {
     babel_send_retraction(bif, prefix, tlv->plen);
   } else {
-    babel_send_update(bif);
+    state->needs_update = 1;
   }
   return 0;
 }
@@ -886,7 +886,6 @@ int babel_handle_seqno_request(struct babel_tlv_header *hdr,
 				      struct babel_parse_state *state)
 {
   struct babel_tlv_seqno_request *tlv = (struct babel_tlv_seqno_request *)hdr;
-  struct babel_interface *bif = state->bif;
   struct proto *p = state->proto;
   ip_addr prefix = babel_get_addr(hdr, state);
   struct babel_entry *e;
@@ -900,7 +899,7 @@ int babel_handle_seqno_request(struct babel_tlv_header *hdr,
 
   r = e->selected;
   if(r->router_id != tlv->router_id || ge_mod64k(r->seqno, tlv->seqno) >= 0) {
-    babel_send_update(bif); /* FIXME: should only be an update per request */
+    state->needs_update = 1;
     return 0;
   }
 
