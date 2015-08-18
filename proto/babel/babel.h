@@ -21,10 +21,6 @@
 #define EA_BABEL_METRIC    EA_CODE(EAP_BABEL, 0)
 #define EA_BABEL_ROUTER_ID EA_CODE(EAP_BABEL, 1)
 
-#define PACKET_MAX     25
-#define PACKET_MD5_MAX 18        /* FIXME */
-
-
 #define BABEL_MAGIC    42
 #define BABEL_VERSION  2
 #define BABEL_PORT     6696
