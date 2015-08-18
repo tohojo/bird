@@ -220,7 +220,7 @@ static u16 babel_compute_rxcost(struct babel_neighbor *bn)
   u16 map=bn->hello_map;
 
   if(!map) return BABEL_INFINITY;
-  for(n=1;map&=map-1;n++); // number of bits set
+  n = __builtin_popcount(map); // number of bits set
   missed = bn->hello_n-n;
 
   if(bif->type == BABEL_IFACE_TYPE_WIRED) {
