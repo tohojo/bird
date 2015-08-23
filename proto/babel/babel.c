@@ -262,11 +262,16 @@ static u16 babel_compute_rxcost(struct babel_neighbor *bn)
     /* Link is bad if more than half the expected hellos were lost */
     return (missed > 0 && n/missed < 2) ? BABEL_INFINITY : bif->rxcost;
   } else if(bif->type == BABEL_IFACE_TYPE_WIRELESS) {
-    /* ETX - Appendix 2.2 in the RFC */
-    double beta; /* FIXME is this right? */
-    if(!missed) return BABEL_RXCOST_WIRELESS;
-    beta = 1-missed/bn->hello_n;
-    return (beta > 0) ? BABEL_RXCOST_WIRELESS/beta : BABEL_RXCOST_WIRELESS;
+    /* ETX - Appendix 2.2 in the RFC.
+
+	   beta = prob. of successful transmission.
+	   rxcost = BABEL_RXCOST_WIRELESS/beta
+
+	   Since: beta = 1-missed/bn->hello_n = n/bn->hello_n
+	   Then: rxcost = BABEL_RXCOST_WIRELESS * bn->hello_n / n
+	   */
+    if(!n) return BABEL_INFINITY;
+    return BABEL_RXCOST_WIRELESS * bn->hello_n / n;
   } else {
     BAD("Unknown interface type!");
   }
@@ -284,7 +289,7 @@ static u16 compute_cost(struct babel_neighbor *bn)
     return bn->txcost;
   } else if(bif->type == BABEL_IFACE_TYPE_WIRELESS) {
     /* ETX - Appendix 2.2 in the RFC */
-    return (MAX(bn->txcost, 256) * rxcost)/256;
+    return (MAX(bn->txcost, BABEL_RXCOST_WIRELESS) * rxcost)/BABEL_RXCOST_WIRELESS;
   } else {
     BAD("Unknown interface type!");
   }
