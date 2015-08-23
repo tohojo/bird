@@ -401,7 +401,9 @@ static void babel_select_route(struct babel_entry *e)
   } else if(!cur || cur->metric == BABEL_INFINITY) {
     /* Couldn't find a feasible route. If we have a selected route, that means
        it just became infeasible; so set it's metric to infinite and install it
-       (as unreachable), then send a seqno request. */
+       (as unreachable), then send a seqno request.
+
+       babel_build_rte will set the unreachable flag if the metric is BABEL_INFINITY.*/
     if(e->selected) {
       e->selected->metric = BABEL_INFINITY;
       rte_update(p, n, babel_build_rte(p, n, e->selected));
@@ -619,11 +621,11 @@ static void update_hello_history(struct babel_neighbor *bn, u16 seqno, u16 inter
   } else if((diff = diff_mod64k(bn->next_hello_seqno,seqno)) <= 16) {
     /* sending node increased interval; reverse history */
     bn->hello_map >>= diff;
-    bn->hello_n -= MAX(bn->hello_n-diff, 0);
+    bn->hello_n = (diff < bn->hello_n) ? bn->hello_n - diff : 0;
   } else if((diff = diff_mod64k(seqno,bn->next_hello_seqno)) <= 16) {
     /* sending node decreased interval; fast-forward */
     bn->hello_map <<= diff;
-    bn->hello_n = MIN(bn->hello_n+diff, 16);
+    bn->hello_n = MIN(bn->hello_n + diff, 16);
   }
   /* current entry */
   bn->hello_map = (bn->hello_map << 1) | 1;
