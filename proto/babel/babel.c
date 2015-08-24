@@ -345,10 +345,10 @@ static void babel_send_seqno_request(struct babel_entry *e)
   struct babel_interface *bif;
   struct babel_tlv_seqno_request *tlv;
 
-  TRACE(D_EVENTS, "Sending seqno request for %I/%d router_id %0lx",
-	e->n.prefix, e->n.pxlen, r->router_id);
-
   if(s && cache_seqno_request(p, e->n.prefix, e->n.pxlen, r->router_id, s->seqno+1)) {
+    TRACE(D_EVENTS, "Sending seqno request for %I/%d router_id %0lx",
+          e->n.prefix, e->n.pxlen, r->router_id);
+
     WALK_LIST(bif, P->interfaces) {
       babel_new_packet(bif);
       tlv = babel_add_tlv_seqno_request(bif);
