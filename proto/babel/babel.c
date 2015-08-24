@@ -941,7 +941,7 @@ int babel_handle_seqno_request(struct babel_tlv_header *hdr,
   if(!e || !e->selected || e->selected->metric == BABEL_INFINITY) return 1;
 
   r = e->selected;
-  if(r->router_id != tlv->router_id || ge_mod64k(r->seqno, tlv->seqno) >= 0) {
+  if(r->router_id != tlv->router_id || ge_mod64k(r->seqno, tlv->seqno)) {
     state->needs_update = 1;
     return 0;
   }
