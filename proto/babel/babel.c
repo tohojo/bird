@@ -367,6 +367,27 @@ static void babel_send_seqno_request(struct babel_entry *e)
   }
 }
 
+static void babel_unicast_seqno_request(struct babel_route *r)
+{
+  struct babel_entry *e = r->e;
+  struct proto *p = e->proto;
+  struct babel_source *s = babel_find_source(e, r->router_id);
+  struct babel_interface *bif = r->neigh->bif;
+  struct babel_tlv_seqno_request *tlv;
+  if(s && cache_seqno_request(p, e->n.prefix, e->n.pxlen, r->router_id, s->seqno+1)) {
+    TRACE(D_EVENTS, "Sending seqno request for %I/%d router_id %0lx",
+          e->n.prefix, e->n.pxlen, r->router_id);
+      babel_new_packet(bif);
+      tlv = babel_add_tlv_seqno_request(bif);
+      tlv->plen = e->n.pxlen;
+      tlv->seqno = s->seqno + 1;
+      tlv->hop_count = BABEL_INITIAL_HOP_COUNT;
+      tlv->router_id = r->router_id;
+      babel_put_addr(&tlv->header, e->n.prefix);
+      babel_send_to(bif, r->neigh->addr);
+  }
+}
+
 static void babel_send_route_request(struct babel_entry *e, struct babel_neighbor *n)
 {
   struct babel_interface *bif = n->bif;
@@ -727,6 +748,7 @@ int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *
   struct babel_source *s;
   struct babel_route *r;
   ip_addr prefix = babel_get_addr(hdr, state);
+  int feasible;
   TRACE(D_PACKETS, "Handling update for %I/%d with seqno %d metric %d",
 	prefix, tlv->plen, tlv->seqno, tlv->metric);
   if(tlv->flags & BABEL_FLAG_DEF_PREFIX) {
@@ -781,10 +803,11 @@ int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *
 
   s = babel_find_source(e, state->router_id); /* for feasibility */
   r = babel_find_route(e, n); /* the route entry indexed by neighbour */
+  feasible = is_feasible(s, tlv->seqno, tlv->metric);
 
   if(!r) {
 
-    if(!is_feasible(s, tlv->seqno, tlv->metric) || tlv->metric == BABEL_INFINITY)
+    if(!feasible || tlv->metric == BABEL_INFINITY)
       return 1;
 
     r = babel_get_route(e, n);
@@ -794,15 +817,16 @@ int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *
     r->next_hop = state->next_hop;
     r->seqno = tlv->seqno;
   } else if(r == r->e->selected
-	    && !is_feasible(s, tlv->seqno, tlv->metric)) {
+	    && !feasible) {
 
-    /* route is installed and update is infeasible - check router id */
+    /* route is installed and update is infeasible - we may lose the route, so
+       send a unicast seqno request (section 3.8.2.2 second paragraph). */
+    babel_unicast_seqno_request(r);
 
     if(state->router_id == s->router_id) return 1;
     r->metric = BABEL_INFINITY; /* retraction */
   } else {
     /* last point above - update entry */
-    r->seqno = tlv->seqno;
     r->advert_metric = tlv->metric;
     r->metric = compute_metric(n, tlv->metric);
     r->router_id = state->router_id;
@@ -814,6 +838,11 @@ int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *
       if(r->expiry_interval > BABEL_ROUTE_REFRESH_INTERVAL)
         tm_start(r->refresh_timer, r->expiry_interval - BABEL_ROUTE_REFRESH_INTERVAL);
     }
+    /* If the route is not feasible at this point, it means it is from another
+       neighbour than the one currently selected; so send a unicast seqno
+       request to try to get a better route (section 3.8.2.2 last paragraph). */
+    if(!feasible)
+      babel_unicast_seqno_request(r);
   }
   babel_select_route(e);
   return 0;
