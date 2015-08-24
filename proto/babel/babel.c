@@ -410,10 +410,12 @@ static void babel_select_route(struct babel_entry *e)
 
        babel_build_rte will set the unreachable flag if the metric is BABEL_INFINITY.*/
     if(e->selected) {
-      TRACE(D_EVENTS, "No feasible route for prefix %I/%d: sending seqno request",
+      TRACE(D_EVENTS, "No feasible route for prefix %I/%d: sending update and seqno request",
 	    e->n.prefix, e->n.pxlen);
       e->selected->metric = BABEL_INFINITY;
       rte_update(p, n, babel_build_rte(p, n, e->selected));
+
+      ev_schedule(P->update_event);
       babel_send_seqno_request(e);
     } else {
       /* No route currently selected, and no new one selected; this means we
