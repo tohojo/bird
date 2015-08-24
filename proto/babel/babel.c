@@ -348,7 +348,7 @@ static void babel_send_seqno_request(struct babel_entry *e)
   TRACE(D_EVENTS, "Sending seqno request for %I/%d router_id %0lx",
 	e->n.prefix, e->n.pxlen, r->router_id);
 
-  if(s) {
+  if(s && cache_seqno_request(p, e->n.prefix, e->n.pxlen, r->router_id, s->seqno+1)) {
     WALK_LIST(bif, P->interfaces) {
       babel_new_packet(bif);
       tlv = babel_add_tlv_seqno_request(bif);
