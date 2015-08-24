@@ -1355,7 +1355,7 @@ babel_init_config(struct babel_proto_config *c)
 static void
 babel_get_route_info(rte *rte, byte *buf, ea_list *attrs)
 {
-  buf += bsprintf(buf, " (%d)", rte->u.babel.metric);
+  buf += bsprintf(buf, " (%d/%0lx)", rte->u.babel.metric, rte->u.babel.router_id);
 }
 
 
