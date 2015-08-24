@@ -1,4 +1,4 @@
-/**  -*- c-file-style: "gnu"; -*-
+/**  -*- c-file-style: "gnu"; indent-tabs-mode: nil; -*-
  *
  *	The Babel protocol
  *

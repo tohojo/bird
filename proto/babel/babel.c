@@ -1,4 +1,4 @@
-/*  -*- c-file-style: "gnu"; -*-
+/*  -*- c-file-style: "gnu"; indent-tabs-mode: nil; -*-
  *
  *	The Babel protocol
  *
@@ -264,12 +264,12 @@ static u16 babel_compute_rxcost(struct babel_neighbor *bn)
   } else if(bif->type == BABEL_IFACE_TYPE_WIRELESS) {
     /* ETX - Appendix 2.2 in the RFC.
 
-	   beta = prob. of successful transmission.
-	   rxcost = BABEL_RXCOST_WIRELESS/beta
+       beta = prob. of successful transmission.
+       rxcost = BABEL_RXCOST_WIRELESS/beta
 
-	   Since: beta = 1-missed/bn->hello_n = n/bn->hello_n
-	   Then: rxcost = BABEL_RXCOST_WIRELESS * bn->hello_n / n
-	   */
+       Since: beta = 1-missed/bn->hello_n = n/bn->hello_n
+       Then: rxcost = BABEL_RXCOST_WIRELESS * bn->hello_n / n
+   */
     if(!n) return BABEL_INFINITY;
     return BABEL_RXCOST_WIRELESS * bn->hello_n / n;
   } else {
