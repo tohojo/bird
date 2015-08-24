@@ -39,6 +39,7 @@
 #define BABEL_IHU_INTERVAL_FACTOR     3
 #define BABEL_HELLO_EXPIRY_FACTOR     1.5
 #define BABEL_ROUTE_EXPIRY_FACTOR     3.5
+#define BABEL_ROUTE_REFRESH_INTERVAL  2  /* seconds before route expiry to send route request */
 #define BABEL_HOLD_TIME               10 /* expiry time for our own routes */
 #define BABEL_RXCOST_WIRED            96
 #define BABEL_RXCOST_WIRELESS         256
@@ -330,7 +331,8 @@ struct babel_route {
   u16     metric;
   u64     router_id;
   ip_addr next_hop;
-  timer * expiry_timer;
+  timer  *refresh_timer;
+  timer  *expiry_timer;
   u16     expiry_interval;
 };
 

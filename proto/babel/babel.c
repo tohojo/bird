@@ -69,8 +69,11 @@ static void expire_hello(timer *t);
 static void expire_ihu(timer *t);
 static void expire_source(timer *t);
 static void expire_route(timer *t);
+static void refresh_route(timer *t);
 static void babel_dump_entry(struct babel_entry *e);
 static void babel_select_route(struct babel_entry *e);
+static int cache_seqno_request(struct proto *p, ip_addr prefix, u8 plen,
+			       u64 router_id, u16 seqno);
 
 
 static void babel_init_entry(struct fib_node *n)
@@ -161,6 +164,7 @@ static struct babel_route * babel_get_route(struct babel_entry *e, struct babel_
   r->e = e;
   r->neigh_route.r = r;
   r->expiry_timer = tm_new_set(e->pool, expire_route, r, 0, 0);
+  r->refresh_timer = tm_new_set(e->pool, refresh_route, r, 0, 0);
   add_tail(&e->routes, NODE r);
   if(n) add_tail(&n->routes, NODE &r->neigh_route);
   return r;
@@ -171,6 +175,7 @@ static void babel_flush_route(struct babel_route *r)
   DBG("Flush route %I/%d router_id %0lx\n",
       r->e->n.prefix, r->e->n.pxlen, r->router_id);
   tm_stop(r->expiry_timer);
+  tm_stop(r->refresh_timer);
   rem_node(NODE r);
   if(r->neigh) rem_node(NODE &r->neigh_route);
   if(r->e->selected == r) r->e->selected = NULL;
@@ -360,6 +365,27 @@ static void babel_send_seqno_request(struct babel_entry *e)
       babel_send(bif);
     }
   }
+}
+
+static void babel_send_route_request(struct babel_entry *e, struct babel_neighbor *n)
+{
+  struct babel_interface *bif = n->bif;
+  struct proto *p = e->proto;
+  struct babel_tlv_route_request *tlv;
+  TRACE(D_PACKETS, "Babel: Sending route request for %I/%d to %I\n",
+        e->n.prefix, e->n.pxlen, n->addr);
+  babel_new_packet(bif);
+  tlv = babel_add_tlv_route_request(bif);
+  babel_put_addr(&tlv->header, e->n.prefix);
+  tlv->plen = e->n.pxlen;
+  babel_send_to(bif, n->addr);
+}
+
+static void refresh_route(timer *t)
+{
+  struct babel_route *r = t->data;
+  if(!r->neigh || r != r->e->selected) return;
+  babel_send_route_request(r->e, r->neigh);
 }
 
 /**
@@ -782,6 +808,8 @@ int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *
     if(tlv->metric != BABEL_INFINITY) {
       r->expiry_interval = (BABEL_ROUTE_EXPIRY_FACTOR*tlv->interval)/100;
       tm_start(r->expiry_timer, r->expiry_interval);
+      if(r->expiry_interval > BABEL_ROUTE_REFRESH_INTERVAL)
+        tm_start(r->refresh_timer, r->expiry_interval - BABEL_ROUTE_REFRESH_INTERVAL);
     }
   }
   babel_select_route(e);
