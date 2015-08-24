@@ -345,7 +345,7 @@ static void babel_send_seqno_request(struct babel_entry *e)
   struct babel_interface *bif;
   struct babel_tlv_seqno_request *tlv;
 
-  TRACE(D_PACKETS, "Sending seqno request for %I/%d router_id %0lx",
+  TRACE(D_EVENTS, "Sending seqno request for %I/%d router_id %0lx",
 	e->n.prefix, e->n.pxlen, r->router_id);
 
   if(s) {
@@ -410,6 +410,8 @@ static void babel_select_route(struct babel_entry *e)
 
        babel_build_rte will set the unreachable flag if the metric is BABEL_INFINITY.*/
     if(e->selected) {
+      TRACE(D_EVENTS, "No feasible route for prefix %I/%d: sending seqno request",
+	    e->n.prefix, e->n.pxlen);
       e->selected->metric = BABEL_INFINITY;
       rte_update(p, n, babel_build_rte(p, n, e->selected));
       babel_send_seqno_request(e);
@@ -417,6 +419,7 @@ static void babel_select_route(struct babel_entry *e)
       /* No route currently selected, and no new one selected; this means we
 	 don't have a route to this destination anymore (and were probably
 	 called from an expiry timer). Remove the route from the nest. */
+      TRACE(D_EVENTS, "Flushing route for prefix %I/%d", e->n.prefix, e->n.pxlen);
       e->selected = NULL;
       rte_update(p, n, NULL);
     }
@@ -1007,7 +1010,7 @@ static void babel_dump(struct proto *p)
 {
   struct babel_entry *e;
   struct babel_interface *bif;
-  debug("Babel: router id %0xl update seqno %d\n", P->router_id, P->update_seqno);
+  debug("Babel: router id %0lx update seqno %d\n", P->router_id, P->update_seqno);
   WALK_LIST(bif, P->interfaces) {babel_dump_interface(bif);}
   FIB_WALK(&P->rtable, n) {
     e = (struct babel_entry *)n;
