@@ -427,16 +427,19 @@ static void babel_select_route(struct babel_entry *e)
 	 a global update. */
       e->selected = cur;
       rte_update(p, n, babel_build_rte(p, n, cur));
-      if(!old || old->u.babel.router_id != cur->router_id)
+      if(!old || old->u.babel.metric == BABEL_INFINITY
+         || old->u.babel.router_id != cur->router_id) {
+
 	ev_schedule(P->update_event);
+      }
   } else if(!cur || cur->metric == BABEL_INFINITY) {
     /* Couldn't find a feasible route. If we have a selected route, that means
        it just became infeasible; so set it's metric to infinite and install it
        (as unreachable), then send a seqno request.
 
-       babel_build_rte will set the unreachable flag if the metric is BABEL_INFINITY.*/
+       babel_build_rte() will set the unreachable flag if the metric is BABEL_INFINITY.*/
     if(e->selected) {
-      TRACE(D_EVENTS, "No feasible route for prefix %I/%d: sending update and seqno request",
+      TRACE(D_EVENTS, "Lost feasible route for prefix %I/%d: sending update and seqno request",
 	    e->n.prefix, e->n.pxlen);
       e->selected->metric = BABEL_INFINITY;
       rte_update(p, n, babel_build_rte(p, n, e->selected));
