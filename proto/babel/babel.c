@@ -196,26 +196,25 @@ static void expire_route(timer *t)
 
 static struct babel_neighbor * babel_find_neighbor(struct babel_iface *bif, ip_addr addr)
 {
-  struct babel_proto *p = bif->proto;
-  neighbor *n = neigh_find2(&p->p, &addr, bif->iface, NEF_STICKY);
-  return (n->data) ? n->data : NULL;
+  struct babel_neighbor *bn;
+  WALK_LIST(bn, bif->neigh_list)
+    if(ipa_equal(bn->addr, addr))
+      return bn;
+  return NULL;
 }
 
 static struct babel_neighbor * babel_get_neighbor(struct babel_iface *bif, ip_addr addr)
 {
-  struct babel_proto *p = bif->proto;
-  neighbor *n = neigh_find2(&p->p, &addr, bif->iface, NEF_STICKY);
-  if (n->data) return n->data;
+  struct babel_neighbor *bn = babel_find_neighbor(bif, addr);
+  if(bn) return bn;
   pool *pool = rp_new(bif->pool, "Babel neighbor");
-  struct babel_neighbor *bn = mb_allocz(pool, sizeof(struct babel_neighbor));
+  bn = mb_allocz(pool, sizeof(struct babel_neighbor));
   bn->bif = bif;
   bn->pool = pool;
-  bn->neigh = n;
-  bn->addr = n->addr;
+  bn->addr = addr;
   bn->txcost = BABEL_INFINITY;
   bn->hello_timer = tm_new_set(bn->pool, expire_hello, bn, 0, 0);
   bn->ihu_timer = tm_new_set(bn->pool, expire_ihu, bn, 0, 0);
-  n->data = bn;
   init_list(&bn->routes);
   add_tail(&bif->neigh_list, NODE bn);
   return bn;
@@ -633,7 +632,6 @@ static void babel_flush_neighbor(struct babel_neighbor *bn)
   struct babel_route *r;
   TRACE(D_EVENTS, "Flushing neighbor %I", bn->addr);
   rem_node(NODE bn);
-  bn->neigh->data = NULL;
   while(r=SKIP_BACK(struct babel_route, neigh_route, HEAD(bn->routes)), r->neigh_route.next)
     babel_flush_route(r);
   rfree(bn->pool); // contains the neighbor itself

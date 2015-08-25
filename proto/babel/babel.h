@@ -244,7 +244,7 @@ struct babel_seqno_request {
 
 struct babel_seqno_request_cache {
   pool  *pool;
-  list   entries;
+  list   entries;  /* Seqno requests in the cache (struct babel_seqno_request) */
   timer *timer;
 };
 
@@ -263,7 +263,7 @@ struct babel_iface {
   sock    *sock;
   ip_addr  addr;
   int      max_pkt_len;
-  list     neigh_list;
+  list     neigh_list; /* List of neighbors seen on this iface (struct babel_neighbor) */
 
   void    *tlv_buf;
   void    *current_buf;
@@ -275,6 +275,7 @@ struct babel_iface {
   timer *update_timer;
   timer *packet_timer;
   event *send_event;
+
 };
 
 struct babel_iface_config {
@@ -293,7 +294,6 @@ struct babel_neighbor {
   node n;
   struct babel_iface *bif;
 
-  neighbor *neigh;
   ip_addr   addr;
   pool     *pool;
   u16       txcost;
@@ -304,7 +304,7 @@ struct babel_neighbor {
   timer    *hello_timer;
   timer    *ihu_timer;
 
-  list routes;
+  list routes;  /* Routes this neighbour has sent us (struct babel_route) */
 };
 
 struct babel_entry;
@@ -342,8 +342,8 @@ struct babel_entry {
   struct babel_route *selected;
 
   pool  *pool;
-  list   sources;
-  list   routes;
+  list   sources;   /* Source table entries for this prefix (struct babel_source). */
+  list   routes;    /* Routes for this prefix (struct babel_route). */
   timer *source_expiry_timer;
 };
 
@@ -360,7 +360,7 @@ struct babel_proto {
   struct proto  p;
   timer        *timer;
   struct fib    rtable;
-  list          interfaces;     /* Interfaces we really know about */
+  list          interfaces;     /* Interfaces we really know about (struct babel_iface) */
   u16           update_seqno;   /* To be increased on request */
   u64           router_id;
   event        *update_event;   /* For triggering global updates */
