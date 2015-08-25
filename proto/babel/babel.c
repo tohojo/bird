@@ -101,7 +101,6 @@ static struct babel_entry * babel_get_entry(struct babel_proto *p, ip_addr prefi
 void babel_flush_entry(struct babel_entry *e)
 {
   struct babel_proto *p = e->proto;
-  tm_stop(e->source_expiry_timer);
   rfree(e->pool);
   if(p) fib_delete(&p->rtable, e);
 }

@@ -343,7 +343,6 @@ struct babel_entry {
   pool  *pool;
   list   sources;   /* Source table entries for this prefix (struct babel_source). */
   list   routes;    /* Routes for this prefix (struct babel_route). */
-  timer *source_expiry_timer;
 };
 
 
