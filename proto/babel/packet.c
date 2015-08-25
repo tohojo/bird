@@ -23,7 +23,7 @@
 #define TLV_SIZE(t) (t->type == BABEL_TYPE_PAD0 ? 1 : t->length + sizeof(struct babel_tlv_header))
 #define TLV_LENGTH(t) (tlv_data[t].struct_length-sizeof(struct babel_tlv_header))
 
-static void babel_send_to(struct babel_interface *bif, ip_addr dest);
+static void babel_send_to(struct babel_iface *bif, ip_addr dest);
 
 static ip_addr get_ip6_ll(u32 *addr)
 {
@@ -135,7 +135,7 @@ void babel_ntoh_ihu(struct babel_tlv_header *hdr)
 ip_addr babel_get_addr_ihu(struct babel_tlv_header *hdr, struct babel_parse_state *state)
 {
   struct babel_tlv_ihu *tlv = (struct babel_tlv_ihu *)hdr;
-  struct babel_interface *bif = state->bif;
+  struct babel_iface *bif = state->bif;
   if(tlv->ae == BABEL_AE_WILDCARD) {
     return bif->iface->addr->ip; /* FIXME: Correct? */
   } else if(tlv->ae == BABEL_AE_IP6_LL) {
@@ -353,20 +353,20 @@ void babel_init_packet(void *buf)
   hdr->version = BABEL_VERSION;
 }
 
-void babel_new_unicast(struct babel_interface *bif)
+void babel_new_unicast(struct babel_iface *bif)
 {
   babel_init_packet(bif->sock->tbuf);
   bif->current_buf = bif->sock->tbuf;
 }
 
-void babel_send_unicast(struct babel_interface *bif, ip_addr dest)
+void babel_send_unicast(struct babel_iface *bif, ip_addr dest)
 {
   babel_send_to(bif, dest);
   bif->current_buf = bif->tlv_buf;
 }
 
 
-struct babel_tlv_header * babel_add_tlv_size(struct babel_interface *bif, u16 type, int len)
+struct babel_tlv_header * babel_add_tlv_size(struct babel_iface *bif, u16 type, int len)
 {
   struct babel_header *hdr = bif->current_buf;
   struct babel_tlv_header *tlv;
@@ -383,7 +383,7 @@ struct babel_tlv_header * babel_add_tlv_size(struct babel_interface *bif, u16 ty
   return tlv;
 }
 
-struct babel_tlv_header * babel_add_tlv(struct babel_interface *bif, u16 type)
+struct babel_tlv_header * babel_add_tlv(struct babel_iface *bif, u16 type)
 {
   return babel_add_tlv_size(bif, type, tlv_data[type].struct_length);
 }
@@ -403,7 +403,7 @@ static int babel_copy_tlv(void *buf, struct babel_tlv_header *src, int max_len)
 }
 
 
-static void babel_send_to(struct babel_interface *bif, ip_addr dest)
+static void babel_send_to(struct babel_iface *bif, ip_addr dest)
 {
   sock *s = bif->sock;
   struct babel_header *hdr = (void *) s->tbuf;
@@ -418,14 +418,14 @@ static void babel_send_to(struct babel_interface *bif, ip_addr dest)
     log(L_WARN "Babel: TX queue full on %s", bif->ifname);
 }
 
-static void babel_send( struct babel_interface *bif )
+static void babel_send( struct babel_iface *bif )
 {
   babel_send_to(bif, IP6_BABEL_ROUTERS);
 }
 
 void babel_send_queue(void *arg)
 {
-  struct babel_interface *bif = arg;
+  struct babel_iface *bif = arg;
   struct babel_header *dst = (void *)bif->sock->tbuf;
   struct babel_header *src = (void *)bif->tlv_buf;
   struct babel_tlv_header *hdr;
@@ -453,7 +453,7 @@ void babel_send_queue(void *arg)
 
 
 int babel_process_packet(struct babel_header *pkt, int size,
-			ip_addr saddr, int port, struct babel_interface *bif)
+			ip_addr saddr, int port, struct babel_iface *bif)
 {
   struct babel_tlv_header *tlv = FIRST_TLV(pkt);
   struct babel_proto *proto = bif->proto;
@@ -508,7 +508,7 @@ static void babel_tx_err( sock *s, int err )
 static int
 babel_rx(sock *s, int size)
 {
-  struct babel_interface *bif = s->data;
+  struct babel_iface *bif = s->data;
   struct babel_proto *p = bif->proto;
   if (! bif->iface || s->lifindex != bif->iface->index)
     return 1;
@@ -527,7 +527,7 @@ babel_rx(sock *s, int size)
   return 1;
 }
 
-int babel_open_socket(struct babel_interface *bif)
+int babel_open_socket(struct babel_iface *bif)
 {
   struct babel_proto *p = bif->proto;
   struct babel_config *cf = (struct babel_config *) p->p.cf;
