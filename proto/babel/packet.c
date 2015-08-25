@@ -554,8 +554,8 @@ int babel_open_socket(struct babel_iface *bif)
     goto err;
   TRACE(D_EVENTS, "Listening on %s, port %d, mode multicast (%I)",  bif->iface->name, cf->port,  bif->sock->daddr );
 
-  tm_start(bif->hello_timer, bif->hello_interval);
-  tm_start(bif->update_timer, bif->update_interval);
+  tm_start(bif->hello_timer, bif->cf->hello_interval);
+  tm_start(bif->update_timer, bif->cf->update_interval);
   tm_start(bif->packet_timer, 1);
 
   babel_send_hello(bif,0);

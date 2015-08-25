@@ -256,12 +256,12 @@ static u16 babel_compute_rxcost(struct babel_neighbor *bn)
   n = __builtin_popcount(map); // number of bits set
   missed = bn->hello_n-n;
 
-  if(bif->type == BABEL_IFACE_TYPE_WIRED) {
+  if(bif->cf->type == BABEL_IFACE_TYPE_WIRED) {
     /* k-out-of-j selection - Appendix 2.1 in the RFC. */
     DBG("Missed %d hellos from %I\n", missed, bn->addr);
     /* Link is bad if more than half the expected hellos were lost */
-    return (missed > 0 && n/missed < 2) ? BABEL_INFINITY : bif->rxcost;
-  } else if(bif->type == BABEL_IFACE_TYPE_WIRELESS) {
+    return (missed > 0 && n/missed < 2) ? BABEL_INFINITY : bif->cf->rxcost;
+  } else if(bif->cf->type == BABEL_IFACE_TYPE_WIRELESS) {
     /* ETX - Appendix 2.2 in the RFC.
 
        beta = prob. of successful transmission.
@@ -284,10 +284,10 @@ static u16 compute_cost(struct babel_neighbor *bn)
   struct babel_proto *p = bif->proto;
   u16 rxcost = babel_compute_rxcost(bn);
   if(rxcost == BABEL_INFINITY) return rxcost;
-  else if(bif->type == BABEL_IFACE_TYPE_WIRED) {
+  else if(bif->cf->type == BABEL_IFACE_TYPE_WIRED) {
     /* k-out-of-j selection - Appendix 2.1 in the RFC. */
     return bn->txcost;
-  } else if(bif->type == BABEL_IFACE_TYPE_WIRELESS) {
+  } else if(bif->cf->type == BABEL_IFACE_TYPE_WIRELESS) {
     /* ETX - Appendix 2.2 in the RFC */
     return (MAX(bn->txcost, BABEL_RXCOST_WIRELESS) * rxcost)/BABEL_RXCOST_WIRELESS;
   } else {
@@ -487,7 +487,7 @@ static void babel_add_ihu(struct babel_iface *bif, struct babel_neighbor *bn)
   struct babel_tlv_ihu *tlv = babel_add_tlv_ihu(bif);
   babel_put_addr_ihu(&tlv->header, bn->addr);
   tlv->rxcost = babel_compute_rxcost(bn);
-  tlv->interval = bif->ihu_interval*100;
+  tlv->interval = bif->cf->ihu_interval*100;
 }
 
 static void babel_add_ihus(struct babel_iface *bif)
@@ -513,7 +513,7 @@ void babel_send_hello(struct babel_iface *bif, u8 send_ihu)
   TRACE(D_PACKETS, "Babel: Sending hello on interface %s", bif->ifname);
   tlv = babel_add_tlv_hello(bif);
   tlv->seqno = bif->hello_seqno++;
-  tlv->interval = bif->hello_interval*100;
+  tlv->interval = bif->cf->hello_interval*100;
 
   if(send_ihu) babel_add_ihus(bif);
 }
@@ -572,7 +572,7 @@ void babel_send_update(struct babel_iface *bif)
     if(r->router_id == p->router_id && r->seqno < p->update_seqno)
       r->seqno = p->update_seqno;
     upd->plen = e->n.pxlen;
-    upd->interval = bif->update_interval*100;
+    upd->interval = bif->cf->update_interval*100;
     upd->seqno = r->seqno;
     upd->metric = r->metric;
     babel_put_addr(&upd->header, e->n.prefix);
@@ -694,7 +694,7 @@ int babel_handle_hello(struct babel_tlv_header *hdr, struct babel_parse_state *s
   TRACE(D_PACKETS, "Handling hello seqno %d interval %d", tlv->seqno,
 	tlv->interval, state->saddr);
   update_hello_history(bn, tlv->seqno, tlv->interval);
-  if(bif->type == BABEL_IFACE_TYPE_WIRELESS)
+  if(bif->cf->type == BABEL_IFACE_TYPE_WIRELESS)
     babel_send_ihu(bif, bn);
   return 0;
 }
@@ -847,7 +847,7 @@ static void babel_send_retraction(struct babel_iface *bif, ip_addr prefix, int p
   struct babel_tlv_update *upd;
   upd = babel_add_router_id(bif, p->router_id);
   upd->plen = plen;
-  upd->interval = bif->update_interval*100;
+  upd->interval = bif->cf->update_interval*100;
   upd->seqno = p->update_seqno;
   upd->metric = BABEL_INFINITY;
   babel_put_addr(&upd->header, prefix);
@@ -1050,9 +1050,9 @@ static void babel_dump_neighbor(struct babel_neighbor *bn)
 static void babel_dump_interface(struct babel_iface *bif)
 {
   struct babel_neighbor *bn;
-  debug("Babel: Interface %s addr %I rxcost %d type %d hello seqno %d intervals %d %d %d\n",
-	bif->ifname, bif->addr, bif->rxcost, bif->type, bif->hello_seqno,
-	bif->hello_interval, bif->ihu_interval, bif->update_interval);
+  debug("Babel: Interface %s addr %I rxcost %d type %d hello seqno %d intervals %d %d\n",
+	bif->ifname, bif->addr, bif->cf->rxcost, bif->cf->type, bif->hello_seqno,
+	bif->cf->hello_interval, bif->cf->update_interval);
   WALK_LIST(bn,bif->neigh_list) { debug(" "); babel_dump_neighbor(bn); }
 
 }
@@ -1171,36 +1171,30 @@ static void babel_new_interface(struct babel_proto *p, struct iface *new,
     if(ipa_is_link_local(ifa->ip))
       bif->addr = ifa->ip;
   if (iface_cf) {
-    bif->rxcost = iface_cf->rxcost;
-    bif->type = iface_cf->type;
     bif->cf = iface_cf;
 
-    if(bif->type == BABEL_IFACE_TYPE_WIRED) {
-      bif->hello_interval = BABEL_HELLO_INTERVAL_WIRED;
-      bif->rxcost = BABEL_RXCOST_WIRED;
-    } else if(bif->type == BABEL_IFACE_TYPE_WIRELESS) {
-      bif->hello_interval = BABEL_HELLO_INTERVAL_WIRELESS;
-      bif->rxcost = BABEL_RXCOST_WIRELESS;
+    if(bif->cf->type == BABEL_IFACE_TYPE_WIRED) {
+      if(bif->cf->hello_interval == BABEL_INFINITY)
+        bif->cf->hello_interval = BABEL_HELLO_INTERVAL_WIRED;
+      if(bif->cf->rxcost == BABEL_INFINITY)
+        bif->cf->rxcost = BABEL_RXCOST_WIRED;
+    } else if(bif->cf->type == BABEL_IFACE_TYPE_WIRELESS) {
+      if(bif->cf->hello_interval == BABEL_INFINITY)
+        bif->cf->hello_interval = BABEL_HELLO_INTERVAL_WIRELESS;
+      if(bif->cf->rxcost == BABEL_INFINITY)
+        bif->cf->rxcost = BABEL_RXCOST_WIRELESS;
     }
-    if(iface_cf->hello_interval < BABEL_INFINITY) {
-      bif->hello_interval = iface_cf->hello_interval;
+    if(bif->cf->update_interval == BABEL_INFINITY) {
+      bif->cf->update_interval = bif->cf->hello_interval*BABEL_UPDATE_INTERVAL_FACTOR;
     }
-    if(iface_cf->rxcost < BABEL_INFINITY) {
-      bif->rxcost = iface_cf->rxcost;
-    }
-    if(iface_cf->update_interval < BABEL_INFINITY) {
-      bif->update_interval = iface_cf->update_interval;
-    } else {
-      bif->update_interval = bif->hello_interval*BABEL_UPDATE_INTERVAL_FACTOR;
-    }
-    bif->ihu_interval = bif->hello_interval*BABEL_IHU_INTERVAL_FACTOR;
+    bif->cf->ihu_interval = bif->cf->hello_interval*BABEL_IHU_INTERVAL_FACTOR;
   }
   init_list(&bif->neigh_list);
   bif->hello_seqno = 1;
   bif->max_pkt_len = new->mtu - BABEL_OVERHEAD;
 
-  bif->hello_timer = tm_new_set(bif->pool, babel_hello_timer, bif, 0, bif->hello_interval);
-  bif->update_timer = tm_new_set(bif->pool, babel_update_timer, bif, 0, bif->update_interval);
+  bif->hello_timer = tm_new_set(bif->pool, babel_hello_timer, bif, 0, bif->cf->hello_interval);
+  bif->update_timer = tm_new_set(bif->pool, babel_update_timer, bif, 0, bif->cf->update_interval);
   bif->packet_timer = tm_new_set(bif->pool, babel_queue_timer, bif, BABEL_MAX_SEND_INTERVAL, 1);
 
 

@@ -263,8 +263,6 @@ struct babel_iface {
   sock    *sock;
   ip_addr  addr;
   int      max_pkt_len;
-  int      rxcost;
-  int      type;
   list     neigh_list;
 
   void    *tlv_buf;
@@ -272,9 +270,6 @@ struct babel_iface {
   int      update_triggered;
 
   u16 hello_seqno;              /* To be increased on each hello */
-  u16 hello_interval;
-  u16 ihu_interval;
-  u16 update_interval;
 
   timer *hello_timer;
   timer *update_timer;
@@ -285,12 +280,13 @@ struct babel_iface {
 struct babel_iface_config {
   struct iface_patt i;
 
-  int rxcost;
+  u16 rxcost;
   int type;
   int tx_tos;
   int tx_priority;
-  int hello_interval;
-  int update_interval;
+  u16 hello_interval;
+  u16 ihu_interval;
+  u16 update_interval;
 };
 
 struct babel_neighbor {
