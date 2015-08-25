@@ -62,8 +62,8 @@ static inline u16 ge_mod64k(u16 a, u16 b)
 
 static void babel_new_interface(struct babel_proto *p, struct iface *new,
                                 unsigned long flags, struct iface_patt *patt);
-static void expire_hello(timer *t);
-static void expire_ihu(timer *t);
+static void expire_hello(struct babel_neighbor *bn);
+static void expire_ihu(struct babel_neighbor *bn);
 static void expire_sources(struct babel_entry *e);
 static void expire_route(struct babel_route *r);
 static void refresh_route(struct babel_route *r);
@@ -228,11 +228,23 @@ static struct babel_neighbor * babel_get_neighbor(struct babel_iface *bif, ip_ad
   bn->pool = pool;
   bn->addr = addr;
   bn->txcost = BABEL_INFINITY;
-  bn->hello_timer = tm_new_set(bn->pool, expire_hello, bn, 0, 0);
-  bn->ihu_timer = tm_new_set(bn->pool, expire_ihu, bn, 0, 0);
   init_list(&bn->routes);
   add_tail(&bif->neigh_list, NODE bn);
   return bn;
+}
+
+static void babel_expire_neighbors(struct babel_proto *p)
+{
+  struct babel_iface *bif;
+  struct babel_neighbor *bn, *bnx;
+  WALK_LIST(bif, p->interfaces) {
+    WALK_LIST_DELSAFE(bn, bnx, bif->neigh_list) {
+      if(bn->hello_expiry && bn->hello_expiry <= now)
+        expire_hello(bn);
+      if(bn->ihu_expiry && bn->ihu_expiry <= now)
+        expire_ihu(bn);
+    }
+  }
 }
 
 
@@ -646,9 +658,8 @@ static void babel_flush_neighbor(struct babel_neighbor *bn)
   rfree(bn->pool); // contains the neighbor itself
 }
 
-static void expire_hello(timer *t)
+static void expire_hello(struct babel_neighbor *bn)
 {
-  struct babel_neighbor *bn = t->data;
   bn->hello_map <<= 1;
   if(bn->hello_n < 16) bn->hello_n++;
   if(!bn->hello_map) {
@@ -656,9 +667,8 @@ static void expire_hello(timer *t)
   }
 }
 
-static void expire_ihu(timer *t)
+static void expire_ihu(struct babel_neighbor *bn)
 {
-  struct babel_neighbor *bn = t->data;
   bn->txcost = BABEL_INFINITY;
 }
 
@@ -688,7 +698,7 @@ static void update_hello_history(struct babel_neighbor *bn, u16 seqno, u16 inter
   bn->hello_map = (bn->hello_map << 1) | 1;
   bn->next_hello_seqno = seqno+1;
   if(bn->hello_n < 16) bn->hello_n++;
-  tm_start(bn->hello_timer, (BABEL_HELLO_EXPIRY_FACTOR*interval)/100);
+  bn->hello_expiry = now + (BABEL_HELLO_EXPIRY_FACTOR*interval)/100;
 }
 
 
@@ -718,7 +728,7 @@ int babel_handle_ihu(struct babel_tlv_header *hdr, struct babel_parse_state *sta
 	tlv->interval);
   struct babel_neighbor *bn = babel_get_neighbor(bif, state->saddr);
   bn->txcost = tlv->rxcost;
-  tm_start(bn->ihu_timer, 1.5*(tlv->interval/100));
+  bn->ihu_expiry = now + 1.5*(tlv->interval/100);
   return 0;
 }
 
@@ -1249,6 +1259,7 @@ babel_timer(timer *t)
   struct babel_proto *p = t->data;
   babel_expire_routes(p);
   expire_seqno_requests(p->seqno_cache);
+  babel_expire_neighbors(p);
 }
 
 

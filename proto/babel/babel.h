@@ -300,8 +300,8 @@ struct babel_neighbor {
   u16       hello_map;
   u16       next_hello_seqno;
   /* expiry timers */
-  timer    *hello_timer;
-  timer    *ihu_timer;
+  bird_clock_t hello_expiry;
+  bird_clock_t ihu_expiry;
 
   list routes;  /* Routes this neighbour has sent us (struct babel_route) */
 };
