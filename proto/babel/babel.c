@@ -159,7 +159,6 @@ static struct babel_route * babel_get_route(struct babel_entry *e, struct babel_
   r = mb_allocz(e->pool, sizeof(struct babel_route));
   r->neigh = n;
   r->e = e;
-  r->neigh_route.r = r;
   r->expiry_timer = tm_new_set(e->pool, expire_route, r, 0, 0);
   r->refresh_timer = tm_new_set(e->pool, refresh_route, r, 0, 0);
   add_tail(&e->routes, NODE r);
@@ -174,7 +173,7 @@ static void babel_flush_route(struct babel_route *r)
   tm_stop(r->expiry_timer);
   tm_stop(r->refresh_timer);
   rem_node(NODE r);
-  if(r->neigh) rem_node(NODE &r->neigh_route);
+  if(r->neigh) rem_node(&r->neigh_route);
   if(r->e->selected == r) r->e->selected = NULL;
   mb_free(r);
 }
@@ -631,12 +630,12 @@ int babel_handle_ack(struct babel_tlv_header *hdr, struct babel_parse_state *sta
 static void babel_flush_neighbor(struct babel_neighbor *bn)
 {
   struct babel_proto *p = bn->bif->proto;
-  struct neighbor_route *r;
+  struct babel_route *r;
   TRACE(D_EVENTS, "Flushing neighbor %I", bn->addr);
   rem_node(NODE bn);
   bn->neigh->data = NULL;
-  WALK_LIST_FIRST(r, bn->routes)
-    babel_flush_route(r->r);
+  while(r=SKIP_BACK(struct babel_route, neigh_route, HEAD(bn->routes)), r->neigh_route.next)
+    babel_flush_route(r);
   rfree(bn->pool); // contains the neighbor itself
 }
 

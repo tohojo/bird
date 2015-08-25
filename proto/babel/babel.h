@@ -323,14 +323,9 @@ struct babel_source {
   bird_clock_t updated;
 };
 
-struct neighbor_route {
-    node                n;
-    struct babel_route *r;
-};
-
 struct babel_route {
   node                   n;
-  struct neighbor_route  neigh_route;
+  node                   neigh_route;
   struct babel_entry    *e;
   struct babel_neighbor *neigh;
 
