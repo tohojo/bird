@@ -13,8 +13,8 @@ CF_HDR
 
 CF_DEFINES
 
-#define BABEL_CFG ((struct babel_proto_config *) this_proto)
-#define BABEL_IPATT ((struct babel_patt *) this_ipatt)
+#define BABEL_CFG ((struct babel_config *) this_proto)
+#define BABEL_IFACE_CFG ((struct babel_iface_config *) this_ipatt)
 
 CF_DECLS
 
@@ -40,13 +40,13 @@ babel_cfg:
 
 
 babel_iface_item:
- | RXCOST expr { BABEL_IPATT->rxcost = $2; }
- | TX tos { BABEL_IPATT->tx_tos = $2; }
- | TX PRIORITY expr { BABEL_IPATT->tx_priority = $3; }
- | TYPE WIRED { BABEL_IPATT->type = BABEL_IFACE_TYPE_WIRED; }
- | TYPE WIRELESS { BABEL_IPATT->type = BABEL_IFACE_TYPE_WIRELESS; }
- | HELLO_INTERVAL expr { BABEL_IPATT->hello_interval = $2; }
- | UPDATE_INTERVAL expr { BABEL_IPATT->update_interval = $2; }
+ | RXCOST expr { BABEL_IFACE_CFG->rxcost = $2; }
+ | TX tos { BABEL_IFACE_CFG->tx_tos = $2; }
+ | TX PRIORITY expr { BABEL_IFACE_CFG->tx_priority = $3; }
+ | TYPE WIRED { BABEL_IFACE_CFG->type = BABEL_IFACE_TYPE_WIRED; }
+ | TYPE WIRELESS { BABEL_IFACE_CFG->type = BABEL_IFACE_TYPE_WIRELESS; }
+ | HELLO_INTERVAL expr { BABEL_IFACE_CFG->hello_interval = $2; }
+ | UPDATE_INTERVAL expr { BABEL_IFACE_CFG->update_interval = $2; }
  ;
 
 babel_iface_opts:
@@ -61,15 +61,15 @@ babel_iface_opt_list:
 
 babel_iface_init:
    /* EMPTY */ {
-     this_ipatt = cfg_allocz(sizeof(struct babel_patt));
+     this_ipatt = cfg_allocz(sizeof(struct babel_iface_config));
      add_tail(&BABEL_CFG->iface_list, NODE this_ipatt);
      init_list(&this_ipatt->ipn_list);
-     BABEL_IPATT->rxcost = BABEL_INFINITY;
-     BABEL_IPATT->type = BABEL_IFACE_TYPE_WIRED;
-     BABEL_IPATT->tx_tos = IP_PREC_INTERNET_CONTROL;
-     BABEL_IPATT->tx_priority = sk_priority_control;
-     BABEL_IPATT->hello_interval = BABEL_INFINITY;
-     BABEL_IPATT->update_interval = BABEL_INFINITY;
+     BABEL_IFACE_CFG->rxcost = BABEL_INFINITY;
+     BABEL_IFACE_CFG->type = BABEL_IFACE_TYPE_WIRED;
+     BABEL_IFACE_CFG->tx_tos = IP_PREC_INTERNET_CONTROL;
+     BABEL_IFACE_CFG->tx_priority = sk_priority_control;
+     BABEL_IFACE_CFG->hello_interval = BABEL_INFINITY;
+     BABEL_IFACE_CFG->update_interval = BABEL_INFINITY;
    }
  ;
 

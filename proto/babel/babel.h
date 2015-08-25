@@ -96,7 +96,7 @@ enum babel_ae_type_t {
 
 
 struct babel_parse_state {
-  struct proto *proto;
+  struct babel_proto *proto;
   struct babel_interface *bif;
   ip_addr saddr;
   u64     router_id;
@@ -252,9 +252,11 @@ struct babel_seqno_request_cache {
 struct babel_interface {
   node n;
 
-  struct proto       *proto;
+  struct babel_proto *proto;
   struct iface       *iface;
   struct object_lock *lock;
+
+  struct babel_iface_config *cf;
 
   pool    *pool;
   char    *ifname;
@@ -280,7 +282,7 @@ struct babel_interface {
   event *send_event;
 };
 
-struct babel_patt {
+struct babel_iface_config {
   struct iface_patt i;
 
   int rxcost;
@@ -345,7 +347,7 @@ struct babel_route {
 
 struct babel_entry {
   struct fib_node     n;
-  struct proto       *proto;
+  struct babel_proto *proto;
   struct babel_route *selected;
 
   pool  *pool;
@@ -356,7 +358,7 @@ struct babel_entry {
 
 
 
-struct babel_proto_config {
+struct babel_config {
   struct proto_config c;
 
   list iface_list;              /* Patterns configured -- keep it first; see babel_reconfigure why */
@@ -364,7 +366,7 @@ struct babel_proto_config {
 };
 
 struct babel_proto {
-  struct proto  inherited;
+  struct proto  p;
   timer        *timer;
   struct fib    rtable;
   list          interfaces;     /* Interfaces we really know about */
@@ -377,13 +379,15 @@ struct babel_proto {
 
 
 
-void babel_init_config(struct babel_proto_config *c);
+void babel_init_config(struct babel_config *c);
 
 /* Packet mangling code - packet.c */
+void babel_send_hello(struct babel_interface *bif, u8 send_ihu);
 void babel_send_unicast( struct babel_interface *bif, ip_addr dest );
 void babel_send_queue(void *arg);
 void babel_send_update(struct babel_interface *bif);
 void babel_init_packet(void *buf);
+int babel_open_socket(struct babel_interface *bif);
 int babel_process_packet(struct babel_header *pkt, int size,
                          ip_addr saddr, int port, struct babel_interface *bif);
 ip_addr babel_get_addr(struct babel_tlv_header *hdr, struct babel_parse_state *state);

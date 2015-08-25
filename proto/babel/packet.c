@@ -14,6 +14,9 @@
 
 #include "babel.h"
 
+#undef TRACE
+#define TRACE(level, msg, args...) do { if (p->p.debug & level) { log(L_TRACE "%s: " msg, p->p.name , ## args); } } while(0)
+#define BAD( x ) { log( L_REMOTE "%s: " x, p->p.name ); return 1; }
 
 #define FIRST_TLV(p) ((struct babel_tlv_header *)(((struct babel_header *) p) + 1))
 #define NEXT_TLV(t) (t = (void *)((char *)t) + TLV_SIZE(t))
@@ -453,7 +456,7 @@ int babel_process_packet(struct babel_header *pkt, int size,
 			ip_addr saddr, int port, struct babel_interface *bif)
 {
   struct babel_tlv_header *tlv = FIRST_TLV(pkt);
-  struct proto *proto = bif->proto;
+  struct babel_proto *proto = bif->proto;
   struct babel_parse_state state = {
     .proto	  = proto,
     .bif	  = bif,
@@ -485,7 +488,7 @@ int babel_process_packet(struct babel_header *pkt, int size,
     NEXT_TLV(tlv);
   }
   if(state.needs_update)
-    babel_send_update(bif);
+    bif->update_triggered = 1;
   return res;
 }
 
@@ -494,4 +497,76 @@ int babel_validate_length(struct babel_tlv_header *hdr, struct babel_parse_state
   /*DBG("Validate type: %d length: %d needed: %d\n", hdr->type, hdr->length,
     tlv_data[hdr->type].struct_length - sizeof(struct babel_tlv_header));*/
   return (hdr->length >= tlv_data[hdr->type].struct_length - sizeof(struct babel_tlv_header));
+}
+
+static void babel_tx_err( sock *s, int err )
+{
+  log( L_ERR ": Unexpected error at Babel transmit: %M", err );
+}
+
+
+static int
+babel_rx(sock *s, int size)
+{
+  struct babel_interface *bif = s->data;
+  struct babel_proto *p = bif->proto;
+  if (! bif->iface || s->lifindex != bif->iface->index)
+    return 1;
+
+  DBG("Babel: incoming packet: %d bytes from %I via %s\n", size, s->faddr, bif->iface->name);
+  if (size < sizeof(struct babel_header)) BAD( "Too small packet" );
+
+  if (ipa_equal(bif->iface->addr->ip, s->faddr)) {
+    DBG("My own packet\n");
+    return 1;
+  }
+
+  if (!ipa_is_link_local(s->faddr)) { BAD("Non-link local sender"); }
+
+  babel_process_packet((struct babel_header *) s->rbuf, size, s->faddr, s->fport, bif );
+  return 1;
+}
+
+int babel_open_socket(struct babel_interface *bif)
+{
+  struct babel_proto *p = bif->proto;
+  struct babel_config *cf = (struct babel_config *) p->p.cf;
+  bif->sock = sk_new( bif->pool );
+  bif->sock->type = SK_UDP;
+  bif->sock->sport = cf->port;
+  bif->sock->rx_hook = babel_rx;
+  bif->sock->data =  bif;
+  bif->sock->rbsize = 10240;
+  bif->sock->iface = bif->iface;
+  bif->sock->tbuf = mb_alloc( bif->pool, bif->iface->mtu);
+  bif->sock->err_hook = babel_tx_err;
+  bif->sock->dport = cf->port;
+  bif->sock->daddr = IP6_BABEL_ROUTERS;
+
+  bif->sock->tos = bif->cf->tx_tos;
+  bif->sock->priority = bif->cf->tx_priority;
+  bif->sock->flags = SKF_LADDR_RX;
+  if (sk_open( bif->sock) < 0)
+    goto err;
+  if (sk_setup_multicast( bif->sock) < 0)
+    goto err;
+  if (sk_join_group( bif->sock,  bif->sock->daddr) < 0)
+    goto err;
+  TRACE(D_EVENTS, "Listening on %s, port %d, mode multicast (%I)",  bif->iface->name, cf->port,  bif->sock->daddr );
+
+  tm_start(bif->hello_timer, bif->hello_interval);
+  tm_start(bif->update_timer, bif->update_interval);
+  tm_start(bif->packet_timer, 1);
+
+  babel_send_hello(bif,0);
+  babel_send_queue(bif);
+
+  return 1;
+
+ err:
+  sk_log_error(bif->sock, p->p.name);
+  log(L_ERR "%s: Cannot open socket for %s", p->p.name,  bif->iface->name);
+  rfree(bif->sock);
+  return 0;
+
 }
