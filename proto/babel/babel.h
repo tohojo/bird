@@ -325,14 +325,14 @@ struct babel_route {
   struct babel_entry    *e;
   struct babel_neighbor *neigh;
 
-  u16     seqno;
-  u16     advert_metric;
-  u16     metric;
-  u64     router_id;
-  ip_addr next_hop;
-  timer  *refresh_timer;
-  timer  *expiry_timer;
-  u16     expiry_interval;
+  u16		 seqno;
+  u16		 advert_metric;
+  u16		 metric;
+  u64		 router_id;
+  ip_addr	 next_hop;
+  bird_clock_t   refresh_time;
+  bird_clock_t   expires;
+  u16		 expiry_interval;
 };
 
 

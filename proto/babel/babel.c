@@ -64,11 +64,12 @@ static void babel_new_interface(struct babel_proto *p, struct iface *new,
                                 unsigned long flags, struct iface_patt *patt);
 static void expire_hello(timer *t);
 static void expire_ihu(timer *t);
-static void expire_source(timer *t);
-static void expire_route(timer *t);
-static void refresh_route(timer *t);
+static void expire_sources(struct babel_entry *e);
+static void expire_route(struct babel_route *r);
+static void refresh_route(struct babel_route *r);
 static void babel_dump_entry(struct babel_entry *e);
 static void babel_select_route(struct babel_entry *e);
+static void babel_send_route_request(struct babel_entry *e, struct babel_neighbor *n);
 static int cache_seqno_request(struct babel_proto *p, ip_addr prefix, u8 plen,
 			       u64 router_id, u16 seqno);
 
@@ -94,8 +95,6 @@ static struct babel_entry * babel_get_entry(struct babel_proto *p, ip_addr prefi
   e = fib_get(&p->rtable, &prefix, plen);
   e->proto = p;
   e->pool = rp_new(p->p.pool, "Babel entry");
-  e->source_expiry_timer = tm_new_set(e->pool, expire_source, e, 0, BABEL_SOURCE_EXPIRY);
-  tm_start(e->source_expiry_timer, BABEL_SOURCE_EXPIRY);
   return e;
 }
 
@@ -128,9 +127,8 @@ static struct babel_source * babel_get_source(struct babel_entry *e, u64 router_
   return s;
 }
 
-static void expire_source(timer *t)
+static void expire_sources(struct babel_entry *e)
 {
-  struct babel_entry *e = t->data;
   struct babel_proto *p = e->proto;
   TRACE(D_EVENTS, "Source expiry timer for %I/%d fired", e->n.prefix, e->n.pxlen);
   struct babel_source *n, *nx;
@@ -159,8 +157,6 @@ static struct babel_route * babel_get_route(struct babel_entry *e, struct babel_
   r = mb_allocz(e->pool, sizeof(struct babel_route));
   r->neigh = n;
   r->e = e;
-  r->expiry_timer = tm_new_set(e->pool, expire_route, r, 0, 0);
-  r->refresh_timer = tm_new_set(e->pool, refresh_route, r, 0, 0);
   add_tail(&e->routes, NODE r);
   if(n) add_tail(&n->routes, NODE &r->neigh_route);
   return r;
@@ -170,22 +166,19 @@ static void babel_flush_route(struct babel_route *r)
 {
   DBG("Flush route %I/%d router_id %0lx\n",
       r->e->n.prefix, r->e->n.pxlen, r->router_id);
-  tm_stop(r->expiry_timer);
-  tm_stop(r->refresh_timer);
   rem_node(NODE r);
   if(r->neigh) rem_node(&r->neigh_route);
   if(r->e->selected == r) r->e->selected = NULL;
   mb_free(r);
 }
-static void expire_route(timer *t)
+static void expire_route(struct babel_route *r)
 {
-  struct babel_route *r = t->data;
   struct babel_proto *p = r->e->proto;
   TRACE(D_EVENTS, "Route expiry timer for %I/%d router_id %0lx fired",
 	r->e->n.prefix, r->e->n.pxlen, r->router_id);
   if(r->metric < BABEL_INFINITY) {
     r->metric = BABEL_INFINITY;
-    tm_start(r->expiry_timer, r->expiry_interval);
+    r->expires = now + r->expiry_interval;
   } else {
     babel_flush_route(r);
   }
@@ -193,6 +186,29 @@ static void expire_route(timer *t)
   babel_select_route(r->e);
 }
 
+static void refresh_route(struct babel_route *r)
+{
+  if(!r->neigh || r != r->e->selected) return;
+  babel_send_route_request(r->e, r->neigh);
+}
+
+static void babel_expire_routes(struct babel_proto *p)
+{
+  struct babel_entry *e;
+  struct babel_route *r, *rx;
+  FIB_WALK(&p->rtable, n) {
+    e = (struct babel_entry *)n;
+    WALK_LIST_DELSAFE(r, rx, e->routes) {
+      if(r->refresh_time && r->refresh_time <= now) {
+        refresh_route(r);
+        r->refresh_time = 0;
+      }
+      if(r->expires && r->expires <= now)
+        expire_route(r);
+    }
+    expire_sources(e);
+  } FIB_WALK_END;
+}
 
 static struct babel_neighbor * babel_find_neighbor(struct babel_iface *bif, ip_addr addr)
 {
@@ -394,12 +410,6 @@ static void babel_send_route_request(struct babel_entry *e, struct babel_neighbo
   babel_send_unicast(bif, n->addr);
 }
 
-static void refresh_route(timer *t)
-{
-  struct babel_route *r = t->data;
-  if(!r->neigh || r != r->e->selected) return;
-  babel_send_route_request(r->e, r->neigh);
-}
 
 /**
  * babel_select_route:
@@ -824,9 +834,9 @@ int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *
     r->seqno = tlv->seqno;
     if(tlv->metric != BABEL_INFINITY) {
       r->expiry_interval = (BABEL_ROUTE_EXPIRY_FACTOR*tlv->interval)/100;
-      tm_start(r->expiry_timer, r->expiry_interval);
+      r->expires = now + r->expiry_interval;
       if(r->expiry_interval > BABEL_ROUTE_REFRESH_INTERVAL)
-        tm_start(r->refresh_timer, r->expiry_interval - BABEL_ROUTE_REFRESH_INTERVAL);
+        r->refresh_time = now + r->expiry_interval - BABEL_ROUTE_REFRESH_INTERVAL;
     }
     /* If the route is not feasible at this point, it means it is from another
        neighbour than the one currently selected; so send a unicast seqno
@@ -1238,6 +1248,8 @@ babel_gen_attrs(struct linpool *pool, int metric, u64 router_id)
 static void
 babel_timer(timer *t)
 {
+  struct babel_proto *p = t->data;
+  babel_expire_routes(p);
 }
 
 
@@ -1297,7 +1309,7 @@ babel_rt_notify(struct proto *P, struct rtable *table UNUSED, struct network *ne
     if(e && e->selected && !e->selected->neigh) {
       /* no neighbour, so our route */
       e->selected->metric = BABEL_INFINITY;
-      tm_start(e->selected->expiry_timer, BABEL_HOLD_TIME);
+      e->selected->expires = now + BABEL_HOLD_TIME;
       babel_select_route(e);
     }
   } else {
