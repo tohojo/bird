@@ -889,8 +889,7 @@ int babel_handle_route_request(struct babel_tlv_header *hdr,
   return 0;
 }
 
-static void expire_seqno_requests(timer *t) {
-  struct babel_seqno_request_cache *c = t->data;
+static void expire_seqno_requests(struct babel_seqno_request_cache *c) {
   struct babel_seqno_request *n, *nx;
   WALK_LIST_DELSAFE(n, nx, c->entries) {
     if(n->updated < now-BABEL_SEQNO_REQUEST_EXPIRY) {
@@ -1250,6 +1249,7 @@ babel_timer(timer *t)
 {
   struct babel_proto *p = t->data;
   babel_expire_routes(p);
+  expire_seqno_requests(p->seqno_cache);
 }
 
 
@@ -1410,9 +1410,6 @@ babel_start(struct proto *P)
   p->seqno_cache = mb_allocz(pool, sizeof(struct babel_seqno_request_cache));
   p->seqno_cache->pool = pool;
   init_list(&p->seqno_cache->entries);
-  p->seqno_cache->timer = tm_new_set(pool, expire_seqno_requests,
-				     p->seqno_cache, 0, BABEL_SEQNO_REQUEST_EXPIRY);
-  tm_start(p->seqno_cache->timer, BABEL_SEQNO_REQUEST_EXPIRY);
   DBG( "Babel: ...done\n");
   return PS_UP;
 }

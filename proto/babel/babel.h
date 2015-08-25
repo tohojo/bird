@@ -245,7 +245,6 @@ struct babel_seqno_request {
 struct babel_seqno_request_cache {
   pool  *pool;
   list   entries;  /* Seqno requests in the cache (struct babel_seqno_request) */
-  timer *timer;
 };
 
 
