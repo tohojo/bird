@@ -44,6 +44,7 @@
 #define BABEL_RXCOST_WIRED            96
 #define BABEL_RXCOST_WIRELESS         256
 #define BABEL_INITIAL_HOP_COUNT       255
+#define BABEL_MAX_SEND_INTERVAL       5
 
 #define BABEL_SEQNO_REQUEST_EXPIRY    60
 #define BABEL_SOURCE_EXPIRY           300
@@ -264,6 +265,10 @@ struct babel_interface {
   int      type;
   list     neigh_list;
 
+  void    *tlv_buf;
+  void    *current_buf;
+  int      update_triggered;
+
   u16 hello_seqno;              /* To be increased on each hello */
   u16 hello_interval;
   u16 ihu_interval;
@@ -271,7 +276,8 @@ struct babel_interface {
 
   timer *hello_timer;
   timer *update_timer;
-  event *ihu_event;
+  timer *packet_timer;
+  event *send_event;
 };
 
 struct babel_patt {
@@ -374,14 +380,16 @@ struct babel_proto {
 void babel_init_config(struct babel_proto_config *c);
 
 /* Packet mangling code - packet.c */
-void babel_send( struct babel_interface *bif );
-void babel_send_to( struct babel_interface *bif, ip_addr dest );
+void babel_send_unicast( struct babel_interface *bif, ip_addr dest );
+void babel_send_queue(void *arg);
 void babel_send_update(struct babel_interface *bif);
+void babel_init_packet(void *buf);
 int babel_process_packet(struct babel_header *pkt, int size,
                          ip_addr saddr, int port, struct babel_interface *bif);
 ip_addr babel_get_addr(struct babel_tlv_header *hdr, struct babel_parse_state *state);
 void babel_put_addr(struct babel_tlv_header *hdr, ip_addr addr);
-void babel_new_packet(struct babel_interface *bif);
+void babel_new_unicast(struct babel_interface *bif);
+struct babel_tlv_header * babel_add_tlv_size(struct babel_interface *bif, u16 type, int size);
 struct babel_tlv_header * babel_add_tlv(struct babel_interface *bif, u16 len);
 #define BABEL_ADD_TLV_SEND(tlv,bif,func,addr) do {                      \
     tlv=func(bif);                                                      \

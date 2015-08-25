@@ -64,7 +64,6 @@ static inline u16 ge_mod64k(u16 a, u16 b)
 
 static struct babel_interface *new_iface(struct proto *p, struct iface *new,
 					 unsigned long flags, struct iface_patt *patt);
-static void babel_send_ihus(void *bif);
 static void expire_hello(timer *t);
 static void expire_ihu(timer *t);
 static void expire_source(timer *t);
@@ -222,7 +221,6 @@ static struct babel_neighbor * babel_get_neighbor(struct babel_interface *bif, i
   n->data = bn;
   init_list(&bn->routes);
   add_tail(&bif->neigh_list, NODE bn);
-  ev_schedule(bif->ihu_event);
   return bn;
 }
 
@@ -355,14 +353,12 @@ static void babel_send_seqno_request(struct babel_entry *e)
           e->n.prefix, e->n.pxlen, r->router_id);
 
     WALK_LIST(bif, P->interfaces) {
-      babel_new_packet(bif);
       tlv = babel_add_tlv_seqno_request(bif);
       tlv->plen = e->n.pxlen;
       tlv->seqno = s->seqno + 1;
       tlv->hop_count = BABEL_INITIAL_HOP_COUNT;
       tlv->router_id = r->router_id;
       babel_put_addr(&tlv->header, e->n.prefix);
-      babel_send(bif);
     }
   }
 }
@@ -377,14 +373,14 @@ static void babel_unicast_seqno_request(struct babel_route *r)
   if(s && cache_seqno_request(p, e->n.prefix, e->n.pxlen, r->router_id, s->seqno+1)) {
     TRACE(D_EVENTS, "Sending seqno request for %I/%d router_id %0lx",
           e->n.prefix, e->n.pxlen, r->router_id);
-      babel_new_packet(bif);
+      babel_new_unicast(bif);
       tlv = babel_add_tlv_seqno_request(bif);
       tlv->plen = e->n.pxlen;
       tlv->seqno = s->seqno + 1;
       tlv->hop_count = BABEL_INITIAL_HOP_COUNT;
       tlv->router_id = r->router_id;
       babel_put_addr(&tlv->header, e->n.prefix);
-      babel_send_to(bif, r->neigh->addr);
+      babel_send_unicast(bif, r->neigh->addr);
   }
 }
 
@@ -395,11 +391,11 @@ static void babel_send_route_request(struct babel_entry *e, struct babel_neighbo
   struct babel_tlv_route_request *tlv;
   TRACE(D_PACKETS, "Babel: Sending route request for %I/%d to %I\n",
         e->n.prefix, e->n.pxlen, n->addr);
-  babel_new_packet(bif);
+  babel_new_unicast(bif);
   tlv = babel_add_tlv_route_request(bif);
   babel_put_addr(&tlv->header, e->n.prefix);
   tlv->plen = e->n.pxlen;
-  babel_send_to(bif, n->addr);
+  babel_send_unicast(bif, n->addr);
 }
 
 static void refresh_route(timer *t)
@@ -483,16 +479,15 @@ static void babel_send_ack(struct babel_interface *bif, ip_addr dest, u16 nonce)
   struct proto *p = bif->proto;
   struct babel_tlv_ack *tlv;
   TRACE(D_PACKETS, "Babel: Sending ACK to %I with nonce %d\n", dest, nonce);
-  babel_new_packet(bif);
+  babel_new_unicast(bif);
   tlv = babel_add_tlv_ack(bif);
   tlv->nonce = nonce;
-  babel_send_to(bif, dest);
+  babel_send_unicast(bif, dest);
 }
 
 static void babel_add_ihu(struct babel_interface *bif, struct babel_neighbor *bn)
 {
-  struct babel_tlv_ihu *tlv;
-  BABEL_ADD_TLV_SEND(tlv, bif, babel_add_tlv_ihu, IPA_NONE);
+  struct babel_tlv_ihu *tlv = babel_add_tlv_ihu(bif);
   babel_put_addr_ihu(&tlv->header, bn->addr);
   tlv->rxcost = babel_compute_rxcost(bn);
   tlv->interval = bif->ihu_interval*100;
@@ -505,14 +500,13 @@ static void babel_add_ihus(struct babel_interface *bif)
     babel_add_ihu(bif,bn);
 }
 
-static void babel_send_ihus(void *arg)
+static void babel_send_ihu(struct babel_interface *bif, struct babel_neighbor *bn)
 {
-  struct babel_interface *bif = arg;
   struct proto *p = bif->proto;
   TRACE(D_PACKETS, "Babel: Sending IHUs");
-  babel_new_packet(bif);
-  babel_add_ihus(bif);
-  babel_send(bif);
+  babel_new_unicast(bif);
+  babel_add_ihu(bif, bn);
+  babel_send_unicast(bif, bn->addr);
 }
 
 static void babel_send_hello(struct babel_interface *bif, u8 send_ihu)
@@ -520,29 +514,39 @@ static void babel_send_hello(struct babel_interface *bif, u8 send_ihu)
   struct proto *p = bif->proto;
   struct babel_tlv_hello *tlv;
   TRACE(D_PACKETS, "Babel: Sending hello on interface %s", bif->ifname);
-  babel_new_packet(bif);
   tlv = babel_add_tlv_hello(bif);
   tlv->seqno = bif->hello_seqno++;
   tlv->interval = bif->hello_interval*100;
 
   if(send_ihu) babel_add_ihus(bif);
-
-  babel_send(bif);
 }
 
 static void babel_hello_timer(timer *t)
 {
   struct babel_interface *bif = t->data;
-  babel_send_hello(bif, (bif->type == BABEL_IFACE_TYPE_WIRELESS
-			 || bif->hello_seqno % BABEL_IHU_INTERVAL_FACTOR == 0));
+  babel_send_hello(bif, (bif->hello_seqno % BABEL_IHU_INTERVAL_FACTOR == 0));
 }
 
-static int babel_add_router_id(struct babel_interface *bif, u64 router_id)
+/* Function to add router_id -- a router id TLV is always followed by an update
+   TLV, so add both atomically (which may send the queue), then fill in the
+   router ID and return the update TLV position.
+
+   This prevents a full queue causing a packet to be sent with a router id TLV
+   as the last TLV (and so the update TLV in the next packet missing a router
+   id).*/
+static struct babel_tlv_update * babel_add_router_id(struct babel_interface *bif, u64 router_id)
 {
-  struct babel_tlv_router_id *rid = babel_add_tlv_router_id(bif);
-  if(!rid) return 1;
+  struct babel_tlv_router_id *rid;
+  struct babel_tlv_update *upd;
+  rid = (struct babel_tlv_router_id *) babel_add_tlv_size(bif,
+                                                          BABEL_TYPE_ROUTER_ID,
+                                                          (sizeof(struct babel_tlv_router_id) +
+                                                           sizeof(struct babel_tlv_update)));
   rid->router_id = router_id;
-  return 0;
+  upd = (struct babel_tlv_update *)(rid+1);
+  upd->header.type = BABEL_TYPE_UPDATE;
+  upd->header.length = sizeof(struct babel_tlv_update) - sizeof(struct babel_tlv_header);
+  return upd;
 }
 
 void babel_send_update(struct babel_interface *bif)
@@ -553,27 +557,17 @@ void babel_send_update(struct babel_interface *bif)
   struct babel_route *r;
   struct babel_source *s;
   u64 router_id = 0;
-  int res = 0, i = 0;
   TRACE(D_PACKETS, "Sending update on %s", bif->ifname);
-  babel_new_packet(bif);
   FIB_WALK(&P->rtable, n) {
     e = (struct babel_entry *)n;
     r = e->selected;
     if(!r) continue;
-    i++;
 
     if(r->router_id != router_id) {
-      res = babel_add_router_id(bif, r->router_id);
-      if(res == 0)  upd = babel_add_tlv_update(bif);
+      upd = babel_add_router_id(bif, r->router_id);
       router_id = r->router_id;
     } else {
       upd = babel_add_tlv_update(bif);
-    }
-    if(res > 0 || !upd) {
-      babel_send(bif);
-      babel_add_router_id(bif, router_id);
-      upd = babel_add_tlv_update(bif);
-      i = 1;
     }
 
     /* Our own seqno might have changed, in which case we update the routes we
@@ -595,7 +589,6 @@ void babel_send_update(struct babel_interface *bif)
       s->metric = upd->metric;
     }
   } FIB_WALK_END;
-  if(i > 0) babel_send(bif);
 }
 
 /* Sends and update on all interfaces. */
@@ -605,7 +598,7 @@ static void babel_global_update(void *arg)
   struct babel_interface *bif;
   TRACE(D_EVENTS, "Sending global update. Seqno %d", P->update_seqno);
   WALK_LIST(bif, P->interfaces)
-    babel_send_update(bif);
+    bif->update_triggered = 1;
 }
 
 static void babel_update_timer(timer *t)
@@ -613,7 +606,7 @@ static void babel_update_timer(timer *t)
   struct babel_interface *bif = t->data;
   struct proto *p = bif->proto;
   TRACE(D_EVENTS, "Update timer firing");
-  babel_send_update(bif);
+  bif->update_triggered = 1;
 }
 
 
@@ -704,6 +697,8 @@ int babel_handle_hello(struct babel_tlv_header *hdr, struct babel_parse_state *s
   TRACE(D_PACKETS, "Handling hello seqno %d interval %d", tlv->seqno,
 	tlv->interval, state->saddr);
   update_hello_history(bn, tlv->seqno, tlv->interval);
+  if(bif->type == BABEL_IFACE_TYPE_WIRELESS)
+    babel_send_ihu(bif, bn);
   return 0;
 }
 
@@ -853,15 +848,12 @@ static void babel_send_retraction(struct babel_interface *bif, ip_addr prefix, i
 {
   struct proto *p = bif->proto;
   struct babel_tlv_update *upd;
-  babel_new_packet(bif);
-  babel_add_router_id(bif, P->router_id);
-  upd = babel_add_tlv_update(bif);
+  upd = babel_add_router_id(bif, P->router_id);
   upd->plen = plen;
   upd->interval = bif->update_interval*100;
   upd->seqno = P->update_seqno;
   upd->metric = BABEL_INFINITY;
   babel_put_addr(&upd->header, prefix);
-  babel_send(bif);
 }
 
 int babel_handle_route_request(struct babel_tlv_header *hdr,
@@ -943,14 +935,14 @@ void babel_forward_seqno_request(struct babel_entry *e,
       if(!cache_seqno_request(p, e->n.prefix, e->n.pxlen, in->router_id, in->seqno))
 	return;
       bif = r->neigh->bif;
-      babel_new_packet(bif);
+      babel_new_unicast(bif);
       out = babel_add_tlv_seqno_request(bif);
       out->plen = in->plen;
       out->seqno = in->seqno;
       out->hop_count = in->hop_count-1;
       out->router_id = in->router_id;
       babel_put_addr(&out->header, e->n.prefix);
-      babel_send_to(bif, r->neigh->addr);
+      babel_send_unicast(bif, r->neigh->addr);
       return;
     }
   }
@@ -1145,6 +1137,7 @@ babel_add_if(struct object_lock *lock)
     DBG("Adding object lock of %p for %p\n", lock, bif);
     bif->lock = lock;
     babel_send_hello(bif,0);
+    babel_send_queue(bif);
   } else { rfree(lock); }
 }
 
@@ -1184,6 +1177,16 @@ babel_if_notify(struct proto *p, unsigned c, struct iface *iface)
     olock_acquire(lock);
   }
 
+}
+
+void babel_queue_timer(timer *t)
+{
+  struct babel_interface *bif = t->data;
+  if(bif->update_triggered) {
+    babel_send_update(bif);
+    bif->update_triggered = 0;
+  }
+  ev_schedule(bif->send_event);
 }
 
 static struct babel_interface *new_iface(struct proto *p, struct iface *new,
@@ -1233,13 +1236,16 @@ static struct babel_interface *new_iface(struct proto *p, struct iface *new,
   bif->hello_seqno = 1;
   bif->max_pkt_len = new->mtu - BABEL_OVERHEAD;
 
-  bif->ihu_event = ev_new(bif->pool);
-  bif->ihu_event->hook = babel_send_ihus;
-  bif->ihu_event->data = bif;
-
-
   bif->hello_timer = tm_new_set(bif->pool, babel_hello_timer, bif, 0, bif->hello_interval);
   bif->update_timer = tm_new_set(bif->pool, babel_update_timer, bif, 0, bif->update_interval);
+  bif->packet_timer = tm_new_set(bif->pool, babel_queue_timer, bif, BABEL_MAX_SEND_INTERVAL, 1);
+
+
+  bif->tlv_buf = bif->current_buf = mb_alloc(bif->pool, new->mtu);
+  babel_init_packet(bif->tlv_buf);
+  bif->send_event = ev_new(bif->pool);
+  bif->send_event->hook = babel_send_queue;
+  bif->send_event->data = bif;
 
   bif->sock = sk_new( bif->pool );
   bif->sock->type = SK_UDP;
@@ -1266,6 +1272,7 @@ static struct babel_interface *new_iface(struct proto *p, struct iface *new,
 
   tm_start(bif->hello_timer, bif->hello_interval);
   tm_start(bif->update_timer, bif->update_interval);
+  tm_start(bif->packet_timer, 1);
 
   return bif;
  err:

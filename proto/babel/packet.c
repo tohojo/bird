@@ -20,7 +20,7 @@
 #define TLV_SIZE(t) (t->type == BABEL_TYPE_PAD0 ? 1 : t->length + sizeof(struct babel_tlv_header))
 #define TLV_LENGTH(t) (tlv_data[t].struct_length-sizeof(struct babel_tlv_header))
 
-
+static void babel_send_to(struct babel_interface *bif, ip_addr dest);
 
 static ip_addr get_ip6_ll(u32 *addr)
 {
@@ -341,24 +341,36 @@ void babel_put_addr(struct babel_tlv_header *hdr, ip_addr addr)
   }
 }
 
-void babel_new_packet(struct babel_interface *bif)
+
+void babel_init_packet(void *buf)
 {
-  sock *s = bif->sock;
-  struct babel_header *hdr = (void *) s->tbuf;
+  struct babel_header *hdr = buf;
   memset(hdr, 0, sizeof(struct babel_header));
   hdr->magic = BABEL_MAGIC;
   hdr->version = BABEL_VERSION;
 }
 
-struct babel_tlv_header * babel_add_tlv(struct babel_interface *bif, u16 type)
+void babel_new_unicast(struct babel_interface *bif)
 {
-  sock *s = bif->sock;
-  struct babel_header *hdr = (void *) s->tbuf;
+  babel_init_packet(bif->sock->tbuf);
+  bif->current_buf = bif->sock->tbuf;
+}
+
+void babel_send_unicast(struct babel_interface *bif, ip_addr dest)
+{
+  babel_send_to(bif, dest);
+  bif->current_buf = bif->tlv_buf;
+}
+
+
+struct babel_tlv_header * babel_add_tlv_size(struct babel_interface *bif, u16 type, int len)
+{
+  struct babel_header *hdr = bif->current_buf;
   struct babel_tlv_header *tlv;
-  int len = tlv_data[type].struct_length;
   int pktlen = sizeof(struct babel_header)+hdr->length;
   if(pktlen+len > bif->max_pkt_len) {
-    return NULL;
+    babel_send_queue(bif);
+    pktlen = sizeof(struct babel_header)+hdr->length;
   }
   hdr->length+=len;
   tlv = (struct babel_tlv_header *)((char*)hdr+pktlen);
@@ -368,7 +380,27 @@ struct babel_tlv_header * babel_add_tlv(struct babel_interface *bif, u16 type)
   return tlv;
 }
 
-void babel_send_to(struct babel_interface *bif, ip_addr dest)
+struct babel_tlv_header * babel_add_tlv(struct babel_interface *bif, u16 type)
+{
+  return babel_add_tlv_size(bif, type, tlv_data[type].struct_length);
+}
+
+
+static int babel_copy_tlv(void *buf, struct babel_tlv_header *src, int max_len)
+{
+  struct babel_header *dst = buf;
+  int pktlen = sizeof(struct babel_header)+dst->length;
+  int len = tlv_data[src->type].struct_length;
+  if(pktlen+len > max_len)
+    return 0;
+
+  memcpy((char *)dst + pktlen, src, len);
+  dst->length += len;
+  return 1;
+}
+
+
+static void babel_send_to(struct babel_interface *bif, ip_addr dest)
 {
   sock *s = bif->sock;
   struct babel_header *hdr = (void *) s->tbuf;
@@ -383,10 +415,39 @@ void babel_send_to(struct babel_interface *bif, ip_addr dest)
     log(L_WARN "Babel: TX queue full on %s", bif->ifname);
 }
 
-void babel_send( struct babel_interface *bif )
+static void babel_send( struct babel_interface *bif )
 {
   babel_send_to(bif, IP6_BABEL_ROUTERS);
 }
+
+void babel_send_queue(void *arg)
+{
+  struct babel_interface *bif = arg;
+  struct babel_header *dst = (void *)bif->sock->tbuf;
+  struct babel_header *src = (void *)bif->tlv_buf;
+  struct babel_tlv_header *hdr;
+  char *p;
+  int moved;
+  if(!src->length) return;
+
+  babel_init_packet(dst);
+  hdr = FIRST_TLV(bif->tlv_buf);
+  p = (char *) hdr;
+  while((char *)hdr < p + src->length && babel_copy_tlv(dst, hdr, bif->max_pkt_len)) {
+    NEXT_TLV(hdr);
+  }
+  moved = (char *)hdr - p;
+  if(moved && moved < src->length) {
+    memmove(p, hdr, src->length - moved);
+  }
+  src->length -= moved;
+  babel_send(bif);
+
+  /* re-schedule if we still have data to send */
+  if(src->length)
+    ev_schedule(bif->send_event);
+}
+
 
 int babel_process_packet(struct babel_header *pkt, int size,
 			ip_addr saddr, int port, struct babel_interface *bif)
