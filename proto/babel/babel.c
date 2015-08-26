@@ -1138,6 +1138,22 @@ kill_iface(struct babel_iface *bif)
   rfree(bif->pool);
 }
 
+static void babel_iface_linkdown(struct babel_iface *bif)
+{
+  struct babel_neighbor *bn;
+  struct babel_route *r;
+  node *n;
+  WALK_LIST(bn, bif->neigh_list) {
+    WALK_LIST(n, bn->routes) {
+      r = SKIP_BACK(struct babel_route, neigh_route, n);
+      r->metric = BABEL_INFINITY;
+      r->expires = now + r->expiry_interval;
+      babel_select_route(r->e);
+    }
+  }
+
+}
+
 
 
 static void
@@ -1158,7 +1174,7 @@ babel_if_notify(struct proto *P, unsigned c, struct iface *iface)
 {
   struct babel_proto *p = (struct babel_proto *) P;
   struct babel_config *cf = (struct babel_config *) P->cf;
-  DBG("Babel: if notify: %s\n", iface->name);
+  DBG("Babel: if notify: %s flags %x\n", iface->name, iface->flags);
   if (iface->flags & IF_IGNORE)
     return;
   if (c & IF_CHANGE_UP) {
@@ -1176,6 +1192,11 @@ babel_if_notify(struct proto *P, unsigned c, struct iface *iface)
 
   if(!bif)
     return;
+
+  if(!(iface->flags & IF_CHANGE_LINK)) {
+    TRACE(D_EVENTS, "Interface %s lost link", iface->name);
+    babel_iface_linkdown(bif);
+  }
 
   if (c & IF_CHANGE_DOWN) {
     rem_node(NODE bif);
