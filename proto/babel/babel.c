@@ -68,6 +68,7 @@ static void expire_sources(struct babel_entry *e);
 static void expire_route(struct babel_route *r);
 static void refresh_route(struct babel_route *r);
 static void babel_dump_entry(struct babel_entry *e);
+static void babel_dump_route(struct babel_route *r);
 static void babel_select_route(struct babel_entry *e);
 static void babel_send_route_request(struct babel_entry *e, struct babel_neighbor *n);
 static int cache_seqno_request(struct babel_proto *p, ip_addr prefix, u8 plen,
@@ -170,8 +171,8 @@ static struct babel_route * babel_get_route(struct babel_entry *e, struct babel_
 static void babel_flush_route(struct babel_route *r)
 {
   struct babel_proto *p = r->e->proto;
-  DBG("Flush route %I/%d router_id %0lx\n",
-      r->e->n.prefix, r->e->n.pxlen, r->router_id);
+  DBG("Flush route %I/%d router_id %0lx neigh %I\n",
+      r->e->n.prefix, r->e->n.pxlen, r->router_id, r->neigh ? r->neigh->addr : IPA_NONE);
   rem_node(NODE r);
   if(r->neigh) rem_node(&r->neigh_route);
   if(r->e->selected == r) r->e->selected = NULL;
@@ -1066,8 +1067,10 @@ static void babel_dump_source(struct babel_source *s)
 
 static void babel_dump_route(struct babel_route *r)
 {
-  debug("Route neigh %I seqno %d metric %d/%d router_id %0lx expires %d\n",
-	r->neigh ? r->neigh->addr : IPA_NONE, r->seqno, r->advert_metric,
+  debug("Route neigh %I if %s seqno %d metric %d/%d router_id %0lx expires %d\n",
+	r->neigh ? r->neigh->addr : IPA_NONE,
+        r->neigh ? r->neigh->bif->ifname : "(none)",
+        r->seqno, r->advert_metric,
 	r->metric, r->router_id, r->expires ? r->expires-now : 0);
 }
 
