@@ -47,7 +47,7 @@
 #define BABEL_MAX_SEND_INTERVAL       5
 
 #define BABEL_SEQNO_REQUEST_EXPIRY    60
-#define BABEL_SOURCE_EXPIRY           300
+#define BABEL_GARBAGE_INTERVAL        300
 
 /* ip header + udp header + babel header */
 #define BABEL_OVERHEAD (SIZE_OF_IP_HEADER+8+sizeof(struct babel_header))
@@ -315,7 +315,7 @@ struct babel_source {
   u64          router_id;
   u16          seqno;
   u16          metric;
-  bird_clock_t updated;
+  bird_clock_t expires;
 };
 
 struct babel_route {
@@ -337,6 +337,7 @@ struct babel_route {
 
 struct babel_entry {
   struct fib_node     n;
+  node                garbage_node;
   struct babel_proto *proto;
   struct babel_route *selected;
 
@@ -358,6 +359,7 @@ struct babel_proto {
   struct proto  p;
   timer        *timer;
   struct fib    rtable;
+  list          garbage;        /* Entries to be garbage collected (struct babel_entry) */
   list          interfaces;     /* Interfaces we really know about (struct babel_iface) */
   u16           update_seqno;   /* To be increased on request */
   u64           router_id;

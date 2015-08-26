@@ -101,7 +101,9 @@ static struct babel_entry * babel_get_entry(struct babel_proto *p, ip_addr prefi
 void babel_flush_entry(struct babel_entry *e)
 {
   struct babel_proto *p = e->proto;
+  TRACE(D_EVENTS, "Flushing entry %I/%d", e->n.prefix, e->n.pxlen);
   rfree(e->pool);
+  rem_node(&e->garbage_node);
   if(p) fib_delete(&p->rtable, e);
 }
 
@@ -120,7 +122,7 @@ static struct babel_source * babel_get_source(struct babel_entry *e, u64 router_
   if(s) return s;
   s = mb_allocz(e->pool, sizeof(struct babel_source));
   s->router_id = router_id;
-  s->updated = now;
+  s->expires = now + BABEL_GARBAGE_INTERVAL;
   s->e = e;
   add_tail(&e->sources, NODE s);
   return s;
@@ -129,16 +131,15 @@ static struct babel_source * babel_get_source(struct babel_entry *e, u64 router_
 static void expire_sources(struct babel_entry *e)
 {
   struct babel_proto *p = e->proto;
-  TRACE(D_EVENTS, "Source expiry timer for %I/%d fired", e->n.prefix, e->n.pxlen);
   struct babel_source *n, *nx;
   WALK_LIST_DELSAFE(n, nx, e->sources) {
-    if(n->updated < now-BABEL_SOURCE_EXPIRY) {
+    if(n->expires && n->expires <= now) {
       rem_node(NODE n);
       mb_free(n);
     }
   }
   if(EMPTY_LIST(e->sources) && EMPTY_LIST(e->routes))
-    babel_flush_entry(e);
+    add_tail(&p->garbage, &e->garbage_node); /* to be removed later */
 }
 
 static struct babel_route * babel_find_route(struct babel_entry *e, struct babel_neighbor *n)
@@ -156,6 +157,8 @@ static struct babel_route * babel_get_route(struct babel_entry *e, struct babel_
   r = mb_allocz(e->pool, sizeof(struct babel_route));
   r->neigh = n;
   r->e = e;
+  if(n)
+    r->expires = now + BABEL_GARBAGE_INTERVAL; /* default until we get updates to set expiry time */
   add_tail(&e->routes, NODE r);
   if(n) add_tail(&n->routes, NODE &r->neigh_route);
   return r;
@@ -195,6 +198,7 @@ static void babel_expire_routes(struct babel_proto *p)
 {
   struct babel_entry *e;
   struct babel_route *r, *rx;
+  node *n;
   FIB_WALK(&p->rtable, n) {
     e = (struct babel_entry *)n;
     WALK_LIST_DELSAFE(r, rx, e->routes) {
@@ -207,6 +211,10 @@ static void babel_expire_routes(struct babel_proto *p)
     }
     expire_sources(e);
   } FIB_WALK_END;
+  WALK_LIST_FIRST(n, p->garbage) {
+    e = SKIP_BACK(struct babel_entry, garbage_node, n);
+    babel_flush_entry(e);
+  }
 }
 
 static struct babel_neighbor * babel_find_neighbor(struct babel_iface *bif, ip_addr addr)
@@ -599,7 +607,7 @@ void babel_send_update(struct babel_iface *bif)
 
     /* Update feasibility distance. */
     s = babel_get_source(e, r->router_id);
-    s->updated = now;
+    s->expires = now + BABEL_GARBAGE_INTERVAL;
     if(upd->seqno > s->seqno
        || (upd->seqno == s->seqno && upd->metric < s->metric)) {
       s->seqno = upd->seqno;
@@ -651,10 +659,13 @@ static void babel_flush_neighbor(struct babel_neighbor *bn)
 {
   struct babel_proto *p = bn->bif->proto;
   struct babel_route *r;
+  node *n;
   TRACE(D_EVENTS, "Flushing neighbor %I", bn->addr);
   rem_node(NODE bn);
-  while(r=SKIP_BACK(struct babel_route, neigh_route, HEAD(bn->routes)), r->neigh_route.next)
+  WALK_LIST_FIRST(n, bn->routes) {
+    r = SKIP_BACK(struct babel_route, neigh_route, n);
     babel_flush_route(r);
+  }
   rfree(bn->pool); // contains the neighbor itself
 }
 
@@ -808,7 +819,11 @@ int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *
        of the Interval value included in the update.
 
 */
-  e = babel_get_entry(p, prefix, tlv->plen);
+  e = babel_find_entry(p, prefix, tlv->plen);
+  if(!e && tlv->metric == BABEL_INFINITY)
+    return 1;
+
+  if(!e) e = babel_get_entry(p, prefix, tlv->plen);
 
   s = babel_find_source(e, state->router_id); /* for feasibility */
   r = babel_find_route(e, n); /* the route entry indexed by neighbour */
@@ -1040,15 +1055,15 @@ int babel_handle_seqno_request(struct babel_tlv_header *hdr,
 
 static void babel_dump_source(struct babel_source *s)
 {
-  debug("Source router_id %0lx seqno %d metric %d\n",
-	s->router_id, s->seqno, s->metric);
+  debug("Source router_id %0lx seqno %d metric %d expires %d\n",
+	s->router_id, s->seqno, s->metric, s->expires ? s->expires-now : 0);
 }
 
 static void babel_dump_route(struct babel_route *r)
 {
-  debug("Route neigh %I seqno %d metric %d/%d router_id %0lx\n",
+  debug("Route neigh %I seqno %d metric %d/%d router_id %0lx expires %d\n",
 	r->neigh ? r->neigh->addr : IPA_NONE, r->seqno, r->advert_metric,
-	r->metric, r->router_id);
+	r->metric, r->router_id, r->expires ? r->expires-now : 0);
 }
 
 static void babel_dump_entry(struct babel_entry *e)
@@ -1060,8 +1075,10 @@ static void babel_dump_entry(struct babel_entry *e)
 }
 static void babel_dump_neighbor(struct babel_neighbor *bn)
 {
-  debug("Neighbor %I txcost %d hello_map %x next seqno %d\n",
-	bn->addr, bn->txcost, bn->hello_map, bn->next_hello_seqno);
+  debug("Neighbor %I txcost %d hello_map %x next seqno %d expires %d/%d\n",
+	bn->addr, bn->txcost, bn->hello_map, bn->next_hello_seqno,
+        bn->hello_expiry ? bn->hello_expiry - now : 0,
+        bn->ihu_expiry ? bn->ihu_expiry - now : 0);
 }
 static void babel_dump_interface(struct babel_iface *bif)
 {
@@ -1165,7 +1182,7 @@ void babel_queue_timer(timer *t)
 }
 
 static void babel_new_interface(struct babel_proto *p, struct iface *new,
-					 unsigned long flags, struct iface_patt *patt)
+                                unsigned long flags, struct iface_patt *patt)
 {
   struct babel_config *cf = (struct babel_config *) p->p.cf;
   struct babel_iface * bif;
@@ -1178,6 +1195,7 @@ static void babel_new_interface(struct babel_proto *p, struct iface *new,
 
   pool = rp_new(p->p.pool, new->name);
   bif = mb_allocz(pool, sizeof( struct babel_iface ));
+  add_tail(&p->interfaces, NODE bif);
   bif->pool = pool;
   bif->iface = new;
   bif->ifname = new->name;
@@ -1408,6 +1426,7 @@ babel_start(struct proto *P)
   DBG( "Babel: starting instance...\n" );
   fib_init( &p->rtable, P->pool, sizeof( struct babel_entry ), 0, babel_init_entry );
   init_list( &p->interfaces );
+  init_list( &p->garbage );
   p->timer = tm_new_set(P->pool, babel_timer, p, 0, 1);
   tm_start( p->timer, 2 );
   p->update_seqno = 1;
