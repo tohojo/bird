@@ -456,7 +456,6 @@ static void babel_select_route(struct babel_entry *e)
 {
   struct babel_proto *p = e->proto;
   net *n = net_get(p->p.table, e->n.prefix, e->n.pxlen);
-  rte *old = rte_find(n, p->p.main_source);
   struct babel_route *r, *cur = e->selected;
 
   /* try to find the best feasible route */
@@ -466,20 +465,20 @@ static void babel_select_route(struct babel_entry *e)
 		      r->seqno, r->advert_metric))
       cur = r;
 
-  if(cur && cur->neigh && ((!old && cur->metric < BABEL_INFINITY)
-			   || (old && (old->u.babel.metric == BABEL_INFINITY
-				       || old->u.babel.router_id != cur->router_id)))) {
+  if(cur && cur->neigh && ((!e->selected && cur->metric < BABEL_INFINITY)
+			   || (e->selected && cur->metric < e->selected->metric))) {
       TRACE(D_EVENTS, "Picked new route for prefix %I/%d: router id %0lx metric %d",
 	    e->n.prefix, e->n.pxlen, cur->router_id, cur->metric);
       /* Notify the nest of the update. If we change router ID, we also trigger
 	 a global update. */
-      e->selected = cur;
-      rte_update(&p->p, n, babel_build_rte(p, n, cur));
-      if(!old || old->u.babel.metric == BABEL_INFINITY
-         || old->u.babel.router_id != cur->router_id) {
+      if(!e->selected ||
+         e->selected->metric == BABEL_INFINITY ||
+         e->selected->router_id != cur->router_id)
 
 	ev_schedule(p->update_event);
-      }
+
+      e->selected = cur;
+      rte_update(&p->p, n, babel_build_rte(p, n, cur));
   } else if(!cur || cur->metric == BABEL_INFINITY) {
     /* Couldn't find a feasible route. If we have a selected route, that means
        it just became infeasible; so set it's metric to infinite and install it
