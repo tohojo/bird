@@ -179,6 +179,7 @@ static void babel_flush_route(struct babel_route *r)
 }
 static void expire_route(struct babel_route *r)
 {
+  struct babel_entry *e = r->e;
   struct babel_proto *p = r->e->proto;
   TRACE(D_EVENTS, "Route expiry timer for %I/%d router_id %0lx fired",
 	r->e->n.prefix, r->e->n.pxlen, r->router_id);
@@ -189,7 +190,7 @@ static void expire_route(struct babel_route *r)
     babel_flush_route(r);
   }
 
-  babel_select_route(r->e);
+  babel_select_route(e);
 }
 
 static void refresh_route(struct babel_route *r)
@@ -362,8 +363,10 @@ static rte * babel_build_rte(struct babel_proto *p, net *n, struct babel_route *
   A.dest = r->metric == BABEL_INFINITY ? RTD_UNREACHABLE : RTD_ROUTER;
   A.flags = 0;
   A.gw = r->next_hop;
-  A.from = r->neigh->addr;
-  A.iface = r->neigh->bif->iface;
+  if(r->neigh) {
+    A.from = r->neigh->addr;
+    A.iface = r->neigh->bif->iface;
+  }
   a = rta_lookup(&A);
   rte = rte_get_temp(a);
   rte->u.babel.metric = r->metric;
