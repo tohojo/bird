@@ -94,7 +94,6 @@ static struct babel_entry * babel_get_entry(struct babel_proto *p, ip_addr prefi
   if(e) return e;
   e = fib_get(&p->rtable, &prefix, plen);
   e->proto = p;
-  e->pool = rp_new(p->p.pool, "Babel entry");
   return e;
 }
 
@@ -102,7 +101,6 @@ void babel_flush_entry(struct babel_entry *e)
 {
   struct babel_proto *p = e->proto;
   TRACE(D_EVENTS, "Flushing entry %I/%d", e->n.prefix, e->n.pxlen);
-  rfree(e->pool);
   rem_node(&e->garbage_node);
   if(p) fib_delete(&p->rtable, e);
 }
@@ -118,12 +116,15 @@ static struct babel_source * babel_find_source(struct babel_entry *e, u64 router
 
 static struct babel_source * babel_get_source(struct babel_entry *e, u64 router_id)
 {
+  struct babel_proto *p = e->proto;
   struct babel_source *s = babel_find_source(e, router_id);
   if(s) return s;
-  s = mb_allocz(e->pool, sizeof(struct babel_source));
+  s = sl_alloc(p->source_slab);
   s->router_id = router_id;
   s->expires = now + BABEL_GARBAGE_INTERVAL;
   s->e = e;
+  s->seqno = 0;
+  s->metric = BABEL_INFINITY;
   add_tail(&e->sources, NODE s);
   return s;
 }
@@ -135,7 +136,7 @@ static void expire_sources(struct babel_entry *e)
   WALK_LIST_DELSAFE(n, nx, e->sources) {
     if(n->expires && n->expires <= now) {
       rem_node(NODE n);
-      mb_free(n);
+      sl_free(p->source_slab, n);
     }
   }
   if(EMPTY_LIST(e->sources) && EMPTY_LIST(e->routes))
@@ -152,9 +153,11 @@ static struct babel_route * babel_find_route(struct babel_entry *e, struct babel
 }
 static struct babel_route * babel_get_route(struct babel_entry *e, struct babel_neighbor *n)
 {
+  struct babel_proto *p = e->proto;
   struct babel_route *r = babel_find_route(e,n);
   if(r) return r;
-  r = mb_allocz(e->pool, sizeof(struct babel_route));
+  r = sl_alloc(p->route_slab);
+  memset(r, 0, sizeof(*r));
   r->neigh = n;
   r->e = e;
   if(n)
@@ -166,12 +169,13 @@ static struct babel_route * babel_get_route(struct babel_entry *e, struct babel_
 
 static void babel_flush_route(struct babel_route *r)
 {
+  struct babel_proto *p = r->e->proto;
   DBG("Flush route %I/%d router_id %0lx\n",
       r->e->n.prefix, r->e->n.pxlen, r->router_id);
   rem_node(NODE r);
   if(r->neigh) rem_node(&r->neigh_route);
   if(r->e->selected == r) r->e->selected = NULL;
-  mb_free(r);
+  sl_free(p->route_slab, r);
 }
 static void expire_route(struct babel_route *r)
 {
@@ -230,10 +234,8 @@ static struct babel_neighbor * babel_get_neighbor(struct babel_iface *bif, ip_ad
 {
   struct babel_neighbor *bn = babel_find_neighbor(bif, addr);
   if(bn) return bn;
-  pool *pool = rp_new(bif->pool, "Babel neighbor");
-  bn = mb_allocz(pool, sizeof(struct babel_neighbor));
+  bn = mb_allocz(bif->pool, sizeof(struct babel_neighbor));
   bn->bif = bif;
-  bn->pool = pool;
   bn->addr = addr;
   bn->txcost = BABEL_INFINITY;
   init_list(&bn->routes);
@@ -666,7 +668,7 @@ static void babel_flush_neighbor(struct babel_neighbor *bn)
     r = SKIP_BACK(struct babel_route, neigh_route, n);
     babel_flush_route(r);
   }
-  rfree(bn->pool); // contains the neighbor itself
+  mb_free(bn);
 }
 
 static void expire_hello(struct babel_neighbor *bn)
@@ -918,7 +920,7 @@ static void expire_seqno_requests(struct babel_seqno_request_cache *c) {
   WALK_LIST_DELSAFE(n, nx, c->entries) {
     if(n->updated < now-BABEL_SEQNO_REQUEST_EXPIRY) {
       rem_node(NODE n);
-      mb_free(n);
+      sl_free(c->slab, n);
     }
   }
 }
@@ -937,7 +939,7 @@ static int cache_seqno_request(struct babel_proto *p, ip_addr prefix, u8 plen,
   }
 
   /* no entries found */
-  r = mb_allocz(c->pool, sizeof(struct babel_seqno_request));
+  r = sl_alloc(c->slab);
   r->prefix = prefix;
   r->plen = plen;
   r->router_id = router_id;
@@ -1422,7 +1424,6 @@ babel_start(struct proto *P)
 {
   struct babel_proto *p = (struct babel_proto *) P;
   struct babel_config *cf = (struct babel_config *) P->cf;
-  pool *pool;
   DBG( "Babel: starting instance...\n" );
   fib_init( &p->rtable, P->pool, sizeof( struct babel_entry ), 0, babel_init_entry );
   init_list( &p->interfaces );
@@ -1435,9 +1436,12 @@ babel_start(struct proto *P)
   p->update_event->hook = babel_global_update;
   p->update_event->data = p;
 
-  pool = rp_new(P->pool, "Seqno request cache");
-  p->seqno_cache = mb_allocz(pool, sizeof(struct babel_seqno_request_cache));
-  p->seqno_cache->pool = pool;
+  p->entry_slab = sl_new(P->pool, sizeof(struct babel_entry));
+  p->route_slab = sl_new(P->pool, sizeof(struct babel_route));
+  p->source_slab = sl_new(P->pool, sizeof(struct babel_source));
+
+  p->seqno_cache = mb_allocz(P->pool, sizeof(struct babel_seqno_request_cache));
+  p->seqno_cache->slab = sl_new(P->pool, sizeof(struct babel_seqno_request));
   init_list(&p->seqno_cache->entries);
   DBG( "Babel: ...done\n");
   return PS_UP;

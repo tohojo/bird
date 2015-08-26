@@ -243,7 +243,7 @@ struct babel_seqno_request {
 };
 
 struct babel_seqno_request_cache {
-  pool  *pool;
+  slab  *slab;
   list   entries;  /* Seqno requests in the cache (struct babel_seqno_request) */
 };
 
@@ -294,7 +294,6 @@ struct babel_neighbor {
   struct babel_iface *bif;
 
   ip_addr   addr;
-  pool     *pool;
   u16       txcost;
   u8        hello_n;
   u16       hello_map;
@@ -341,7 +340,6 @@ struct babel_entry {
   struct babel_proto *proto;
   struct babel_route *selected;
 
-  pool  *pool;
   list   sources;   /* Source table entries for this prefix (struct babel_source). */
   list   routes;    /* Routes for this prefix (struct babel_route). */
 };
@@ -364,6 +362,10 @@ struct babel_proto {
   u16           update_seqno;   /* To be increased on request */
   u64           router_id;
   event        *update_event;   /* For triggering global updates */
+
+  slab         *entry_slab;
+  slab         *route_slab;
+  slab         *source_slab;
 
   struct babel_seqno_request_cache *seqno_cache;
 };
