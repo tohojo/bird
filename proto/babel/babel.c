@@ -554,7 +554,8 @@ void babel_send_hello(struct babel_iface *bif, u8 send_ihu)
 static void babel_hello_timer(timer *t)
 {
   struct babel_iface *bif = t->data;
-  babel_send_hello(bif, (bif->hello_seqno % BABEL_IHU_INTERVAL_FACTOR == 0));
+  babel_send_hello(bif, (bif->cf->type == BABEL_IFACE_TYPE_WIRED &&
+                         bif->hello_seqno % BABEL_IHU_INTERVAL_FACTOR == 0));
 }
 
 /* Function to add router_id -- a router id TLV is always followed by an update
