@@ -793,6 +793,11 @@ int babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *
     return 1;
   }
 
+  if(state->router_id == p->router_id) {
+    DBG("Ignoring update for our own router ID.\n");
+    return 1;
+  }
+
   /* RFC section 3.5.4:
 
      When a Babel node receives an update (id, prefix, seqno, metric) from a
