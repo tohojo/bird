@@ -153,9 +153,12 @@ babel_get_addr_ihu(struct babel_tlv_header *hdr, struct babel_parse_state *state
 {
   struct babel_tlv_ihu *tlv = (struct babel_tlv_ihu *)hdr;
   struct babel_iface *bif = state->bif;
-  if(tlv->ae == BABEL_AE_WILDCARD) {
+  if(tlv->ae == BABEL_AE_WILDCARD)
+  {
     return bif->iface->addr->ip; /* FIXME: Correct? */
-  } else if(tlv->ae == BABEL_AE_IP6_LL) {
+  }
+  else if(tlv->ae == BABEL_AE_IP6_LL)
+  {
     return get_ip6_ll(tlv->addr);
   }
   return IPA_NONE;
@@ -166,7 +169,8 @@ babel_put_addr_ihu(struct babel_tlv_header *hdr, ip_addr addr)
 {
   char buf[16];
   struct babel_tlv_ihu *tlv = (struct babel_tlv_ihu *)hdr;
-  if(!ipa_is_link_local(addr)) {
+  if(!ipa_is_link_local(addr))
+  {
     tlv->ae = BABEL_AE_WILDCARD;
     return;
   }
@@ -352,17 +356,15 @@ babel_ntoh_seqno_request(struct babel_tlv_header *hdr)
 static void
 babel_tlv_hton(struct babel_tlv_header *hdr)
 {
-  if(tlv_data[hdr->type].hton) {
+  if(tlv_data[hdr->type].hton)
     tlv_data[hdr->type].hton(hdr);
-  }
 }
 
 static void
 babel_tlv_ntoh(struct babel_tlv_header *hdr)
 {
-  if(tlv_data[hdr->type].ntoh) {
+  if(tlv_data[hdr->type].ntoh)
     tlv_data[hdr->type].ntoh(hdr);
-  }
 }
 
 static void
@@ -371,7 +373,8 @@ babel_packet_hton(struct babel_header *hdr)
   struct babel_tlv_header *tlv = FIRST_TLV(hdr);
   int len = hdr->length+sizeof(struct babel_header);
   char *p = (char *)hdr;
-  while((char *)tlv < p+len) {
+  while((char *)tlv < p+len)
+  {
     babel_tlv_hton(tlv);
     NEXT_TLV(tlv);
   }
@@ -381,7 +384,8 @@ babel_packet_hton(struct babel_header *hdr)
 ip_addr
 babel_get_addr(struct babel_tlv_header *hdr, struct babel_parse_state *state)
 {
-  if(tlv_data[hdr->type].get_addr) {
+  if(tlv_data[hdr->type].get_addr)
+  {
     return tlv_data[hdr->type].get_addr(hdr, state);
   }
   return IPA_NONE;
@@ -390,7 +394,8 @@ babel_get_addr(struct babel_tlv_header *hdr, struct babel_parse_state *state)
 void
 babel_put_addr(struct babel_tlv_header *hdr, ip_addr addr)
 {
-  if(tlv_data[hdr->type].put_addr) {
+  if(tlv_data[hdr->type].put_addr)
+  {
     tlv_data[hdr->type].put_addr(hdr, addr);
   }
 }
@@ -426,7 +431,8 @@ babel_add_tlv_size(struct babel_iface *bif, u16 type, int len)
   struct babel_header *hdr = bif->current_buf;
   struct babel_tlv_header *tlv;
   int pktlen = sizeof(struct babel_header)+hdr->length;
-  if(pktlen+len > bif->max_pkt_len) {
+  if(pktlen+len > bif->max_pkt_len)
+  {
     babel_send_queue(bif);
     pktlen = sizeof(struct babel_header)+hdr->length;
   }
@@ -496,11 +502,13 @@ babel_send_queue(void *arg)
   babel_init_packet(dst);
   hdr = FIRST_TLV(bif->tlv_buf);
   p = (char *) hdr;
-  while((char *)hdr < p + src->length && babel_copy_tlv(dst, hdr, bif->max_pkt_len)) {
+  while((char *)hdr < p + src->length && babel_copy_tlv(dst, hdr, bif->max_pkt_len))
+  {
     NEXT_TLV(hdr);
   }
   moved = (char *)hdr - p;
-  if(moved && moved < src->length) {
+  if(moved && moved < src->length)
+  {
     memmove(p, hdr, src->length - moved);
   }
   src->length -= moved;
@@ -531,19 +539,24 @@ babel_process_packet(struct babel_header *pkt, int size,
   pkt->length = ntohs(pkt->length);
   if(pkt->magic != BABEL_MAGIC
      || pkt->version != BABEL_VERSION
-     || pkt->length > size - sizeof(struct babel_header)) {
+     || pkt->length > size - sizeof(struct babel_header))
+  {
     DBG("Invalid packet: magic %d version %d length %d size %d\n",
 	pkt->magic, pkt->version, pkt->length, size);
     return 1;
   }
 
-  while((char *)tlv < p+size) {
+  while((char *)tlv < p+size)
+  {
     if(tlv->type > BABEL_TYPE_PADN
        && tlv->type < BABEL_TYPE_MAX
-       && validate_tlv(tlv, &state)) {
+       && validate_tlv(tlv, &state))
+    {
       babel_tlv_ntoh(tlv);
       res &= tlv_data[tlv->type].handle(tlv, &state);
-    } else {
+    }
+    else
+    {
       DBG("Unknown or invalid TLV of type %d\n",tlv->type);
     }
     NEXT_TLV(tlv);
@@ -579,7 +592,8 @@ babel_rx(sock *s, int size)
   DBG("Babel: incoming packet: %d bytes from %I via %s\n", size, s->faddr, bif->iface->name);
   if (size < sizeof(struct babel_header)) BAD( "Too small packet" );
 
-  if (ipa_equal(bif->iface->addr->ip, s->faddr)) {
+  if (ipa_equal(bif->iface->addr->ip, s->faddr))
+  {
     DBG("My own packet\n");
     return 1;
   }

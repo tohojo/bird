@@ -53,12 +53,12 @@
 #define BABEL_OVERHEAD (SIZE_OF_IP_HEADER+8+sizeof(struct babel_header))
 
 struct babel_header {
-  u8  magic;
-  u8  version;
+  u8 magic;
+  u8 version;
   u16 length;
 };
 
-enum babel_tlv_type_t {
+enum babel_tlv_type {
   BABEL_TYPE_PAD0             = 0,
   BABEL_TYPE_PADN             = 1,
   BABEL_TYPE_ACK_REQ          = 2,
@@ -80,13 +80,13 @@ enum babel_tlv_type_t {
   BABEL_TYPE_MAX
 };
 
-enum babel_iface_type_t {
+enum babel_iface_type {
   BABEL_IFACE_TYPE_WIRED,
   BABEL_IFACE_TYPE_WIRELESS,
   BABEL_IFACE_TYPE_MAX
 };
 
-enum babel_ae_type_t {
+enum babel_ae_type {
   BABEL_AE_WILDCARD = 0,
   BABEL_AE_IP4      = 1,
   BABEL_AE_IP6      = 2,
@@ -99,7 +99,7 @@ struct babel_parse_state {
   struct babel_proto *proto;
   struct babel_iface *bif;
   ip_addr saddr;
-  u64     router_id;
+  u64 router_id;
   ip_addr prefix;
   ip_addr next_hop;
   u8 needs_update;
@@ -141,8 +141,8 @@ void babel_ntoh_hello(struct babel_tlv_header *tlv);
 
 struct babel_tlv_ihu {
   struct babel_tlv_header header;
-  u8  ae;
-  u8  reserved;
+  u8 ae;
+  u8 reserved;
   u16 rxcost;
   u16 interval;
   u32 addr[2];
@@ -163,8 +163,8 @@ void babel_ntoh_router_id(struct babel_tlv_header *tlv);
 
 struct babel_tlv_next_hop {
   struct babel_tlv_header header;
-  u8  ae;
-  u8  reserved;
+  u8 ae;
+  u8 reserved;
   u32 addr[2];
 };
 ip_addr babel_get_addr_next_hop(struct babel_tlv_header *tlv, struct babel_parse_state *state);
@@ -172,12 +172,12 @@ void babel_put_addr_next_hop(struct babel_tlv_header *tlv, ip_addr addr);
 
 struct babel_tlv_update {
   struct babel_tlv_header header;
-  u8  ae;
+  u8 ae;
 #define BABEL_FLAG_DEF_PREFIX 0x80
 #define BABEL_FLAG_ROUTER_ID 0x40
-  u8  flags;
-  u8  plen;
-  u8  omitted;
+  u8 flags;
+  u8 plen;
+  u8 omitted;
   u16 interval;
   u16 seqno;
   u16 metric;
@@ -190,8 +190,8 @@ void babel_put_addr_update(struct babel_tlv_header *tlv, ip_addr addr);
 
 struct babel_tlv_route_request {
   struct babel_tlv_header header;
-  u8  ae;
-  u8  plen;
+  u8 ae;
+  u8 plen;
   u32 addr[4];
 };
 /* works for both types of request */
@@ -201,11 +201,11 @@ void babel_put_addr_request(struct babel_tlv_header *tlv, ip_addr addr);
 
 struct babel_tlv_seqno_request {
   struct babel_tlv_header header;
-  u8  ae;
-  u8  plen;
+  u8 ae;
+  u8 plen;
   u16 seqno;
-  u8  hop_count;
-  u8  reserved;
+  u8 hop_count;
+  u8 reserved;
   u64 router_id __attribute__((packed));
   u32 addr[4];
 };
@@ -235,16 +235,16 @@ int babel_handle_seqno_request(struct babel_tlv_header *tlv,
 /* Stores forwarded seqno requests for duplicate suppression. */
 struct babel_seqno_request {
   node n;
-  ip_addr      prefix;
-  u8           plen;
-  u64          router_id;
-  u16          seqno;
+  ip_addr prefix;
+  u8  plen;
+  u64 router_id;
+  u16 seqno;
   bird_clock_t updated;
 };
 
 struct babel_seqno_request_cache {
-  slab  *slab;
-  list   entries;  /* Seqno requests in the cache (struct babel_seqno_request) */
+  slab *slab;
+  list entries;  /* Seqno requests in the cache (struct babel_seqno_request) */
 };
 
 
@@ -252,21 +252,21 @@ struct babel_iface {
   node n;
 
   struct babel_proto *proto;
-  struct iface       *iface;
+  struct iface *iface;
   struct object_lock *lock;
 
   struct babel_iface_config *cf;
 
-  pool    *pool;
-  char    *ifname;
-  sock    *sock;
-  ip_addr  addr;
-  int      max_pkt_len;
-  list     neigh_list; /* List of neighbors seen on this iface (struct babel_neighbor) */
+  pool *pool;
+  char *ifname;
+  sock *sock;
+  ip_addr addr;
+  int max_pkt_len;
+  list neigh_list; /* List of neighbors seen on this iface (struct babel_neighbor) */
 
-  void    *tlv_buf;
-  void    *current_buf;
-  int      update_triggered;
+  void *tlv_buf;
+  void *current_buf;
+  int update_triggered;
 
   u16 hello_seqno;              /* To be increased on each hello */
 
@@ -293,11 +293,11 @@ struct babel_neighbor {
   node n;
   struct babel_iface *bif;
 
-  ip_addr   addr;
-  u16       txcost;
-  u8        hello_n;
-  u16       hello_map;
-  u16       next_hello_seqno;
+  ip_addr addr;
+  u16 txcost;
+  u8 hello_n;
+  u16 hello_map;
+  u16 next_hello_seqno;
   /* expiry timers */
   bird_clock_t hello_expiry;
   bird_clock_t ihu_expiry;
@@ -311,37 +311,37 @@ struct babel_source {
   node n;
   struct babel_entry *e;
 
-  u64          router_id;
-  u16          seqno;
-  u16          metric;
+  u64 router_id;
+  u16 seqno;
+  u16 metric;
   bird_clock_t expires;
 };
 
 struct babel_route {
-  node                   n;
-  node                   neigh_route;
+  node n;
+  node neigh_route;
   struct babel_entry    *e;
   struct babel_neighbor *neigh;
 
-  u16		 seqno;
-  u16		 advert_metric;
-  u16		 metric;
-  u64		 router_id;
-  ip_addr	 next_hop;
-  bird_clock_t   refresh_time;
-  bird_clock_t   expires;
-  u16		 expiry_interval;
+  u16 seqno;
+  u16 advert_metric;
+  u16 metric;
+  u64 router_id;
+  ip_addr next_hop;
+  bird_clock_t refresh_time;
+  bird_clock_t expires;
+  u16 expiry_interval;
 };
 
 
 struct babel_entry {
-  struct fib_node     n;
-  node                garbage_node;
+  struct fib_node n;
+  node garbage_node;
   struct babel_proto *proto;
   struct babel_route *selected;
 
-  list   sources;   /* Source table entries for this prefix (struct babel_source). */
-  list   routes;    /* Routes for this prefix (struct babel_route). */
+  list sources;   /* Source table entries for this prefix (struct babel_source). */
+  list routes;    /* Routes for this prefix (struct babel_route). */
 };
 
 
@@ -350,22 +350,22 @@ struct babel_config {
   struct proto_config c;
 
   list iface_list;              /* Patterns configured -- keep it first; see babel_reconfigure why */
-  int  port;
+  int port;
 };
 
 struct babel_proto {
-  struct proto  p;
-  timer        *timer;
-  struct fib    rtable;
-  list          garbage;        /* Entries to be garbage collected (struct babel_entry) */
-  list          interfaces;     /* Interfaces we really know about (struct babel_iface) */
-  u16           update_seqno;   /* To be increased on request */
-  u64           router_id;
-  event        *update_event;   /* For triggering global updates */
+  struct proto p;
+  timer *timer;
+  struct fib rtable;
+  list garbage;        /* Entries to be garbage collected (struct babel_entry) */
+  list interfaces;     /* Interfaces we really know about (struct babel_iface) */
+  u16 update_seqno;   /* To be increased on request */
+  u64 router_id;
+  event  *update_event;   /* For triggering global updates */
 
-  slab         *entry_slab;
-  slab         *route_slab;
-  slab         *source_slab;
+  slab *entry_slab;
+  slab *route_slab;
+  slab *source_slab;
 
   struct babel_seqno_request_cache *seqno_cache;
 };
