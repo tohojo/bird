@@ -1515,21 +1515,6 @@ babel_rt_notify(struct proto *P, struct rtable *table UNUSED, struct network *ne
   ev_schedule(p->update_event);
 }
 
-static void babel_neigh_notify(neighbor *n)
-{
-  struct babel_proto *p = (struct babel_proto *)n->proto;
-  struct babel_neighbor *bn = n->data;
-  DBG("Neighbor: bn %d scope %d flags %d\n", bn, n->scope, n->flags);
-  if (n->scope <= 0)
-  {
-    TRACE(D_EVENTS, "Babel: Neighbor lost");
-  }
-  else
-  {
-    TRACE(D_EVENTS, "Babel: Neighbor ready");
-  }
-}
-
 static int
 babel_rte_same(struct rte *new, struct rte *old)
 {
@@ -1553,7 +1538,6 @@ babel_init(struct proto_config *cfg)
   p->accept_ra_types = RA_OPTIMAL;
   p->if_notify = babel_if_notify;
   p->rt_notify = babel_rt_notify;
-  p->neigh_notify = babel_neigh_notify;
   p->import_control = babel_import_control;
   p->make_tmp_attrs = babel_make_tmp_attrs;
   p->store_tmp_attrs = babel_store_tmp_attrs;
@@ -1590,17 +1574,6 @@ static int
 babel_reconfigure(struct proto *p, struct proto_config *c)
 {
   return 0;
-}
-
-static void
-babel_copy_config(struct proto_config *dest, struct proto_config *src)
-{
-  struct babel_config *b = (struct babel_config *) dest;
-  /* Shallow copy of everything */
-  proto_copy_rest(dest, src, sizeof(struct babel_config));
-
-  /* We clean up iface_list, ifaces are non-sharable */
-  init_list(&b->iface_list);
 }
 
 static int
@@ -1643,7 +1616,6 @@ struct protocol proto_babel = {
   .dump =		babel_dump,
   .start =		babel_start,
   .reconfigure =	babel_reconfigure,
-  .copy_config =	babel_copy_config,
   .get_route_info =	babel_get_route_info,
   .get_attr =		babel_get_attr
 };
