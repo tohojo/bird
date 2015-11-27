@@ -28,8 +28,7 @@ static void babel_send_to(struct babel_iface *bif, ip_addr dest);
 static inline ip_addr
 get_ip6_ll(u32 *addr)
 {
-    return ip6_or(ipa_build6(0xfe800000,0,0,0),
-		  ipa_build6(0,0,ntohl(addr[0]),ntohl(addr[1])));
+  return ipa_build6(0xfe800000,0,ntohl(addr[0]),ntohl(addr[1]));
 }
 
 void babel_hton_ack_req(struct babel_tlv_header *tlv);
