@@ -105,57 +105,44 @@ struct babel_parse_state {
   u8 needs_update;
 };
 
-
-
-
-struct babel_tlv_header {
-  u8 type;
-  u8 length;
-};
-
 struct babel_tlv_ack_req {
-  struct babel_tlv_header header;
-  u16 reserved;
+  u8 type;
   u16 nonce;
   u16 interval;
 };
 
 struct babel_tlv_ack {
-  struct babel_tlv_header header;
+  u8 type;
   u16 nonce;
 };
 
 struct babel_tlv_hello {
-  struct babel_tlv_header header;
-  u16 reserved;
+  u8 type;
   u16 seqno;
   u16 interval;
 };
 
 struct babel_tlv_ihu {
-  struct babel_tlv_header header;
+  u8 type;
   u8 ae;
-  u8 reserved;
   u16 rxcost;
   u16 interval;
-  u32 addr[2];
+  ip_addr addr;
 };
 
 struct babel_tlv_router_id {
-  struct babel_tlv_header header;
-  u16 reserved;
-  u64 router_id __attribute__((packed));
+  u8 type;
+  u64 router_id;
 };
 
 struct babel_tlv_next_hop {
-  struct babel_tlv_header header;
+  u8 type;
   u8 ae;
-  u8 reserved;
-  u32 addr[2];
+  ip_addr addr;
 };
 
 struct babel_tlv_update {
-  struct babel_tlv_header header;
+  u8 type;
   u8 ae;
 #define BABEL_FLAG_DEF_PREFIX 0x80
 #define BABEL_FLAG_ROUTER_ID 0x40
@@ -165,27 +152,37 @@ struct babel_tlv_update {
   u16 interval;
   u16 seqno;
   u16 metric;
-  u32 addr[4];
+  ip_addr addr;
 };
 
 struct babel_tlv_route_request {
-  struct babel_tlv_header header;
+  u8 type;
   u8 ae;
   u8 plen;
-  u32 addr[4];
+  ip_addr addr;
 };
 
 struct babel_tlv_seqno_request {
-  struct babel_tlv_header header;
+  u8 type;
   u8 ae;
   u8 plen;
   u16 seqno;
   u8 hop_count;
-  u8 reserved;
-  u64 router_id __attribute__((packed));
-  u32 addr[4];
+  u64 router_id;
+  ip_addr addr;
 };
 
+union babel_tlv {
+  struct babel_tlv_ack_req ack_req;
+  struct babel_tlv_ack ack;
+  struct babel_tlv_hello hello;
+  struct babel_tlv_ihu ihu;
+  struct babel_tlv_router_id router_id;
+  struct babel_tlv_next_hop next_hop;
+  struct babel_tlv_update update;
+  struct babel_tlv_route_request route_request;
+  struct babel_tlv_seqno_request seqno_request;
+};
 void babel_put_addr_ihu(struct babel_tlv_header *tlv, ip_addr addr);
 
 /* Handlers */
