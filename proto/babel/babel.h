@@ -52,11 +52,6 @@
 /* ip header + udp header + babel header */
 #define BABEL_OVERHEAD (SIZE_OF_IP_HEADER+8+sizeof(struct babel_header))
 
-struct babel_header {
-  u8 magic;
-  u8 version;
-  u16 length;
-};
 
 enum babel_tlv_type {
   BABEL_TYPE_PAD0             = 0,
@@ -95,104 +90,76 @@ enum babel_ae_type {
 };
 
 
-struct babel_parse_state {
-  struct babel_proto *proto;
-  struct babel_iface *bif;
-  ip_addr saddr;
-  u64 router_id;
-  /* A router_id may be 0, so we need a separate variable to track whether we
-     have seen a router_id */
-  u8 router_id_seen;
-  ip_addr prefix;
-  ip_addr next_hop;
-  u8 needs_update;
-};
 
 
 
-
-struct babel_tlv_header {
-  u8 type;
-  u8 length;
-};
 
 struct babel_tlv_ack_req {
-  struct babel_tlv_header header;
-  u16 reserved;
+  u8 type;
   u16 nonce;
   u16 interval;
 };
 
 struct babel_tlv_ack {
-  struct babel_tlv_header header;
+  u8 type;
   u16 nonce;
 };
 
 struct babel_tlv_hello {
-  struct babel_tlv_header header;
-  u16 reserved;
+  u8 type;
   u16 seqno;
   u16 interval;
 };
 
 struct babel_tlv_ihu {
-  struct babel_tlv_header header;
+  u8 type;
   u8 ae;
-  u8 reserved;
   u16 rxcost;
   u16 interval;
   ip_addr addr;
-} __attribute__((packed));
+};
 
 struct babel_tlv_router_id {
-  struct babel_tlv_header header;
-  u16 reserved;
+  u8 type;
   u64 router_id;
-} __attribute__((packed));
+};
 
 struct babel_tlv_next_hop {
-  struct babel_tlv_header header;
+  u8 type;
   u8 ae;
-  u8 reserved;
   ip_addr addr;
-} __attribute__((packed));
+};
 
 struct babel_tlv_update {
-  struct babel_tlv_header header;
+  u8 type;
   u8 ae;
-#define BABEL_FLAG_DEF_PREFIX 0x80
-#define BABEL_FLAG_ROUTER_ID 0x40
-  u8 flags;
   u8 plen;
-  u8 omitted;
   u16 interval;
   u16 seqno;
   u16 metric;
   ip_addr addr;
-  /* below attributes are not on the wire */
   u64 router_id;
-} __attribute__((packed));
+};
 
 struct babel_tlv_route_request {
-  struct babel_tlv_header header;
+  u8 type;
   u8 ae;
   u8 plen;
   ip_addr addr;
-} __attribute__((packed));
+};
 
 struct babel_tlv_seqno_request {
-  struct babel_tlv_header header;
+  u8 type;
   u8 ae;
   u8 plen;
   u16 seqno;
   u8 hop_count;
-  u8 reserved;
   u64 router_id;
   ip_addr addr;
-} __attribute__((packed));
+};
 
 union babel_tlv {
-  struct babel_tlv_header header;
+  u8 type;
   struct babel_tlv_ack_req ack_req;
   struct babel_tlv_ack ack;
   struct babel_tlv_hello hello;
@@ -211,17 +178,15 @@ struct babel_tlv_node {
 
 /* Handlers */
 
-int babel_handle_ack_req(union babel_tlv *tlv, struct babel_parse_state *state);
-int babel_handle_ack(union babel_tlv *tlv, struct babel_parse_state *state);
-int babel_handle_hello(union babel_tlv *tlv, struct babel_parse_state *state);
-int babel_handle_ihu(union babel_tlv *tlv, struct babel_parse_state *state);
-int babel_handle_router_id(union babel_tlv *tlv, struct babel_parse_state *state);
-int babel_handle_next_hop(union babel_tlv *tlv, struct babel_parse_state *state);
-int babel_handle_update(union babel_tlv *tlv, struct babel_parse_state *state);
-int babel_handle_route_request(union babel_tlv *tlv,
-                               struct babel_parse_state *state);
-int babel_handle_seqno_request(union babel_tlv *tlv,
-                               struct babel_parse_state *state);
+int babel_handle_ack_req(union babel_tlv *tlv);
+int babel_handle_ack(union babel_tlv *tlv);
+int babel_handle_hello(union babel_tlv *tlv);
+int babel_handle_ihu(union babel_tlv *tlv);
+int babel_handle_router_id(union babel_tlv *tlv);
+int babel_handle_next_hop(union babel_tlv *tlv);
+int babel_handle_update(union babel_tlv *tlv);
+int babel_handle_route_request(union babel_tlv *tlv);
+int babel_handle_seqno_request(union babel_tlv *tlv);
 
 /* Stores forwarded seqno requests for duplicate suppression. */
 struct babel_seqno_request {
