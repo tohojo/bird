@@ -10,12 +10,6 @@
  *	format) used by the Babel protocol.
  */
 
-struct babel_pkt_header {
-  u8 magic;
-  u8 version;
-  u16 length;
-};
-
 struct babel_parse_state {
   struct babel_proto *proto;
   struct babel_iface *bif;

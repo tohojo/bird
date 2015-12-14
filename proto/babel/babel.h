@@ -50,7 +50,14 @@
 #define BABEL_GARBAGE_INTERVAL        300
 
 /* ip header + udp header + babel header */
-#define BABEL_OVERHEAD (SIZE_OF_IP_HEADER+8+sizeof(struct babel_header))
+#define BABEL_OVERHEAD (SIZE_OF_IP_HEADER+8+sizeof(struct babel_pkt_header))
+
+struct babel_pkt_header {
+  u8 magic;
+  u8 version;
+  u16 length;
+};
+
 
 
 enum babel_tlv_type {
@@ -88,9 +95,6 @@ enum babel_ae_type {
   BABEL_AE_IP6_LL   = 3,
   BABEL_AE_MAX
 };
-
-
-
 
 
 
@@ -339,7 +343,6 @@ void babel_send_queue(void *arg);
 void babel_send_update(struct babel_iface *bif);
 void babel_init_packet(void *buf);
 int babel_open_socket(struct babel_iface *bif);
-void babel_put_addr(struct babel_tlv_header *hdr, ip_addr addr);
 void babel_new_unicast(struct babel_iface *bif);
 struct babel_tlv_header * babel_add_tlv_size(struct babel_iface *bif, u16 type, int size);
 struct babel_tlv_header * babel_add_tlv(struct babel_iface *bif, u16 len);
