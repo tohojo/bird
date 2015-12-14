@@ -141,21 +141,21 @@ struct babel_tlv_ihu {
   u8 reserved;
   u16 rxcost;
   u16 interval;
-  ip_addr addr __attribute__((packed));
-};
+  ip_addr addr;
+} __attribute__((packed));
 
 struct babel_tlv_router_id {
   struct babel_tlv_header header;
   u16 reserved;
-  u64 router_id __attribute__((packed));
-};
+  u64 router_id;
+} __attribute__((packed));
 
 struct babel_tlv_next_hop {
   struct babel_tlv_header header;
   u8 ae;
   u8 reserved;
-  ip_addr addr __attribute__((packed));
-};
+  ip_addr addr;
+} __attribute__((packed));
 
 struct babel_tlv_update {
   struct babel_tlv_header header;
@@ -168,17 +168,17 @@ struct babel_tlv_update {
   u16 interval;
   u16 seqno;
   u16 metric;
-  ip_addr addr __attribute__((packed));
+  ip_addr addr;
   /* below attributes are not on the wire */
   u64 router_id;
-};
+} __attribute__((packed));
 
 struct babel_tlv_route_request {
   struct babel_tlv_header header;
   u8 ae;
   u8 plen;
-  ip_addr addr __attribute__((packed));
-};
+  ip_addr addr;
+} __attribute__((packed));
 
 struct babel_tlv_seqno_request {
   struct babel_tlv_header header;
@@ -187,9 +187,9 @@ struct babel_tlv_seqno_request {
   u16 seqno;
   u8 hop_count;
   u8 reserved;
-  u64 router_id __attribute__((packed));
-  ip_addr addr __attribute__((packed));
-};
+  u64 router_id;
+  ip_addr addr;
+} __attribute__((packed));
 
 union babel_tlv {
   struct babel_tlv_header header;
