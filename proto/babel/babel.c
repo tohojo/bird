@@ -1383,7 +1383,7 @@ babel_new_interface(struct babel_proto *p, struct iface *new,
 
 
   bif->tlv_buf = bif->current_buf = mb_alloc(bif->pool, new->mtu);
-  init_list(bif->tlv_queue);
+  init_list(&bif->tlv_queue);
   babel_init_packet(bif->tlv_buf);
   bif->send_event = ev_new(bif->pool);
   bif->send_event->hook = babel_send_queue;

@@ -211,21 +211,16 @@ struct babel_tlv_node {
 
 /* Handlers */
 
-int babel_validate_length(struct babel_tlv_header *tlv, struct babel_parse_state *state);
-int babel_handle_ack_req(struct babel_tlv_header *tlv, struct babel_parse_state *state);
-int babel_handle_ack(struct babel_tlv_header *tlv, struct babel_parse_state *state);
-int babel_handle_hello(struct babel_tlv_header *tlv, struct babel_parse_state *state);
-int babel_handle_ihu(struct babel_tlv_header *tlv, struct babel_parse_state *state);
-int babel_validate_ihu(struct babel_tlv_header *hdr, struct babel_parse_state *state);
-int babel_handle_router_id(struct babel_tlv_header *tlv, struct babel_parse_state *state);
-int babel_handle_next_hop(struct babel_tlv_header *tlv, struct babel_parse_state *state);
-int babel_validate_next_hop(struct babel_tlv_header *hdr, struct babel_parse_state *state);
-int babel_handle_update(struct babel_tlv_header *tlv, struct babel_parse_state *state);
-int babel_validate_update(struct babel_tlv_header *hdr, struct babel_parse_state *state);
-int babel_handle_route_request(struct babel_tlv_header *tlv,
+int babel_handle_ack_req(union babel_tlv *tlv, struct babel_parse_state *state);
+int babel_handle_ack(union babel_tlv *tlv, struct babel_parse_state *state);
+int babel_handle_hello(union babel_tlv *tlv, struct babel_parse_state *state);
+int babel_handle_ihu(union babel_tlv *tlv, struct babel_parse_state *state);
+int babel_handle_router_id(union babel_tlv *tlv, struct babel_parse_state *state);
+int babel_handle_next_hop(union babel_tlv *tlv, struct babel_parse_state *state);
+int babel_handle_update(union babel_tlv *tlv, struct babel_parse_state *state);
+int babel_handle_route_request(union babel_tlv *tlv,
                                struct babel_parse_state *state);
-int babel_validate_request(struct babel_tlv_header *hdr, struct babel_parse_state *state);
-int babel_handle_seqno_request(struct babel_tlv_header *tlv,
+int babel_handle_seqno_request(union babel_tlv *tlv,
                                struct babel_parse_state *state);
 
 /* Stores forwarded seqno requests for duplicate suppression. */
@@ -379,9 +374,6 @@ void babel_send_queue(void *arg);
 void babel_send_update(struct babel_iface *bif);
 void babel_init_packet(void *buf);
 int babel_open_socket(struct babel_iface *bif);
-int babel_process_packet(struct babel_header *pkt, int size,
-                         ip_addr saddr, int port, struct babel_iface *bif);
-ip_addr babel_get_addr(struct babel_tlv_header *hdr, struct babel_parse_state *state);
 void babel_put_addr(struct babel_tlv_header *hdr, ip_addr addr);
 void babel_new_unicast(struct babel_iface *bif);
 struct babel_tlv_header * babel_add_tlv_size(struct babel_iface *bif, u16 type, int size);
