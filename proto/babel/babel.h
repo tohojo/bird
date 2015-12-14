@@ -100,49 +100,65 @@ struct babel_parse_state {
   struct babel_iface *bif;
   ip_addr saddr;
   u64 router_id;
+  /* A router_id may be 0, so we need a separate variable to track whether we
+     have seen a router_id */
+  u8 router_id_seen;
   ip_addr prefix;
   ip_addr next_hop;
   u8 needs_update;
 };
 
-struct babel_tlv_ack_req {
+
+
+
+struct babel_tlv_header {
   u8 type;
+  u8 length;
+};
+
+struct babel_tlv_ack_req {
+  struct babel_tlv_header header;
+  u16 reserved;
   u16 nonce;
   u16 interval;
 };
 
 struct babel_tlv_ack {
-  u8 type;
+  struct babel_tlv_header header;
   u16 nonce;
 };
 
 struct babel_tlv_hello {
-  u8 type;
+  struct babel_tlv_header header;
+  u16 reserved;
   u16 seqno;
   u16 interval;
 };
 
 struct babel_tlv_ihu {
-  u8 type;
+  struct babel_tlv_header header;
   u8 ae;
+  u8 reserved;
   u16 rxcost;
   u16 interval;
-  ip_addr addr;
+  ip_addr addr __attribute__((packed));
 };
 
 struct babel_tlv_router_id {
-  u8 type;
-  u64 router_id;
+  struct babel_tlv_header header;
+  u16 reserved;
+  u64 router_id __attribute__((packed));
 };
 
 struct babel_tlv_next_hop {
-  u8 type;
+  struct babel_tlv_header header;
   u8 ae;
-  ip_addr addr;
+  u8 reserved;
+  ip_addr addr __attribute__((packed));
 };
 
 struct babel_tlv_update {
-  u8 type;
+  struct babel_tlv_header header;
   u8 ae;
 #define BABEL_FLAG_DEF_PREFIX 0x80
 #define BABEL_FLAG_ROUTER_ID 0x40
@@ -152,27 +168,31 @@ struct babel_tlv_update {
   u16 interval;
   u16 seqno;
   u16 metric;
-  ip_addr addr;
+  ip_addr addr __attribute__((packed));
+  /* below attributes are not on the wire */
+  u64 router_id;
 };
 
 struct babel_tlv_route_request {
-  u8 type;
+  struct babel_tlv_header header;
   u8 ae;
   u8 plen;
-  ip_addr addr;
+  ip_addr addr __attribute__((packed));
 };
 
 struct babel_tlv_seqno_request {
-  u8 type;
+  struct babel_tlv_header header;
   u8 ae;
   u8 plen;
   u16 seqno;
   u8 hop_count;
-  u64 router_id;
-  ip_addr addr;
+  u8 reserved;
+  u64 router_id __attribute__((packed));
+  ip_addr addr __attribute__((packed));
 };
 
 union babel_tlv {
+  struct babel_tlv_header header;
   struct babel_tlv_ack_req ack_req;
   struct babel_tlv_ack ack;
   struct babel_tlv_hello hello;
@@ -183,7 +203,11 @@ union babel_tlv {
   struct babel_tlv_route_request route_request;
   struct babel_tlv_seqno_request seqno_request;
 };
-void babel_put_addr_ihu(struct babel_tlv_header *tlv, ip_addr addr);
+
+struct babel_tlv_node {
+  node n;
+  union babel_tlv tlv;
+};
 
 /* Handlers */
 
@@ -235,6 +259,7 @@ struct babel_iface {
   ip_addr addr;
   int max_pkt_len;
   list neigh_list; /* List of neighbors seen on this iface (struct babel_neighbor) */
+  list tlv_queue;
 
   void *tlv_buf;
   void *current_buf;
@@ -338,6 +363,7 @@ struct babel_proto {
   slab *entry_slab;
   slab *route_slab;
   slab *source_slab;
+  slab *tlv_slab;
 
   struct babel_seqno_request_cache *seqno_cache;
 };

@@ -863,17 +863,6 @@ babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *stat
   int feasible;
   TRACE(D_PACKETS, "Handling update for %I/%d with seqno %d metric %d",
 	prefix, tlv->plen, tlv->seqno, tlv->metric);
-  if (tlv->flags & BABEL_FLAG_DEF_PREFIX)
-  {
-    state->prefix = prefix;
-  }
-  if (tlv->flags & BABEL_FLAG_ROUTER_ID)
-  {
-    u64 *buf = (u64*)&prefix;
-    memcpy(&state->router_id, buf+1, sizeof(u64));
-  }
-  if (!state->router_id)
-    log(L_WARN "%s: Received update on %s with no preceding router id", p->p.name, bif->ifname);
 
   n = babel_find_neighbor(bif, state->saddr);
   if (!n)
@@ -882,7 +871,7 @@ babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *stat
     return 1;
   }
 
-  if (state->router_id == p->router_id)
+  if (tlv->router_id == p->router_id)
   {
     DBG("Ignoring update for our own router ID.\n");
     return 1;
@@ -1394,6 +1383,7 @@ babel_new_interface(struct babel_proto *p, struct iface *new,
 
 
   bif->tlv_buf = bif->current_buf = mb_alloc(bif->pool, new->mtu);
+  init_list(bif->tlv_queue);
   babel_init_packet(bif->tlv_buf);
   bif->send_event = ev_new(bif->pool);
   bif->send_event->hook = babel_send_queue;
@@ -1596,6 +1586,7 @@ babel_start(struct proto *P)
   p->entry_slab = sl_new(P->pool, sizeof(struct babel_entry));
   p->route_slab = sl_new(P->pool, sizeof(struct babel_route));
   p->source_slab = sl_new(P->pool, sizeof(struct babel_source));
+  p->tlv_slab = sl_new(P->pool, sizeof(struct babel_tlv_node));
 
   p->seqno_cache = mb_allocz(P->pool, sizeof(struct babel_seqno_request_cache));
   p->seqno_cache->slab = sl_new(P->pool, sizeof(struct babel_seqno_request));
