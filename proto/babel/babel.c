@@ -709,23 +709,21 @@ babel_update_timer(timer *t)
 
 
 int
-babel_handle_ack_req(struct babel_tlv_header *hdr, struct babel_parse_state *state)
+babel_handle_ack_req(union babel_tlv *inc, struct babel_iface *bif)
 {
-  struct babel_tlv_ack_req *tlv = (struct babel_tlv_ack_req *)hdr;
-  struct babel_proto *p = state->proto;
+  struct babel_tlv_ack_req *tlv = (struct babel_tlv_ack_req *)inc;
   TRACE(D_PACKETS, "Received ACK req nonce %d interval %d", tlv->nonce, tlv->interval);
   if (tlv->interval)
   {
-    babel_send_ack(state->bif, state->saddr, tlv->nonce);
+    babel_send_ack(bif, tlv->sender, tlv->nonce);
   }
   return 1;
 }
 
 int
-babel_handle_ack(struct babel_tlv_header *hdr, struct babel_parse_state *state)
+babel_handle_ack(union babel_tlv *inc, struct babel_iface *bif)
 {
-  struct babel_tlv_ack *tlv = (struct babel_tlv_ack *)hdr;
-  struct babel_proto *p = state->proto;
+  struct babel_tlv_ack *tlv = (struct babel_tlv_ack *)inc;
   TRACE(D_PACKETS, "Received ACK nonce %d", tlv->nonce);
   /* We don't send any ACK requests, so no need to do anything with ACKs. */
   return 1;
@@ -801,14 +799,12 @@ update_hello_history(struct babel_neighbor *bn, u16 seqno, u16 interval)
 
 
 int
-babel_handle_hello(struct babel_tlv_header *hdr, struct babel_parse_state *state)
+babel_handle_hello(union babel_tlv *inc, struct babel_iface *bif)
 {
-  struct babel_tlv_hello *tlv = (struct babel_tlv_hello *)hdr;
-  struct babel_proto *p = state->proto;
-  struct babel_iface *bif = state->bif;
-  struct babel_neighbor *bn = babel_get_neighbor(bif, state->saddr);
+  struct babel_tlv_hello *tlv = (struct babel_tlv_hello *)inc;
+  struct babel_neighbor *bn = babel_get_neighbor(bif, tlv->sender);
   TRACE(D_PACKETS, "Handling hello seqno %d interval %d", tlv->seqno,
-	tlv->interval, state->saddr);
+	tlv->interval, tlv->sender);
   update_hello_history(bn, tlv->seqno, tlv->interval);
   if (bif->cf->type == BABEL_IFACE_TYPE_WIRELESS)
     babel_send_ihu(bif, bn);
@@ -816,45 +812,42 @@ babel_handle_hello(struct babel_tlv_header *hdr, struct babel_parse_state *state
 }
 
 int
-babel_handle_ihu(struct babel_tlv_header *hdr, struct babel_parse_state *state)
+babel_handle_ihu(union babel_tlv *inc, struct babel_iface *bif)
 {
-  struct babel_tlv_ihu *tlv = (struct babel_tlv_ihu *)hdr;
-  struct babel_proto *p = state->proto;
-  struct babel_iface *bif = state->bif;
-  ip_addr addr = babel_get_addr(hdr, state);
+  struct babel_tlv_ihu *tlv = (struct babel_tlv_ihu *)inc;
+  struct babel_proto *p = bif->proto;
 
-  if (!ipa_equal(addr, bif->addr)) return 1; // not for us
+  if (!ipa_equal(tlv->addr, bif->addr)) return 1; // not for us
   TRACE(D_PACKETS, "Handling IHU rxcost %d interval %d", tlv->rxcost,
 	tlv->interval);
-  struct babel_neighbor *bn = babel_get_neighbor(bif, state->saddr);
+  struct babel_neighbor *bn = babel_get_neighbor(bif, tlv->sender);
   bn->txcost = tlv->rxcost;
   bn->ihu_expiry = now + 1.5*(tlv->interval/100);
   return 0;
 }
 
 int
-babel_handle_router_id(struct babel_tlv_header *hdr, struct babel_parse_state *state)
+babel_handle_router_id(union babel_tlv *inc, struct babel_iface *bif)
 {
-  struct babel_tlv_router_id *tlv = (struct babel_tlv_router_id *)hdr;
-  struct babel_proto *p = state->proto;
+  struct babel_tlv_router_id *tlv = (struct babel_tlv_router_id *)inc;
+  struct babel_proto *p = bif->proto;
   state->router_id = tlv->router_id;
   TRACE(D_PACKETS, "Handling router ID %016lx", state->router_id);
   return 0;
 }
 
 int
-babel_handle_next_hop(struct babel_tlv_header *hdr, struct babel_parse_state *state)
+babel_handle_next_hop(union babel_tlv *inc, struct babel_iface *bif)
 {
   state->next_hop = babel_get_addr(hdr, state);
   return 0;
 }
 
 int
-babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *state)
+babel_handle_update(union babel_tlv *inc, struct babel_iface *bif)
 {
-  struct babel_tlv_update *tlv = (struct babel_tlv_update *)hdr;
-  struct babel_iface *bif = state->bif;
-  struct babel_proto *p = state->proto;
+  struct babel_tlv_update *tlv = (struct babel_tlv_update *)inc;
+  struct babel_proto *p = bif->proto;
   struct babel_neighbor *n;
   struct babel_entry *e;
   struct babel_source *s;
@@ -864,10 +857,10 @@ babel_handle_update(struct babel_tlv_header *hdr, struct babel_parse_state *stat
   TRACE(D_PACKETS, "Handling update for %I/%d with seqno %d metric %d",
 	prefix, tlv->plen, tlv->seqno, tlv->metric);
 
-  n = babel_find_neighbor(bif, state->saddr);
+  n = babel_find_neighbor(bif, tlv->sender);
   if (!n)
   {
-    DBG("Haven't heard from neighbor %I; ignoring update.\n", state->saddr);
+    DBG("Haven't heard from neighbor %I; ignoring update.\n", tlv->sender);
     return 1;
   }
 
@@ -981,12 +974,10 @@ static void babel_send_retraction(struct babel_iface *bif, ip_addr prefix, int p
 }
 
 int
-babel_handle_route_request(struct babel_tlv_header *hdr,
-                           struct babel_parse_state *state)
+babel_handle_route_request(union babel_tlv *inc, struct babel_iface *bif)
 {
-  struct babel_tlv_route_request *tlv = (struct babel_tlv_route_request *)hdr;
-  struct babel_iface *bif = state->bif;
-  struct babel_proto *p = state->proto;
+  struct babel_tlv_route_request *tlv = (struct babel_tlv_route_request *)inc;
+  struct babel_proto *p = bif->proto;
   ip_addr prefix = babel_get_addr(hdr, state);
   struct babel_entry *e;
 
@@ -1117,11 +1108,9 @@ babel_forward_seqno_request(struct babel_entry *e,
    is redundant.
 */
 int
-babel_handle_seqno_request(struct babel_tlv_header *hdr,
-                           struct babel_parse_state *state)
+babel_handle_seqno_request(union babel_tlv *inc, struct babel_iface *bif)
 {
-  struct babel_tlv_seqno_request *tlv = (struct babel_tlv_seqno_request *)hdr;
-  struct babel_proto *p = state->proto;
+  struct babel_tlv_seqno_request *tlv = (struct babel_tlv_seqno_request *)inc;
   ip_addr prefix = babel_get_addr(hdr, state);
   struct babel_entry *e;
   struct babel_route *r;
@@ -1149,7 +1138,7 @@ babel_handle_seqno_request(struct babel_tlv_header *hdr,
 
   if (tlv->hop_count > 1)
   {
-    babel_forward_seqno_request(e, tlv, state->saddr);
+    babel_forward_seqno_request(e, tlv, tlv->sender);
   }
 
   return 1;

@@ -102,6 +102,7 @@ struct babel_tlv_ack_req {
   u8 type;
   u16 nonce;
   u16 interval;
+  ip_addr sender;
 };
 
 struct babel_tlv_ack {
@@ -113,6 +114,7 @@ struct babel_tlv_hello {
   u8 type;
   u16 seqno;
   u16 interval;
+  ip_addr sender;
 };
 
 struct babel_tlv_ihu {
@@ -121,11 +123,6 @@ struct babel_tlv_ihu {
   u16 rxcost;
   u16 interval;
   ip_addr addr;
-};
-
-struct babel_tlv_router_id {
-  u8 type;
-  u64 router_id;
 };
 
 struct babel_tlv_next_hop {
@@ -143,6 +140,8 @@ struct babel_tlv_update {
   u16 metric;
   ip_addr addr;
   u64 router_id;
+  ip_addr next_hop;
+  ip_addr sender;
 };
 
 struct babel_tlv_route_request {
@@ -160,6 +159,7 @@ struct babel_tlv_seqno_request {
   u8 hop_count;
   u64 router_id;
   ip_addr addr;
+  ip_addr sender;
 };
 
 union babel_tlv {
@@ -168,7 +168,6 @@ union babel_tlv {
   struct babel_tlv_ack ack;
   struct babel_tlv_hello hello;
   struct babel_tlv_ihu ihu;
-  struct babel_tlv_router_id router_id;
   struct babel_tlv_next_hop next_hop;
   struct babel_tlv_update update;
   struct babel_tlv_route_request route_request;
@@ -180,17 +179,6 @@ struct babel_tlv_node {
   union babel_tlv tlv;
 };
 
-/* Handlers */
-
-int babel_handle_ack_req(union babel_tlv *tlv);
-int babel_handle_ack(union babel_tlv *tlv);
-int babel_handle_hello(union babel_tlv *tlv);
-int babel_handle_ihu(union babel_tlv *tlv);
-int babel_handle_router_id(union babel_tlv *tlv);
-int babel_handle_next_hop(union babel_tlv *tlv);
-int babel_handle_update(union babel_tlv *tlv);
-int babel_handle_route_request(union babel_tlv *tlv);
-int babel_handle_seqno_request(union babel_tlv *tlv);
 
 /* Stores forwarded seqno requests for duplicate suppression. */
 struct babel_seqno_request {
@@ -335,6 +323,19 @@ struct babel_proto {
 
 
 void babel_init_config(struct babel_config *c);
+
+/* Handlers */
+
+int babel_handle_ack_req(union babel_tlv *tlv, struct babel_iface *bif);
+int babel_handle_ack(union babel_tlv *tlv, struct babel_iface *bif);
+int babel_handle_hello(union babel_tlv *tlv, struct babel_iface *bif);
+int babel_handle_ihu(union babel_tlv *tlv, struct babel_iface *bif);
+int babel_handle_router_id(union babel_tlv *tlv, struct babel_iface *bif);
+int babel_handle_next_hop(union babel_tlv *tlv, struct babel_iface *bif);
+int babel_handle_update(union babel_tlv *tlv, struct babel_iface *bif);
+int babel_handle_route_request(union babel_tlv *tlv, struct babel_iface *bif);
+int babel_handle_seqno_request(union babel_tlv *tlv, struct babel_iface *bif);
+
 
 /* Packet mangling code - packet.c */
 void babel_send_hello(struct babel_iface *bif, u8 send_ihu);

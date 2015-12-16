@@ -20,6 +20,12 @@
 #define NEXT_TLV(t) (t = (void *)((char *)t) + TLV_SIZE(t))
 #define TLV_SIZE(t) (t->type == BABEL_TYPE_PAD0 ? 1 : t->length + sizeof(struct babel_pkt_tlv_header))
 
+static enum parse_result {
+  PARSE_SUCCESS,
+  PARSE_ERROR,
+  PARSE_IGNORE,
+};
+
 static void babel_send_to(struct babel_iface *bif, ip_addr dest);
 
 static inline ip_addr
@@ -36,28 +42,28 @@ put_ip6_ll(void *p, ip_addr addr)
 }
 
 
-static int babel_read_ack_req(struct babel_pkt_tlv_header *hdr,
+static enum parse_result babel_read_ack_req(struct babel_pkt_tlv_header *hdr,
                               union babel_tlv *tlv,
                               struct babel_parse_state *state);
-static int babel_read_hello(struct babel_pkt_tlv_header *hdr,
+static enum parse_result babel_read_hello(struct babel_pkt_tlv_header *hdr,
                             union babel_tlv *tlv,
                             struct babel_parse_state *state);
-static int babel_read_ihu(struct babel_pkt_tlv_header *hdr,
+static enum parse_result babel_read_ihu(struct babel_pkt_tlv_header *hdr,
                           union babel_tlv *tlv,
                           struct babel_parse_state *state);
-static int babel_read_router_id(struct babel_pkt_tlv_header *hdr,
+static enum parse_result babel_read_router_id(struct babel_pkt_tlv_header *hdr,
                                 union babel_tlv *tlv,
                                 struct babel_parse_state *state);
-static int babel_read_next_hop(struct babel_pkt_tlv_header *hdr,
+static enum parse_result babel_read_next_hop(struct babel_pkt_tlv_header *hdr,
                                union babel_tlv *tlv,
                                struct babel_parse_state *state);
-static int babel_read_update(struct babel_pkt_tlv_header *hdr,
+static enum parse_result babel_read_update(struct babel_pkt_tlv_header *hdr,
                              union babel_tlv *tlv,
                              struct babel_parse_state *state);
-static int babel_read_route_request(struct babel_pkt_tlv_header *hdr,
+static enum parse_result babel_read_route_request(struct babel_pkt_tlv_header *hdr,
                                     union babel_tlv *tlv,
                                     struct babel_parse_state *state);
-static int babel_read_seqno_request(struct babel_pkt_tlv_header *hdr,
+static enum parse_result babel_read_seqno_request(struct babel_pkt_tlv_header *hdr,
                                     union babel_tlv *tlv,
                                     struct babel_parse_state *state);
 
@@ -65,12 +71,11 @@ static int babel_read_seqno_request(struct babel_pkt_tlv_header *hdr,
 
 struct babel_pkt_tlv_data {
   u8 min_size;
-  int (*read_tlv)(struct babel_pkt_tlv_header *hdr,
-                  union babel_tlv *tlv, struct babel_parse_state *state);
+  enum parse_result (*read_tlv)(struct babel_pkt_tlv_header *hdr,
+                                union babel_tlv *tlv, struct babel_parse_state *state);
   void (*write_tlv)(struct babel_pkt_tlv_header *hdr,
-		  union babel_tlv *tlv);
-  int (*handle_tlv)(union babel_tlv *tlv,
-                    struct babel_parse_state *state);
+                    union babel_tlv *tlv);
+  int (*handle_tlv)(union babel_tlv *tlv, struct babel_iface *bif);
 };
 
 const static struct babel_pkt_tlv_data tlv_data[BABEL_TYPE_MAX] = {
@@ -118,29 +123,39 @@ read_tlv(struct babel_pkt_tlv_header *hdr,
          union babel_tlv *tlv,
          struct babel_parse_state *state)
 {
-  return (tlv_data[hdr->type].read_tlv != NULL &&
-          TLV_SIZE(hdr) >= tlv_data[hdr->type].min_size &&
-          tlv_data[hdr->type].read_tlv(hdr, tlv, state));
+  if(hdr->type <= BABEL_TYPE_PADN ||
+     tlv->type >= BABEL_TYPE_MAX ||
+     tlv_data[hdr->type].read_tlv == NULL)
+    return PARSE_IGNORE;
+
+  if(TLV_SIZE(hdr) < tlv_data[hdr->type].min_size)
+    return PARSE_ERROR;
+
+  memset(tlv, 0, sizeof(*tlv));
+  return tlv_data[hdr->type].read_tlv(hdr, tlv, state);
 }
 
-static int
+static enum parse_result
 babel_read_ack_req(struct babel_pkt_tlv_header *hdr,
                    union babel_tlv *tlv,
                    struct babel_parse_state *state)
 {
   struct babel_pkt_tlv_ack_req * pkt_tlv = (struct babel_pkt_tlv_ack_req *) hdr;
+  tlv->ack_req.nonce = get_u16(&pkt_tlv->nonce);
   tlv->ack_req.interval = get_u16(&pkt_tlv->interval);
-  return 1;
+  tlv->ack_req.sender = state->saddr;
+  return PARSE_SUCCESS;
 }
 
 void
 babel_write_ack_req(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv)
 {
   struct babel_pkt_tlv_ack_req * pkt_tlv = (struct babel_pkt_tlv_ack_req *) hdr;
+  put_u16(&pkt_tlv->nonce, tlv->ack_req.nonce);
   put_u16(&pkt_tlv->interval, tlv->ack_req.interval);
 }
 
-static int
+static enum parse_result
 babel_read_hello(struct babel_pkt_tlv_header *hdr,
                  union babel_tlv *tlv,
                  struct babel_parse_state *state)
@@ -148,7 +163,8 @@ babel_read_hello(struct babel_pkt_tlv_header *hdr,
   struct babel_pkt_tlv_hello * pkt_tlv = (struct babel_pkt_tlv_hello *) hdr;
   tlv->hello.seqno = get_u16(&pkt_tlv->seqno);
   tlv->hello.interval = get_u16(&pkt_tlv->interval);
-  return 1;
+  tlv->hello.sender = state->saddr;
+  return PARSE_SUCCESS;
 }
 
 void
@@ -159,7 +175,7 @@ babel_write_hello(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv)
   put_u16(&pkt_tlv->interval, tlv->hello.interval);
 }
 
-static int
+static enum parse_result
 babel_read_ihu(struct babel_pkt_tlv_header *hdr,
                union babel_tlv *tlv,
                struct babel_parse_state *state)
@@ -169,14 +185,18 @@ babel_read_ihu(struct babel_pkt_tlv_header *hdr,
   tlv->ihu.rxcost = get_u16(&pkt_tlv->rxcost);
   tlv->ihu.interval = get_u16(&pkt_tlv->interval);
 
+  if(tlv->ihu.ae >= BABEL_AE_MAX)
+    return PARSE_IGNORE;
+
   // We handle link-local IPs. In every other case, the addr field will be 0 but
   // validation will succeed. The handler takes care of these cases.
   if(tlv->ihu.ae == BABEL_AE_IP6_LL)
   {
-    if(TLV_SIZE(hdr) < sizeof(struct babel_pkt_tlv_ihu)+8) return 0;
+    if(TLV_SIZE(hdr) < sizeof(struct babel_pkt_tlv_ihu)+8) return PARSE_ERROR;
     tlv->ihu.addr = get_ip6_ll(&pkt_tlv->addr);
   }
-  return 1;
+  tlv->ihu.sender = state->saddr;
+  return PARSE_SUCCESS;
 }
 
 void
@@ -195,16 +215,15 @@ babel_write_ihu(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv)
 }
 
 
-static int
+static enum parse_result
 babel_read_router_id(struct babel_pkt_tlv_header *hdr,
                      union babel_tlv *tlv,
                      struct babel_parse_state *state)
 {
   struct babel_pkt_tlv_router_id * pkt_tlv = (struct babel_pkt_tlv_router_id *) hdr;
-  tlv->router_id.router_id = get_u64(&pkt_tlv->router_id);
   state->router_id = tlv->router_id.router_id;
   state->router_id_seen = 1;
-  return 1;
+  return PARSE_SUCCESS;
 }
 
 void
@@ -214,22 +233,26 @@ babel_write_router_id(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv)
   put_u64(&pkt_tlv->router_id, tlv->router_id.router_id);
 }
 
-static int
+static enum parse_result
 babel_read_next_hop(struct babel_pkt_tlv_header *hdr,
                     union babel_tlv *tlv,
                     struct babel_parse_state *state)
 {
   struct babel_pkt_tlv_next_hop * pkt_tlv = (struct babel_pkt_tlv_next_hop *) hdr;
   tlv->next_hop.ae = pkt_tlv->ae;
+
+  if(tlv->ihu.ae >= BABEL_AE_MAX)
+    return PARSE_IGNORE;
+
   if(tlv->next_hop.ae == BABEL_AE_IP6_LL)
   {
-    if(TLV_SIZE(hdr) < sizeof(struct babel_pkt_tlv_next_hop)+8) return 0;
-    tlv->next_hop.addr = get_ip6_ll(&pkt_tlv->addr);
+    if(TLV_SIZE(hdr) < sizeof(struct babel_pkt_tlv_next_hop)+8) return PARSE_ERROR;
+    state->next_hop = get_ip6_ll(&pkt_tlv->addr);
   }
-  return 1;
+  return PARSE_SUCCESS;
 }
 
-static int
+static enum parse_result
 babel_read_update(struct babel_pkt_tlv_header *hdr,
                   union babel_tlv *tlv,
                   struct babel_parse_state *state)
@@ -246,17 +269,17 @@ babel_read_update(struct babel_pkt_tlv_header *hdr,
   if(tlv->update.plen % 8) len++;
 
   if(tlv->update.plen > MAX_PREFIX_LENGTH)
-    return 0;
+    return PARSE_ERROR;
 
   if(tlv->update.ae >= BABEL_AE_MAX)
-    return 0;
+    return PARSE_IGNORE;
   /* Can only omit bits if a previous update defined a prefix to take them from */
   if(pkt_tlv->omitted && ipa_equal(state->prefix, IPA_NONE))
-    return 0;
+    return PARSE_ERROR;
 
   /* TLV should be large enough to hold the entire prefix */
   if(TLV_SIZE(hdr) < sizeof(struct babel_pkt_tlv_update) + len - pkt_tlv->omitted)
-    return 0;
+    return PARSE_ERROR;
 
   /* IP address decoding */
   if(tlv->update.ae == BABEL_AE_WILDCARD || tlv->update.ae == BABEL_AE_IP4)
@@ -288,14 +311,15 @@ babel_read_update(struct babel_pkt_tlv_header *hdr,
     state->router_id = ((u64) _I2(tlv->update.addr)) << 32 | _I3(tlv->update.addr);
     state->router_id_seen = 1;
   }
-  if(!state->router_id_seen) return 0;
+  if(!state->router_id_seen) return PARSE_ERROR;
 
   tlv->update.router_id = state->router_id;
-  return 1;
+  tlv->update.sender = state->saddr;
+  return PARSE_SUCCESS;
 }
 
 
-static int
+static enum parse_result
 babel_read_route_request(struct babel_pkt_tlv_header *hdr,
                          union babel_tlv *tlv,
                          struct babel_parse_state *state)
@@ -308,20 +332,20 @@ babel_read_route_request(struct babel_pkt_tlv_header *hdr,
   if(tlv->route_request.plen % 8) len++;
 
   if(tlv->route_request.plen > MAX_PREFIX_LENGTH)
-    return 0;
+    return PARSE_ERROR;
 
   /* Prefixes cannot be link-local addresses. */
   if(tlv->route_request.ae >= BABEL_AE_IP6_LL)
-    return 0;
+    return PARSE_ERROR;
 
   /* enough space to hold the prefix */
   if(TLV_SIZE(hdr) < sizeof(struct babel_pkt_tlv_route_request) + len)
-    return 0;
+    return PARSE_ERROR;
 
   /* wildcard requests must have plen 0, others must not */
   if((tlv->route_request.ae == BABEL_AE_WILDCARD && tlv->route_request.plen > 0) ||
      (tlv->route_request.ae != BABEL_AE_WILDCARD && tlv->route_request.plen == 0))
-    return 0;
+    return PARSE_ERROR;
 
   /* IP address decoding */
   if(tlv->route_request.ae == BABEL_AE_WILDCARD || tlv->route_request.ae == BABEL_AE_IP4)
@@ -334,10 +358,10 @@ babel_read_route_request(struct babel_pkt_tlv_header *hdr,
     tlv->route_request.addr = get_ipa(buf);
   }
 
-  return 1;
+  return PARSE_SUCCESS;
 }
 
-static int
+static enum parse_result
 babel_read_seqno_request(struct babel_pkt_tlv_header *hdr,
                          union babel_tlv *tlv,
                          struct babel_parse_state *state)
@@ -353,20 +377,20 @@ babel_read_seqno_request(struct babel_pkt_tlv_header *hdr,
   if(tlv->seqno_request.plen % 8) len++;
 
   if(tlv->seqno_request.plen > MAX_PREFIX_LENGTH)
-    return 0;
+    return PARSE_ERROR;
 
   /* Prefixes cannot be link-local addresses. */
   if(tlv->seqno_request.ae >= BABEL_AE_IP6_LL)
-    return 0;
+    return PARSE_ERROR;
 
   /* enough space to hold the prefix */
   if(TLV_SIZE(hdr) < sizeof(struct babel_pkt_tlv_seqno_request) + len)
-    return 0;
+    return PARSE_ERROR;
 
   /* wildcard requests must have plen 0, others must not */
   if((tlv->seqno_request.ae == BABEL_AE_WILDCARD && tlv->seqno_request.plen > 0) ||
      (tlv->seqno_request.ae != BABEL_AE_WILDCARD && tlv->seqno_request.plen == 0))
-    return 0;
+    return PARSE_ERROR;
 
   /* IP address decoding */
   if(tlv->seqno_request.ae == BABEL_AE_WILDCARD || tlv->seqno_request.ae == BABEL_AE_IP4)
@@ -379,7 +403,8 @@ babel_read_seqno_request(struct babel_pkt_tlv_header *hdr,
     tlv->seqno_request.addr = get_ipa(buf);
   }
 
-  return 1;
+  tlv->seqno_request.sender = state->saddr;
+  return PARSE_SUCCESS;
 }
 
 
@@ -442,11 +467,11 @@ babel_copy_tlv(void *buf, struct babel_pkt_tlv_header *src, int max_len)
   int pktlen = sizeof(struct babel_pkt_header)+dst->length;
   int len = tlv_data[src->type].struct_length;
   if(pktlen+len > max_len)
-    return 0;
+    return PARSE_ERROR;
 
   memcpy((char *)dst + pktlen, src, len);
   dst->length += len;
-  return 1;
+  return PARSE_SUCCESS;
 }
 
 
@@ -521,6 +546,7 @@ babel_process_packet(struct babel_pkt_header *pkt, int size,
   struct babel_tlv_node *cur;
   init_list(&tlvs);
   char *p = (char *)pkt;
+  enum parse_result res;
 
   pkt->length = ntohs(pkt->length);
   if(pkt->magic != BABEL_MAGIC
@@ -532,16 +558,19 @@ babel_process_packet(struct babel_pkt_header *pkt, int size,
     return;
   }
 
+  cur = sl_alloc(proto->tlv_slab);
   while((char *)tlv < p+size)
   {
-    cur = sl_alloc(proto->tlv_slab);
-    if(tlv->type > BABEL_TYPE_PADN
-       && tlv->type < BABEL_TYPE_MAX
-       && read_tlv(tlv, &cur->tlv, &state))
+    if((res = read_tlv(tlv, &cur->tlv, &state)) == PARSE_SUCCESS)
     {
       cur->tlv.type = tlv->type;
       add_tail(&tlvs, NODE cur);
       NEXT_TLV(tlv);
+      cur = sl_alloc(proto->tlv_slab);
+  }
+    else if(res == PARSE_IGNORE)
+    {
+      DBG("Ignoring TLV of type %d\n",tlv->type);
     }
     else
     {
@@ -551,7 +580,7 @@ babel_process_packet(struct babel_pkt_header *pkt, int size,
     }
   }
   WALK_LIST_FIRST(cur, tlvs) {
-    tlv_data[cur->tlv.type].handle_tlv(&cur->tlv, &state);
+    tlv_data[cur->tlv.type].handle_tlv(&cur->tlv, bif);
     rem_node(NODE cur);
     sl_free(proto->tlv_slab, cur);
   }
