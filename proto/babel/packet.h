@@ -23,6 +23,18 @@ struct babel_parse_state {
   u8 needs_update;
 };
 
+enum parse_result {
+  PARSE_SUCCESS,
+  PARSE_ERROR,
+  PARSE_IGNORE,
+};
+
+struct babel_write_state {
+  u64 router_id;
+  u8 router_id_seen;
+  ip_addr next_hop;
+};
+
 struct babel_pkt_tlv_header {
   u8 type;
   u8 length;

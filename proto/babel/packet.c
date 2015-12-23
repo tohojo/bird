@@ -20,11 +20,6 @@
 #define NEXT_TLV(t) (t = (void *)((char *)t) + TLV_SIZE(t))
 #define TLV_SIZE(t) (t->type == BABEL_TYPE_PAD0 ? 1 : t->length + sizeof(struct babel_pkt_tlv_header))
 
-static enum parse_result {
-  PARSE_SUCCESS,
-  PARSE_ERROR,
-  PARSE_IGNORE,
-};
 
 static void babel_send_to(struct babel_iface *bif, ip_addr dest);
 
@@ -43,29 +38,29 @@ put_ip6_ll(void *p, ip_addr addr)
 
 
 static enum parse_result babel_read_ack_req(struct babel_pkt_tlv_header *hdr,
-                              union babel_tlv *tlv,
-                              struct babel_parse_state *state);
+                                            union babel_tlv *tlv,
+                                            struct babel_parse_state *state);
 static enum parse_result babel_read_hello(struct babel_pkt_tlv_header *hdr,
-                            union babel_tlv *tlv,
-                            struct babel_parse_state *state);
+                                          union babel_tlv *tlv,
+                                          struct babel_parse_state *state);
 static enum parse_result babel_read_ihu(struct babel_pkt_tlv_header *hdr,
-                          union babel_tlv *tlv,
-                          struct babel_parse_state *state);
+                                        union babel_tlv *tlv,
+                                        struct babel_parse_state *state);
 static enum parse_result babel_read_router_id(struct babel_pkt_tlv_header *hdr,
-                                union babel_tlv *tlv,
-                                struct babel_parse_state *state);
+                                              union babel_tlv *tlv,
+                                              struct babel_parse_state *state);
 static enum parse_result babel_read_next_hop(struct babel_pkt_tlv_header *hdr,
-                               union babel_tlv *tlv,
-                               struct babel_parse_state *state);
+                                             union babel_tlv *tlv,
+                                             struct babel_parse_state *state);
 static enum parse_result babel_read_update(struct babel_pkt_tlv_header *hdr,
-                             union babel_tlv *tlv,
-                             struct babel_parse_state *state);
+                                           union babel_tlv *tlv,
+                                           struct babel_parse_state *state);
 static enum parse_result babel_read_route_request(struct babel_pkt_tlv_header *hdr,
-                                    union babel_tlv *tlv,
-                                    struct babel_parse_state *state);
+                                                  union babel_tlv *tlv,
+                                                  struct babel_parse_state *state);
 static enum parse_result babel_read_seqno_request(struct babel_pkt_tlv_header *hdr,
-                                    union babel_tlv *tlv,
-                                    struct babel_parse_state *state);
+                                                  union babel_tlv *tlv,
+                                                  struct babel_parse_state *state);
 
 
 
@@ -73,8 +68,8 @@ struct babel_pkt_tlv_data {
   u8 min_size;
   enum parse_result (*read_tlv)(struct babel_pkt_tlv_header *hdr,
                                 union babel_tlv *tlv, struct babel_parse_state *state);
-  void (*write_tlv)(struct babel_pkt_tlv_header *hdr,
-                    union babel_tlv *tlv);
+  int (*write_tlv)(struct babel_pkt_tlv_header *hdr,
+                   union babel_tlv *tlv, struct babel_write_state *state, int max_len);
   int (*handle_tlv)(union babel_tlv *tlv, struct babel_iface *bif);
 };
 
@@ -83,7 +78,7 @@ const static struct babel_pkt_tlv_data tlv_data[BABEL_TYPE_MAX] = {
   [BABEL_TYPE_PADN] = {0, NULL,NULL,NULL},
   [BABEL_TYPE_ACK_REQ] = {sizeof(struct babel_pkt_tlv_ack_req),
                           babel_read_ack_req,
-                          babel_write_ack_req,
+                          NULL,
                           babel_handle_ack_req},
   [BABEL_TYPE_ACK] = {0, NULL,
                       babel_write_ack,
@@ -124,7 +119,7 @@ read_tlv(struct babel_pkt_tlv_header *hdr,
          struct babel_parse_state *state)
 {
   if(hdr->type <= BABEL_TYPE_PADN ||
-     tlv->type >= BABEL_TYPE_MAX ||
+     hdr->type >= BABEL_TYPE_MAX ||
      tlv_data[hdr->type].read_tlv == NULL)
     return PARSE_IGNORE;
 
@@ -147,13 +142,6 @@ babel_read_ack_req(struct babel_pkt_tlv_header *hdr,
   return PARSE_SUCCESS;
 }
 
-void
-babel_write_ack_req(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv)
-{
-  struct babel_pkt_tlv_ack_req * pkt_tlv = (struct babel_pkt_tlv_ack_req *) hdr;
-  put_u16(&pkt_tlv->nonce, tlv->ack_req.nonce);
-  put_u16(&pkt_tlv->interval, tlv->ack_req.interval);
-}
 
 static enum parse_result
 babel_read_hello(struct babel_pkt_tlv_header *hdr,
@@ -167,13 +155,6 @@ babel_read_hello(struct babel_pkt_tlv_header *hdr,
   return PARSE_SUCCESS;
 }
 
-void
-babel_write_hello(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv)
-{
-  struct babel_pkt_tlv_hello * pkt_tlv = (struct babel_pkt_tlv_hello *) hdr;
-  put_u16(&pkt_tlv->seqno, tlv->hello.seqno);
-  put_u16(&pkt_tlv->interval, tlv->hello.interval);
-}
 
 static enum parse_result
 babel_read_ihu(struct babel_pkt_tlv_header *hdr,
@@ -197,21 +178,6 @@ babel_read_ihu(struct babel_pkt_tlv_header *hdr,
   }
   tlv->ihu.sender = state->saddr;
   return PARSE_SUCCESS;
-}
-
-void
-babel_write_ihu(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv)
-{
-
-  struct babel_pkt_tlv_ihu * pkt_tlv = (struct babel_pkt_tlv_ihu *) hdr;
-  put_u16(&pkt_tlv->rxcost, tlv->ihu.rxcost);
-  put_u16(&pkt_tlv->interval, tlv->ihu.interval);
-  if(!ipa_is_link_local(tlv->ihu.addr))
-  {
-    pkt_tlv->ae = BABEL_AE_WILDCARD;
-    return;
-  }
-  put_ip6_ll(&pkt_tlv->addr, tlv->ihu.addr);
 }
 
 
@@ -400,6 +366,60 @@ babel_read_seqno_request(struct babel_pkt_tlv_header *hdr,
   return PARSE_SUCCESS;
 }
 
+static int
+write_tlv(struct babel_pkt_tlv_header *hdr,
+          union babel_tlv *tlv,
+          struct babel_write_state *state,
+          int max_len)
+{
+  if(tlv->type <= BABEL_TYPE_PADN ||
+     tlv->type >= BABEL_TYPE_MAX ||
+     tlv_data[tlv->type].write_tlv == NULL)
+    return 0;
+
+  if(max_len < tlv_data[tlv->type].min_size)
+    return 0;
+
+  memset(hdr, 0, tlv_data[tlv->type].min_size);
+  return tlv_data[tlv->type].write_tlv(hdr, tlv, state, max_len);
+}
+
+
+int
+babel_write_hello(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv,
+                  struct babel_write_state *state, int max_len)
+{
+  struct babel_pkt_tlv_hello * pkt_tlv = (struct babel_pkt_tlv_hello *) hdr;
+  hdr->type = BABEL_TYPE_HELLO;
+  hdr->length = sizeof(struct babel_pkt_tlv_hello) - sizeof(struct babel_pkt_tlv_header);
+  put_u16(&pkt_tlv->seqno, tlv->hello.seqno);
+  put_u16(&pkt_tlv->interval, tlv->hello.interval);
+  return sizeof(struct babel_pkt_tlv_hello);
+}
+
+int
+babel_write_ihu(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv,
+                struct babel_write_state *state, int max_len)
+{
+
+  struct babel_pkt_tlv_ihu * pkt_tlv = (struct babel_pkt_tlv_ihu *) hdr;
+
+  if(ipa_is_link_local(tlv->ihu.addr) && max_len < sizeof(struct babel_pkt_tlv_ihu) + 8)
+    return 0;
+
+  hdr->type = BABEL_TYPE_IHU;
+  hdr->length = sizeof(struct babel_pkt_tlv_ihu) - sizeof(struct babel_pkt_tlv_header);
+  put_u16(&pkt_tlv->rxcost, tlv->ihu.rxcost);
+  put_u16(&pkt_tlv->interval, tlv->ihu.interval);
+  if(!ipa_is_link_local(tlv->ihu.addr))
+  {
+    pkt_tlv->ae = BABEL_AE_WILDCARD;
+    return sizeof(struct babel_pkt_tlv_ihu);
+  }
+  put_ip6_ll(&pkt_tlv->addr, tlv->ihu.addr);
+  hdr->length += 8;
+  return sizeof(struct babel_pkt_tlv_ihu) + 8;
+}
 
 
 
@@ -427,47 +447,6 @@ babel_send_unicast(struct babel_iface *bif, ip_addr dest)
 }
 
 
-struct babel_pkt_tlv_header *
-babel_add_tlv_size(struct babel_iface *bif, u16 type, int len)
-{
-  struct babel_pkt_header *hdr = bif->current_buf;
-  struct babel_pkt_tlv_header *tlv;
-  int pktlen = sizeof(struct babel_pkt_header)+hdr->length;
-  if(pktlen+len > bif->max_pkt_len)
-  {
-    babel_send_queue(bif);
-    pktlen = sizeof(struct babel_pkt_header)+hdr->length;
-  }
-  hdr->length+=len;
-  tlv = (struct babel_pkt_tlv_header *)((char*)hdr+pktlen);
-  memset(tlv, 0, len);
-  tlv->type = type;
-  tlv->length = TLV_LENGTH(type);
-  return tlv;
-}
-
-struct babel_pkt_tlv_header *
-babel_add_tlv(struct babel_iface *bif, u16 type)
-{
-  return babel_add_tlv_size(bif, type, tlv_data[type].struct_length);
-}
-
-
-static int
-babel_copy_tlv(void *buf, struct babel_pkt_tlv_header *src, int max_len)
-{
-  struct babel_pkt_header *dst = buf;
-  int pktlen = sizeof(struct babel_pkt_header)+dst->length;
-  int len = tlv_data[src->type].struct_length;
-  if(pktlen+len > max_len)
-    return PARSE_ERROR;
-
-  memcpy((char *)dst + pktlen, src, len);
-  dst->length += len;
-  return PARSE_SUCCESS;
-}
-
-
 static void
 babel_send_to(struct babel_iface *bif, ip_addr dest)
 {
@@ -475,8 +454,6 @@ babel_send_to(struct babel_iface *bif, ip_addr dest)
   struct babel_pkt_header *hdr = (void *) s->tbuf;
   int len = hdr->length+sizeof(struct babel_pkt_header);
   int done;
-
-  babel_packet_hton(hdr);
 
   DBG( "Sending %d bytes to %I\n", len, dest);
   done = sk_send_to(s, len, dest, 0);
@@ -495,29 +472,26 @@ babel_send_queue(void *arg)
 {
   struct babel_iface *bif = arg;
   struct babel_pkt_header *dst = (void *)bif->sock->tbuf;
-  struct babel_pkt_header *src = (void *)bif->tlv_buf;
   struct babel_pkt_tlv_header *hdr;
-  char *p;
-  int moved;
-  if(!src->length) return;
+  struct babel_tlv_node *cur;
+  struct babel_write_state state = {0};
+  int written;
+  if(EMPTY_LIST(bif->tlv_queue)) return;
 
   babel_init_packet(dst);
   hdr = FIRST_TLV(bif->tlv_buf);
-  p = (char *) hdr;
-  while((char *)hdr < p + src->length && babel_copy_tlv(dst, hdr, bif->max_pkt_len))
-  {
+  WALK_LIST_FIRST(cur, bif->tlv_queue) {
+    if((written = write_tlv(hdr, &cur->tlv, &state,
+                            bif->max_pkt_len - ((char *)hdr-(char *)dst))) == 0)
+      break;
+    dst->length += written;
     NEXT_TLV(hdr);
+    rem_node(NODE cur);
   }
-  moved = (char *)hdr - p;
-  if(moved && moved < src->length)
-  {
-    memmove(p, hdr, src->length - moved);
-  }
-  src->length -= moved;
   babel_send(bif);
 
   /* re-schedule if we still have data to send */
-  if(src->length)
+  if(!EMPTY_LIST(bif->tlv_queue))
     ev_schedule(bif->send_event);
 }
 
