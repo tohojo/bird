@@ -224,12 +224,11 @@ babel_read_next_hop(struct babel_pkt_tlv_header *hdr,
                     struct babel_parse_state *state)
 {
   struct babel_pkt_tlv_next_hop * pkt_tlv = (struct babel_pkt_tlv_next_hop *) hdr;
-  tlv->next_hop.ae = pkt_tlv->ae;
 
-  if(tlv->ihu.ae >= BABEL_AE_MAX)
+  if(pkt_tlv->ae >= BABEL_AE_MAX)
     return PARSE_IGNORE;
 
-  if(tlv->next_hop.ae == BABEL_AE_IP6_LL)
+  if(pkt_tlv->ae == BABEL_AE_IP6_LL)
   {
     if(TLV_SIZE(hdr) < sizeof(struct babel_pkt_tlv_next_hop)+8) return PARSE_ERROR;
     state->next_hop = get_ip6_ll(&pkt_tlv->addr);
@@ -299,6 +298,7 @@ babel_read_update(struct babel_pkt_tlv_header *hdr,
   if(!state->router_id_seen) return PARSE_ERROR;
 
   tlv->update.router_id = state->router_id;
+  tlv->update.next_hop = state->next_hop;
   tlv->update.sender = state->saddr;
   return PARSE_SUCCESS;
 }
@@ -677,8 +677,6 @@ babel_process_packet(struct babel_pkt_header *pkt, int size,
     rem_node(NODE cur);
     sl_free(proto->tlv_slab, cur);
   }
-  if(state.needs_update)
-    bif->update_triggered = 1;
 }
 
 static void

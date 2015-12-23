@@ -827,23 +827,6 @@ babel_handle_ihu(union babel_tlv *inc, struct babel_iface *bif)
 }
 
 int
-babel_handle_router_id(union babel_tlv *inc, struct babel_iface *bif)
-{
-  struct babel_tlv_router_id *tlv = (struct babel_tlv_router_id *)inc;
-  struct babel_proto *p = bif->proto;
-  state->router_id = tlv->router_id;
-  TRACE(D_PACKETS, "Handling router ID %016lx", state->router_id);
-  return 0;
-}
-
-int
-babel_handle_next_hop(union babel_tlv *inc, struct babel_iface *bif)
-{
-  state->next_hop = babel_get_addr(hdr, state);
-  return 0;
-}
-
-int
 babel_handle_update(union babel_tlv *inc, struct babel_iface *bif)
 {
   struct babel_tlv_update *tlv = (struct babel_tlv_update *)inc;
@@ -908,7 +891,7 @@ babel_handle_update(union babel_tlv *inc, struct babel_iface *bif)
 
   if (!e) e = babel_get_entry(p, tlv->prefix, tlv->plen);
 
-  s = babel_find_source(e, state->router_id); /* for feasibility */
+  s = babel_find_source(e, tlv->router_id); /* for feasibility */
   r = babel_find_route(e, n); /* the route entry indexed by neighbour */
   feasible = is_feasible(s, tlv->seqno, tlv->metric);
 
@@ -920,9 +903,9 @@ babel_handle_update(union babel_tlv *inc, struct babel_iface *bif)
 
     r = babel_get_route(e, n);
     r->advert_metric = tlv->metric;
-    r->router_id = state->router_id;
+    r->router_id = tlv->router_id;
     r->metric = compute_metric(n, tlv->metric);
-    r->next_hop = state->next_hop;
+    r->next_hop = tlv->next_hop;
     r->seqno = tlv->seqno;
   }
   else if (r == r->e->selected && !feasible)
@@ -932,7 +915,7 @@ babel_handle_update(union babel_tlv *inc, struct babel_iface *bif)
        send a unicast seqno request (section 3.8.2.2 second paragraph). */
     babel_unicast_seqno_request(r);
 
-    if (state->router_id == s->router_id) return 1;
+    if (tlv->router_id == s->router_id) return 1;
     r->metric = BABEL_INFINITY; /* retraction */
   }
   else
@@ -940,8 +923,8 @@ babel_handle_update(union babel_tlv *inc, struct babel_iface *bif)
     /* last point above - update entry */
     r->advert_metric = tlv->metric;
     r->metric = compute_metric(n, tlv->metric);
-    r->router_id = state->router_id;
-    r->next_hop = state->next_hop;
+    r->router_id = tlv->router_id;
+    r->next_hop = tlv->next_hop;
     r->seqno = tlv->seqno;
     if (tlv->metric != BABEL_INFINITY)
     {
@@ -986,7 +969,7 @@ babel_handle_route_request(union babel_tlv *inc, struct babel_iface *bif)
   /* Wildcard request - full update on the interface */
   if (ipa_equal(tlv->prefix,IPA_NONE))
   {
-    state->needs_update = 1;
+    bif->update_triggered = 1;
     return 0;
   }
   /* Non-wildcard request - see if we have an entry for the route. If not, send
@@ -998,7 +981,7 @@ babel_handle_route_request(union babel_tlv *inc, struct babel_iface *bif)
   }
   else
   {
-    state->needs_update = 1;
+    bif->update_triggered = 1;
   }
   return 0;
 }
@@ -1122,7 +1105,7 @@ babel_handle_seqno_request(union babel_tlv *inc, struct babel_iface *bif)
   r = e->selected;
   if (r->router_id != tlv->router_id || ge_mod64k(r->seqno, tlv->seqno))
   {
-    state->needs_update = 1;
+    bif->update_triggered = 1;
     return 0;
   }
 

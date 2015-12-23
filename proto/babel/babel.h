@@ -126,12 +126,6 @@ struct babel_tlv_ihu {
   ip_addr sender;
 };
 
-struct babel_tlv_next_hop {
-  u8 type;
-  u8 ae;
-  ip_addr addr;
-};
-
 struct babel_tlv_update {
   u8 type;
   u8 ae;
@@ -169,7 +163,6 @@ union babel_tlv {
   struct babel_tlv_ack ack;
   struct babel_tlv_hello hello;
   struct babel_tlv_ihu ihu;
-  struct babel_tlv_next_hop next_hop;
   struct babel_tlv_update update;
   struct babel_tlv_route_request route_request;
   struct babel_tlv_seqno_request seqno_request;
@@ -332,7 +325,6 @@ int babel_handle_ack(union babel_tlv *tlv, struct babel_iface *bif);
 int babel_handle_hello(union babel_tlv *tlv, struct babel_iface *bif);
 int babel_handle_ihu(union babel_tlv *tlv, struct babel_iface *bif);
 int babel_handle_router_id(union babel_tlv *tlv, struct babel_iface *bif);
-int babel_handle_next_hop(union babel_tlv *tlv, struct babel_iface *bif);
 int babel_handle_update(union babel_tlv *tlv, struct babel_iface *bif);
 int babel_handle_route_request(union babel_tlv *tlv, struct babel_iface *bif);
 int babel_handle_seqno_request(union babel_tlv *tlv, struct babel_iface *bif);
@@ -355,40 +347,3 @@ struct babel_tlv_header * babel_add_tlv(struct babel_iface *bif, u16 len);
       babel_new_packet(bif);                                            \
       tlv=func(bif);                                                    \
     }} while (0);
-
-inline struct babel_tlv_ack_req * babel_add_tlv_ack_req(struct babel_iface *bif)
-{
-  return (struct babel_tlv_ack_req *) babel_add_tlv(bif, BABEL_TYPE_ACK_REQ);
-}
-inline struct babel_tlv_ack * babel_add_tlv_ack(struct babel_iface *bif)
-{
-  return (struct babel_tlv_ack *) babel_add_tlv(bif, BABEL_TYPE_ACK);
-}
-inline struct babel_tlv_hello * babel_add_tlv_hello(struct babel_iface *bif)
-{
-  return (struct babel_tlv_hello *) babel_add_tlv(bif, BABEL_TYPE_HELLO);
-}
-inline struct babel_tlv_ihu * babel_add_tlv_ihu(struct babel_iface *bif)
-{
-  return (struct babel_tlv_ihu *) babel_add_tlv(bif, BABEL_TYPE_IHU);
-}
-inline struct babel_tlv_router_id * babel_add_tlv_router_id(struct babel_iface *bif)
-{
-  return (struct babel_tlv_router_id *) babel_add_tlv(bif, BABEL_TYPE_ROUTER_ID);
-}
-inline struct babel_tlv_next_hop * babel_add_tlv_next_hop(struct babel_iface *bif)
-{
-  return (struct babel_tlv_next_hop *) babel_add_tlv(bif, BABEL_TYPE_NEXT_HOP);
-}
-inline struct babel_tlv_update * babel_add_tlv_update(struct babel_iface *bif)
-{
-  return (struct babel_tlv_update *) babel_add_tlv(bif, BABEL_TYPE_UPDATE);
-}
-inline struct babel_tlv_route_request * babel_add_tlv_route_request(struct babel_iface *bif)
-{
-  return (struct babel_tlv_route_request *) babel_add_tlv(bif, BABEL_TYPE_ROUTE_REQUEST);
-}
-inline struct babel_tlv_seqno_request * babel_add_tlv_seqno_request(struct babel_iface *bif)
-{
-  return (struct babel_tlv_seqno_request *) babel_add_tlv(bif, BABEL_TYPE_SEQNO_REQUEST);
-}

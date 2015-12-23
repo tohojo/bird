@@ -20,7 +20,6 @@ struct babel_parse_state {
   u8 router_id_seen;
   ip_addr prefix;
   ip_addr next_hop;
-  u8 needs_update;
 };
 
 enum parse_result {
