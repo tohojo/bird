@@ -852,10 +852,10 @@ babel_handle_update(union babel_tlv *inc, struct babel_iface *bif)
   struct babel_entry *e;
   struct babel_source *s;
   struct babel_route *r;
-  ip_addr prefix = babel_get_addr(hdr, state);
+
   int feasible;
   TRACE(D_PACKETS, "Handling update for %I/%d with seqno %d metric %d",
-	prefix, tlv->plen, tlv->seqno, tlv->metric);
+	tlv->prefix, tlv->plen, tlv->seqno, tlv->metric);
 
   n = babel_find_neighbor(bif, tlv->sender);
   if (!n)
@@ -902,11 +902,11 @@ babel_handle_update(union babel_tlv *inc, struct babel_iface *bif)
        of the Interval value included in the update.
 
 */
-  e = babel_find_entry(p, prefix, tlv->plen);
+  e = babel_find_entry(p, tlv->prefix, tlv->plen);
   if (!e && tlv->metric == BABEL_INFINITY)
     return 1;
 
-  if (!e) e = babel_get_entry(p, prefix, tlv->plen);
+  if (!e) e = babel_get_entry(p, tlv->prefix, tlv->plen);
 
   s = babel_find_source(e, state->router_id); /* for feasibility */
   r = babel_find_route(e, n); /* the route entry indexed by neighbour */
@@ -978,24 +978,23 @@ babel_handle_route_request(union babel_tlv *inc, struct babel_iface *bif)
 {
   struct babel_tlv_route_request *tlv = (struct babel_tlv_route_request *)inc;
   struct babel_proto *p = bif->proto;
-  ip_addr prefix = babel_get_addr(hdr, state);
   struct babel_entry *e;
 
   TRACE(D_PACKETS, "Handling route request for %I/%d on interface %s",
-	prefix, tlv->plen, bif->ifname);
+	tlv->prefix, tlv->plen, bif->ifname);
 
   /* Wildcard request - full update on the interface */
-  if (ipa_equal(prefix,IPA_NONE))
+  if (ipa_equal(tlv->prefix,IPA_NONE))
   {
     state->needs_update = 1;
     return 0;
   }
   /* Non-wildcard request - see if we have an entry for the route. If not, send
      a retraction, otherwise send an update. */
-  e = babel_find_entry(p, prefix, tlv->plen);
+  e = babel_find_entry(p, tlv->prefix, tlv->plen);
   if (!e)
   {
-    babel_send_retraction(bif, prefix, tlv->plen);
+    babel_send_retraction(bif, tlv->prefix, tlv->plen);
   }
   else
   {
@@ -1111,14 +1110,13 @@ int
 babel_handle_seqno_request(union babel_tlv *inc, struct babel_iface *bif)
 {
   struct babel_tlv_seqno_request *tlv = (struct babel_tlv_seqno_request *)inc;
-  ip_addr prefix = babel_get_addr(hdr, state);
   struct babel_entry *e;
   struct babel_route *r;
 
   TRACE(D_PACKETS, "Handling seqno request for %I/%d router_id %0lx seqno %d hop count %d",
-	prefix, tlv->plen, tlv->router_id, tlv->seqno, tlv->hop_count);
+	tlv->prefix, tlv->plen, tlv->router_id, tlv->seqno, tlv->hop_count);
 
-  e = babel_find_entry(p, prefix, tlv->plen);
+  e = babel_find_entry(p, tlv->prefix, tlv->plen);
   if (!e || !e->selected || e->selected->metric == BABEL_INFINITY) return 1;
 
   r = e->selected;

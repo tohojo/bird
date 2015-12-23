@@ -98,7 +98,7 @@ const static struct babel_pkt_tlv_data tlv_data[BABEL_TYPE_MAX] = {
                       babel_handle_ihu},
   [BABEL_TYPE_ROUTER_ID] = {sizeof(struct babel_pkt_tlv_router_id),
                             babel_read_router_id,
-                            babel_write_router_id,
+                            NULL,
                             babel_handle_router_id},
   [BABEL_TYPE_NEXT_HOP] = {sizeof(struct babel_pkt_tlv_next_hop),
                            babel_read_next_hop,
@@ -221,16 +221,9 @@ babel_read_router_id(struct babel_pkt_tlv_header *hdr,
                      struct babel_parse_state *state)
 {
   struct babel_pkt_tlv_router_id * pkt_tlv = (struct babel_pkt_tlv_router_id *) hdr;
-  state->router_id = tlv->router_id.router_id;
+  state->router_id = pkt_tlv->router_id;
   state->router_id_seen = 1;
   return PARSE_SUCCESS;
-}
-
-void
-babel_write_router_id(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv)
-{
-  struct babel_pkt_tlv_router_id * pkt_tlv = (struct babel_pkt_tlv_router_id *) hdr;
-  put_u64(&pkt_tlv->router_id, tlv->router_id.router_id);
 }
 
 static enum parse_result
@@ -284,11 +277,11 @@ babel_read_update(struct babel_pkt_tlv_header *hdr,
   /* IP address decoding */
   if(tlv->update.ae == BABEL_AE_WILDCARD || tlv->update.ae == BABEL_AE_IP4)
   {
-    tlv->update.addr = IPA_NONE;
+    tlv->update.prefix = IPA_NONE;
   }
   else if(tlv->update.ae == BABEL_AE_IP6_LL)
   {
-    tlv->update.addr = get_ip6_ll(&pkt_tlv->addr);
+    tlv->update.prefix = get_ip6_ll(&pkt_tlv->addr);
   }
   else
   {
@@ -300,15 +293,15 @@ babel_read_update(struct babel_pkt_tlv_header *hdr,
                                       len - pkt_tlv->omitted);
     /* make sure the tail is zeroed */
     if(len < 16) memset(buf+len, 0, 16-len);
-    tlv->update.addr = get_ipa(buf);
+    tlv->update.prefix = get_ipa(buf);
   }
   if (pkt_tlv->flags & BABEL_FLAG_DEF_PREFIX)
   {
-    state->prefix = tlv->update.addr;
+    state->prefix = tlv->update.prefix;
   }
   if (pkt_tlv->flags & BABEL_FLAG_ROUTER_ID)
   {
-    state->router_id = ((u64) _I2(tlv->update.addr)) << 32 | _I3(tlv->update.addr);
+    state->router_id = ((u64) _I2(tlv->update.prefix)) << 32 | _I3(tlv->update.prefix);
     state->router_id_seen = 1;
   }
   if(!state->router_id_seen) return PARSE_ERROR;
@@ -350,12 +343,12 @@ babel_read_route_request(struct babel_pkt_tlv_header *hdr,
   /* IP address decoding */
   if(tlv->route_request.ae == BABEL_AE_WILDCARD || tlv->route_request.ae == BABEL_AE_IP4)
   {
-    tlv->route_request.addr = IPA_NONE;
+    tlv->route_request.prefix = IPA_NONE;
   }
   else
   {
     memcpy(buf, &pkt_tlv->addr, len);
-    tlv->route_request.addr = get_ipa(buf);
+    tlv->route_request.prefix = get_ipa(buf);
   }
 
   return PARSE_SUCCESS;
@@ -395,12 +388,12 @@ babel_read_seqno_request(struct babel_pkt_tlv_header *hdr,
   /* IP address decoding */
   if(tlv->seqno_request.ae == BABEL_AE_WILDCARD || tlv->seqno_request.ae == BABEL_AE_IP4)
   {
-    tlv->seqno_request.addr = IPA_NONE;
+    tlv->seqno_request.prefix = IPA_NONE;
   }
   else
   {
     memcpy(buf, &pkt_tlv->addr, len);
-    tlv->seqno_request.addr = get_ipa(buf);
+    tlv->seqno_request.prefix = get_ipa(buf);
   }
 
   tlv->seqno_request.sender = state->saddr;

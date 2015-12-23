@@ -123,6 +123,7 @@ struct babel_tlv_ihu {
   u16 rxcost;
   u16 interval;
   ip_addr addr;
+  ip_addr sender;
 };
 
 struct babel_tlv_next_hop {
@@ -138,7 +139,7 @@ struct babel_tlv_update {
   u16 interval;
   u16 seqno;
   u16 metric;
-  ip_addr addr;
+  ip_addr prefix;
   u64 router_id;
   ip_addr next_hop;
   ip_addr sender;
@@ -148,7 +149,7 @@ struct babel_tlv_route_request {
   u8 type;
   u8 ae;
   u8 plen;
-  ip_addr addr;
+  ip_addr prefix;
 };
 
 struct babel_tlv_seqno_request {
@@ -158,7 +159,7 @@ struct babel_tlv_seqno_request {
   u16 seqno;
   u8 hop_count;
   u64 router_id;
-  ip_addr addr;
+  ip_addr prefix;
   ip_addr sender;
 };
 
