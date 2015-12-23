@@ -37,32 +37,58 @@ put_ip6_ll(void *p, ip_addr addr)
 }
 
 
-static enum parse_result babel_read_ack_req(struct babel_pkt_tlv_header *hdr,
-                                            union babel_tlv *tlv,
-                                            struct babel_parse_state *state);
-static enum parse_result babel_read_hello(struct babel_pkt_tlv_header *hdr,
-                                          union babel_tlv *tlv,
-                                          struct babel_parse_state *state);
-static enum parse_result babel_read_ihu(struct babel_pkt_tlv_header *hdr,
-                                        union babel_tlv *tlv,
-                                        struct babel_parse_state *state);
-static enum parse_result babel_read_router_id(struct babel_pkt_tlv_header *hdr,
-                                              union babel_tlv *tlv,
-                                              struct babel_parse_state *state);
-static enum parse_result babel_read_next_hop(struct babel_pkt_tlv_header *hdr,
-                                             union babel_tlv *tlv,
-                                             struct babel_parse_state *state);
-static enum parse_result babel_read_update(struct babel_pkt_tlv_header *hdr,
-                                           union babel_tlv *tlv,
-                                           struct babel_parse_state *state);
-static enum parse_result babel_read_route_request(struct babel_pkt_tlv_header *hdr,
-                                                  union babel_tlv *tlv,
-                                                  struct babel_parse_state *state);
-static enum parse_result babel_read_seqno_request(struct babel_pkt_tlv_header *hdr,
-                                                  union babel_tlv *tlv,
-                                                  struct babel_parse_state *state);
+static enum parse_result
+babel_read_ack_req(struct babel_pkt_tlv_header *hdr,
+                   union babel_tlv *tlv,
+                   struct babel_parse_state *state);
+static enum parse_result
+babel_read_hello(struct babel_pkt_tlv_header *hdr,
+                 union babel_tlv *tlv,
+                 struct babel_parse_state *state);
+static enum parse_result
+babel_read_ihu(struct babel_pkt_tlv_header *hdr,
+               union babel_tlv *tlv,
+               struct babel_parse_state *state);
+static enum parse_result
+babel_read_router_id(struct babel_pkt_tlv_header *hdr,
+                     union babel_tlv *tlv,
+                     struct babel_parse_state *state);
+static enum parse_result
+babel_read_next_hop(struct babel_pkt_tlv_header *hdr,
+                    union babel_tlv *tlv,
+                    struct babel_parse_state *state);
+static enum parse_result
+babel_read_update(struct babel_pkt_tlv_header *hdr,
+                  union babel_tlv *tlv,
+                  struct babel_parse_state *state);
+static enum parse_result
+babel_read_route_request(struct babel_pkt_tlv_header *hdr,
+                         union babel_tlv *tlv,
+                         struct babel_parse_state *state);
+static enum parse_result
+babel_read_seqno_request(struct babel_pkt_tlv_header *hdr,
+                         union babel_tlv *tlv,
+                         struct babel_parse_state *state);
 
 
+static int
+babel_write_ack(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv,
+                struct babel_write_state *state, int max_len);
+static int
+babel_write_hello(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv,
+                  struct babel_write_state *state, int max_len);
+static int
+babel_write_ihu(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv,
+                struct babel_write_state *state, int max_len);
+static int
+babel_write_update(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv,
+                   struct babel_write_state *state, int max_len);
+static int
+babel_write_route_request(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv,
+                          struct babel_write_state *state, int max_len);
+static int
+babel_write_seqno_request(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv,
+                          struct babel_write_state *state, int max_len);
 
 struct babel_pkt_tlv_data {
   u8 min_size;
@@ -82,7 +108,7 @@ const static struct babel_pkt_tlv_data tlv_data[BABEL_TYPE_MAX] = {
                           babel_handle_ack_req},
   [BABEL_TYPE_ACK] = {0, NULL,
                       babel_write_ack,
-                      babel_handle_ack},
+                      NULL},
   [BABEL_TYPE_HELLO] = {sizeof(struct babel_pkt_tlv_hello),
                         babel_read_hello,
                         babel_write_hello,
@@ -94,11 +120,11 @@ const static struct babel_pkt_tlv_data tlv_data[BABEL_TYPE_MAX] = {
   [BABEL_TYPE_ROUTER_ID] = {sizeof(struct babel_pkt_tlv_router_id),
                             babel_read_router_id,
                             NULL,
-                            babel_handle_router_id},
+                            NULL},
   [BABEL_TYPE_NEXT_HOP] = {sizeof(struct babel_pkt_tlv_next_hop),
                            babel_read_next_hop,
                            NULL,
-                           babel_handle_next_hop},
+                           NULL},
   [BABEL_TYPE_UPDATE] = {sizeof(struct babel_pkt_tlv_update),
                          babel_read_update,
                          babel_write_update,
@@ -385,7 +411,18 @@ write_tlv(struct babel_pkt_tlv_header *hdr,
 }
 
 
-int
+static int
+babel_write_ack(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv,
+                struct babel_write_state *state, int max_len)
+{
+  struct babel_pkt_tlv_ack * pkt_tlv = (struct babel_pkt_tlv_ack *) hdr;
+  hdr->type = BABEL_TYPE_ACK;
+  hdr->length = sizeof(struct babel_pkt_tlv_ack) - sizeof(struct babel_pkt_tlv_header);
+  put_u16(&pkt_tlv->nonce, tlv->ack.nonce);
+  return sizeof(struct babel_pkt_tlv_ack);
+}
+
+static int
 babel_write_hello(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv,
                   struct babel_write_state *state, int max_len)
 {
@@ -397,7 +434,7 @@ babel_write_hello(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv,
   return sizeof(struct babel_pkt_tlv_hello);
 }
 
-int
+static int
 babel_write_ihu(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv,
                 struct babel_write_state *state, int max_len)
 {
@@ -421,6 +458,95 @@ babel_write_ihu(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv,
   return sizeof(struct babel_pkt_tlv_ihu) + 8;
 }
 
+static int
+babel_write_update(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv,
+                   struct babel_write_state *state, int max_len)
+{
+
+  struct babel_pkt_tlv_update * pkt_tlv = (struct babel_pkt_tlv_update *) hdr;
+  struct babel_pkt_tlv_router_id * router_id;
+  char buf[16] = {0};
+  u8 size, len = tlv->update.plen/8;
+  if(tlv->update.plen % 8) len++;
+  size = sizeof(struct babel_pkt_tlv_update) + len;
+
+  if(max_len < size || ((!state->router_id_seen ||
+                         state->router_id != tlv->update.router_id) &&
+                        max_len < size + sizeof(struct babel_pkt_tlv_router_id)))
+    return 0;
+  put_ipa(buf, tlv->update.prefix);
+
+  if(!state->router_id_seen || state->router_id != tlv->update.router_id) {
+    hdr->type = BABEL_TYPE_ROUTER_ID;
+    hdr->length = sizeof(struct babel_pkt_tlv_router_id) - sizeof(struct babel_pkt_tlv_header);
+    router_id = (struct babel_pkt_tlv_router_id *)hdr;
+    put_u64(&router_id->router_id, tlv->update.router_id);
+    NEXT_TLV(hdr);
+    pkt_tlv = (struct babel_pkt_tlv_update *) hdr;
+    memset(hdr, 0, size);
+    size += sizeof(struct babel_pkt_tlv_router_id);
+    state->router_id = tlv->update.router_id;
+    state->router_id_seen = 1;
+  }
+
+  hdr->type = BABEL_TYPE_UPDATE;
+  hdr->length = sizeof(struct babel_pkt_tlv_update) - sizeof(struct babel_pkt_tlv_header) + len;
+  pkt_tlv->ae = BABEL_AE_IP6;
+  pkt_tlv->plen = tlv->update.plen;
+  put_u16(&pkt_tlv->interval, tlv->update.interval);
+  put_u16(&pkt_tlv->seqno, tlv->update.seqno);
+  put_u16(&pkt_tlv->metric, tlv->update.metric);
+  memcpy(pkt_tlv->addr, buf, len);
+
+  return size;
+}
+
+static int
+babel_write_route_request(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv,
+                   struct babel_write_state *state, int max_len)
+{
+
+  struct babel_pkt_tlv_route_request * pkt_tlv = (struct babel_pkt_tlv_route_request *) hdr;
+  char buf[16] = {0};
+  u8 size, len = tlv->route_request.plen/8;
+  if(tlv->route_request.plen % 8) len++;
+  size = sizeof(struct babel_pkt_tlv_route_request) + len;
+  if(max_len < size)
+    return 0;
+  put_ipa(buf, tlv->route_request.prefix);
+
+  hdr->type = BABEL_TYPE_ROUTE_REQUEST;
+  hdr->length = size - sizeof(struct babel_pkt_tlv_header);
+  pkt_tlv->ae = BABEL_AE_IP6;
+  pkt_tlv->plen = tlv->route_request.plen;
+  memcpy(pkt_tlv->addr, buf, len);
+  return size;
+}
+
+static int
+babel_write_seqno_request(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv,
+                   struct babel_write_state *state, int max_len)
+{
+
+  struct babel_pkt_tlv_seqno_request * pkt_tlv = (struct babel_pkt_tlv_seqno_request *) hdr;
+  char buf[16] = {0};
+  u8 size, len = tlv->seqno_request.plen/8;
+  if(tlv->seqno_request.plen % 8) len++;
+  size = sizeof(struct babel_pkt_tlv_seqno_request) + len;
+  if(max_len < size)
+    return 0;
+  put_ipa(buf, tlv->seqno_request.prefix);
+
+  hdr->type = BABEL_TYPE_SEQNO_REQUEST;
+  hdr->length = size - sizeof(struct babel_pkt_tlv_header);
+  pkt_tlv->ae = BABEL_AE_IP6;
+  pkt_tlv->plen = tlv->seqno_request.plen;
+  put_u16(&pkt_tlv->seqno, tlv->seqno_request.seqno);
+  pkt_tlv->hop_count = tlv->seqno_request.hop_count;
+  put_u64(&pkt_tlv->router_id, tlv->seqno_request.router_id);
+  memcpy(pkt_tlv->addr, buf, len);
+  return size;
+}
 
 
 void
@@ -485,7 +611,7 @@ babel_send_queue(void *arg)
                             bif->max_pkt_len - ((char *)hdr-(char *)dst))) == 0)
       break;
     dst->length += written;
-    NEXT_TLV(hdr);
+    hdr = (void *)((char *) hdr + written);
     rem_node(NODE cur);
   }
   babel_send(bif);
