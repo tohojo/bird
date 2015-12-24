@@ -170,8 +170,14 @@ union babel_tlv {
 
 struct babel_tlv_node {
   node n;
+  u16 refcnt;
+  slab *slab;
   union babel_tlv tlv;
 };
+
+struct babel_tlv_node * tlv_new(slab *slab);
+void tlv_incref(struct babel_tlv_node * tlv);
+void tlv_decref(struct babel_tlv_node * tlv);
 
 
 /* Stores forwarded seqno requests for duplicate suppression. */

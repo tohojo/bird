@@ -75,6 +75,25 @@ static void babel_send_route_request(struct babel_entry *e, struct babel_neighbo
 static int cache_seqno_request(struct babel_proto *p, ip_addr prefix, u8 plen,
 			       u64 router_id, u16 seqno);
 
+struct babel_tlv_node *
+tlv_new(slab *slab)
+{
+  struct babel_tlv_node *tlv = sl_alloc(slab);
+  memset(tlv, 0, sizeof(*tlv));
+  tlv->refcnt = 1;
+  tlv->slab = slab;
+}
+void
+tlv_incref(struct babel_tlv_node * tlv)
+{
+  tlv->refcnt++;
+}
+void tlv_decref(struct babel_tlv_node *tlv)
+{
+  tlv->refcnt--;
+  if(!tlv->refcnt)
+    sl_free(tlv->slab, tlv);
+}
 
 static void
 babel_init_entry(struct fib_node *n)

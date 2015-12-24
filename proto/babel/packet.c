@@ -152,7 +152,6 @@ read_tlv(struct babel_pkt_tlv_header *hdr,
   if(TLV_SIZE(hdr) < tlv_data[hdr->type].min_size)
     return PARSE_ERROR;
 
-  memset(tlv, 0, sizeof(*tlv));
   return tlv_data[hdr->type].read_tlv(hdr, tlv, state);
 }
 
@@ -613,6 +612,7 @@ babel_send_queue(void *arg)
     dst->length += written;
     hdr = (void *)((char *) hdr + written);
     rem_node(NODE cur);
+    tlv_decref(cur);
   }
   babel_send(bif);
 
@@ -651,7 +651,7 @@ babel_process_packet(struct babel_pkt_header *pkt, int size,
     return;
   }
 
-  cur = sl_alloc(proto->tlv_slab);
+  cur = tlv_new(proto->tlv_slab);
   while((char *)tlv < p+size)
   {
     if((res = read_tlv(tlv, &cur->tlv, &state)) == PARSE_SUCCESS)
@@ -659,7 +659,7 @@ babel_process_packet(struct babel_pkt_header *pkt, int size,
       cur->tlv.type = tlv->type;
       add_tail(&tlvs, NODE cur);
       NEXT_TLV(tlv);
-      cur = sl_alloc(proto->tlv_slab);
+      cur = tlv_new(proto->tlv_slab);
   }
     else if(res == PARSE_IGNORE)
     {
@@ -668,14 +668,14 @@ babel_process_packet(struct babel_pkt_header *pkt, int size,
     else
     {
       DBG("TLV read error for type %d\n",tlv->type);
-      sl_free(proto->tlv_slab, cur);
+      tlv_decref(cur);
       break;
     }
   }
   WALK_LIST_FIRST(cur, tlvs) {
     tlv_data[cur->tlv.type].handle_tlv(&cur->tlv, bif);
     rem_node(NODE cur);
-    sl_free(proto->tlv_slab, cur);
+    tlv_decref(cur);
   }
 }
 
