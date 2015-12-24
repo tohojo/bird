@@ -498,16 +498,17 @@ babel_unicast_seqno_request(struct babel_route *r)
 static void
 babel_send_route_request(struct babel_entry *e, struct babel_neighbor *n)
 {
-  struct babel_iface *bif = n->bif;
+  struct babel_iface *ifa = n->bif;
   struct babel_proto *p = e->proto;
-  struct babel_tlv_route_request *tlv;
+  struct babel_tlv_node *tlvn = tlv_new(p->tlv_slab);
+  union babel_tlv *tlv = &tlvn->tlv;
   TRACE(D_PACKETS, "Babel: Sending route request for %I/%d to %I\n",
         e->n.prefix, e->n.pxlen, n->addr);
-  babel_new_unicast(bif);
-  tlv = babel_add_tlv_route_request(bif);
-  babel_put_addr(&tlv->header, e->n.prefix);
-  tlv->plen = e->n.pxlen;
-  babel_send_unicast(bif, n->addr);
+  tlv->type = BABEL_TYPE_ROUTE_REQUEST;
+  tlv->route_request.prefix = e->n.prefix;
+  tlv->route_request.plen = e->n.pxlen;
+  babel_send_unicast(tlvn, ifa, n->addr);
+  tlv_decref(tlvn);
 }
 
 
@@ -587,15 +588,16 @@ babel_select_route(struct babel_entry *e)
 }
 
 static void
-babel_send_ack(struct babel_iface *bif, ip_addr dest, u16 nonce)
+babel_send_ack(struct babel_iface *ifa, ip_addr dest, u16 nonce)
 {
-  struct babel_proto *p = bif->proto;
-  struct babel_tlv_ack *tlv;
+  struct babel_proto *p = ifa->proto;
+  struct babel_tlv_node *tlvn = tlv_new(p->tlv_slab);
+  union babel_tlv *tlv = &tlvn->tlv;
   TRACE(D_PACKETS, "Babel: Sending ACK to %I with nonce %d\n", dest, nonce);
-  babel_new_unicast(bif);
-  tlv = babel_add_tlv_ack(bif);
-  tlv->nonce = nonce;
-  babel_send_unicast(bif, dest);
+  tlv->type = BABEL_TYPE_ACK;
+  tlv->ack.nonce = nonce;
+  babel_send_unicast(tlvn, ifa, dest);
+  tlv_decref(tlvn);
 }
 
 static void
