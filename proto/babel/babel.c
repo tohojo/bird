@@ -441,23 +441,30 @@ babel_send_seqno_request(struct babel_entry *e)
   struct babel_proto *p = e->proto;
   struct babel_route *r = e->selected;
   struct babel_source *s = babel_find_source(e, r->router_id);
-  struct babel_iface *bif;
-  struct babel_tlv_seqno_request *tlv;
+  struct babel_iface *ifa;
+  struct babel_tlv_node *tlvn;
+  union babel_tlv *tlv;
 
   if (s && cache_seqno_request(p, e->n.prefix, e->n.pxlen, r->router_id, s->seqno+1))
   {
     TRACE(D_EVENTS, "Sending seqno request for %I/%d router_id %0lx",
           e->n.prefix, e->n.pxlen, r->router_id);
 
-    WALK_LIST(bif, p->interfaces)
+    tlvn = tlv_new(p->tlv_slab);
+    tlv = &tlvn->tlv;
+
+    tlv->type = BABEL_TYPE_SEQNO_REQUEST;
+    tlv->seqno_request.plen = e->n.pxlen;
+    tlv->seqno_request.seqno = s->seqno + 1;
+    tlv->seqno_request.hop_count = BABEL_INITIAL_HOP_COUNT;
+    tlv->seqno_request.router_id = r->router_id;
+    tlv->seqno_request.prefix = e->n.prefix;
+
+    WALK_LIST(ifa, p->interfaces)
     {
-      tlv = babel_add_tlv_seqno_request(bif);
-      tlv->plen = e->n.pxlen;
-      tlv->seqno = s->seqno + 1;
-      tlv->hop_count = BABEL_INITIAL_HOP_COUNT;
-      tlv->router_id = r->router_id;
-      babel_put_addr(&tlv->header, e->n.prefix);
+      babel_enqueue(tlvn, ifa);
     }
+    tlv_decref(tlvn);
   }
 }
 
@@ -467,20 +474,24 @@ babel_unicast_seqno_request(struct babel_route *r)
   struct babel_entry *e = r->e;
   struct babel_proto *p = e->proto;
   struct babel_source *s = babel_find_source(e, r->router_id);
-  struct babel_iface *bif = r->neigh->bif;
-  struct babel_tlv_seqno_request *tlv;
+  struct babel_iface *ifa = r->neigh->bif;
+  struct babel_tlv_node *tlvn;
+  union babel_tlv *tlv;
   if (s && cache_seqno_request(p, e->n.prefix, e->n.pxlen, r->router_id, s->seqno+1))
   {
     TRACE(D_EVENTS, "Sending seqno request for %I/%d router_id %0lx",
           e->n.prefix, e->n.pxlen, r->router_id);
-      babel_new_unicast(bif);
-      tlv = babel_add_tlv_seqno_request(bif);
-      tlv->plen = e->n.pxlen;
-      tlv->seqno = s->seqno + 1;
-      tlv->hop_count = BABEL_INITIAL_HOP_COUNT;
-      tlv->router_id = r->router_id;
-      babel_put_addr(&tlv->header, e->n.prefix);
-      babel_send_unicast(bif, r->neigh->addr);
+    tlvn = tlv_new(p->tlv_slab);
+    tlv = &tlvn->tlv;
+
+    tlv->type = BABEL_TYPE_SEQNO_REQUEST;
+    tlv->seqno_request.plen = e->n.pxlen;
+    tlv->seqno_request.seqno = s->seqno + 1;
+    tlv->seqno_request.hop_count = BABEL_INITIAL_HOP_COUNT;
+    tlv->seqno_request.router_id = r->router_id;
+    tlv->seqno_request.prefix = e->n.prefix;
+    babel_send_unicast(tlvn, ifa, r->neigh->addr);
+    tlv_decref(tlvn);
   }
 }
 
