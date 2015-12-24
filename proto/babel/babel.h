@@ -337,8 +337,10 @@ int babel_handle_seqno_request(union babel_tlv *tlv, struct babel_iface *bif);
 
 
 /* Packet mangling code - packet.c */
+void babel_enqueue(struct babel_tlv_node *tlv, struct babel_iface *ifa);
+
 void babel_send_hello(struct babel_iface *bif, u8 send_ihu);
-void babel_send_unicast( struct babel_iface *bif, ip_addr dest );
+void babel_send_unicast(struct babel_tlv_node *tlvn, struct babel_iface *ifa, ip_addr dest);
 void babel_send_queue(void *arg);
 void babel_send_update(struct babel_iface *bif);
 void babel_init_packet(void *buf);

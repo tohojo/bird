@@ -564,12 +564,6 @@ babel_new_unicast(struct babel_iface *bif)
   bif->current_buf = bif->sock->tbuf;
 }
 
-void
-babel_send_unicast(struct babel_iface *bif, ip_addr dest)
-{
-  babel_send_to(bif, dest);
-  bif->current_buf = bif->tlv_buf;
-}
 
 
 static void
@@ -592,34 +586,58 @@ babel_send(struct babel_iface *bif)
   babel_send_to(bif, IP6_BABEL_ROUTERS);
 }
 
-void
-babel_send_queue(void *arg)
+static void babel_write_queue(struct babel_iface *ifa, list queue)
 {
-  struct babel_iface *bif = arg;
-  struct babel_pkt_header *dst = (void *)bif->sock->tbuf;
+  struct babel_pkt_header *dst = (void *)ifa->sock->tbuf;
   struct babel_pkt_tlv_header *hdr;
   struct babel_tlv_node *cur;
   struct babel_write_state state = {0};
   int written;
-  if(EMPTY_LIST(bif->tlv_queue)) return;
 
   babel_init_packet(dst);
-  hdr = FIRST_TLV(bif->tlv_buf);
-  WALK_LIST_FIRST(cur, bif->tlv_queue) {
+  hdr = FIRST_TLV(ifa->tlv_buf);
+  WALK_LIST_FIRST(cur, ifa->tlv_queue) {
     if((written = write_tlv(hdr, &cur->tlv, &state,
-                            bif->max_pkt_len - ((char *)hdr-(char *)dst))) == 0)
+                            ifa->max_pkt_len - ((char *)hdr-(char *)dst))) == 0)
       break;
     dst->length += written;
     hdr = (void *)((char *) hdr + written);
     rem_node(NODE cur);
     tlv_decref(cur);
   }
-  babel_send(bif);
+}
+
+void
+babel_send_queue(void *arg)
+{
+  struct babel_iface *ifa = arg;
+  if(EMPTY_LIST(ifa->tlv_queue)) return;
+  babel_write_queue(ifa, ifa->tlv_queue);
+  babel_send(ifa);
 
   /* re-schedule if we still have data to send */
-  if(!EMPTY_LIST(bif->tlv_queue))
-    ev_schedule(bif->send_event);
+  if(!EMPTY_LIST(ifa->tlv_queue))
+    ev_schedule(ifa->send_event);
 }
+
+void
+babel_send_unicast(struct babel_tlv_node *tlvn, struct babel_iface *ifa, ip_addr dest)
+{
+  list queue;
+  init_list(&queue);
+  add_tail(&queue, NODE tlvn);
+  babel_write_queue(ifa, queue);
+  babel_send_to(ifa, dest);
+}
+
+
+void
+babel_enqueue(struct babel_tlv_node *tlvn, struct babel_iface *ifa)
+{
+  tlv_incref(tlvn);
+  add_tail(&ifa->tlv_queue, NODE tlvn);
+}
+
 
 
 void
