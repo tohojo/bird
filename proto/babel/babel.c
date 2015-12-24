@@ -620,74 +620,43 @@ babel_hello_timer(timer *t)
                          ifa->hello_seqno % BABEL_IHU_INTERVAL_FACTOR == 0));
 }
 
-/* Function to add router_id -- a router id TLV is always followed by an update
-   TLV, so add both atomically (which may send the queue), then fill in the
-   router ID and return the update TLV position.
-
-   This prevents a full queue causing a packet to be sent with a router id TLV
-   as the last TLV (and so the update TLV in the next packet missing a router
-   id).*/
-static struct babel_tlv_update *
-babel_add_router_id(struct babel_iface *bif, u64 router_id)
-{
-  struct babel_tlv_router_id *rid;
-  struct babel_tlv_update *upd;
-  rid = (struct babel_tlv_router_id *) babel_add_tlv_size(bif,
-                                                          BABEL_TYPE_ROUTER_ID,
-                                                          (sizeof(struct babel_tlv_router_id) +
-                                                           sizeof(struct babel_tlv_update)));
-  rid->router_id = router_id;
-  upd = (struct babel_tlv_update *)(rid+1);
-  upd->header.type = BABEL_TYPE_UPDATE;
-  upd->header.length = sizeof(struct babel_tlv_update) - sizeof(struct babel_tlv_header);
-  return upd;
-}
-
 void
-babel_send_update(struct babel_iface *bif)
+babel_send_update(struct babel_iface *ifa)
 {
-  struct babel_proto *p = bif->proto;
-  struct babel_tlv_update *upd;
+  struct babel_proto *p = ifa->proto;
   struct babel_entry *e;
   struct babel_route *r;
   struct babel_source *s;
-  u64 router_id = 0;
-  TRACE(D_PACKETS, "Sending update on %s", bif->ifname);
+  TRACE(D_PACKETS, "Sending update on %s", ifa->ifname);
   FIB_WALK(&p->rtable, n)
   {
+    union babel_tlv tlv = {0};
+    tlv.type = BABEL_TYPE_UPDATE;
     e = (struct babel_entry *)n;
     r = e->selected;
     if (!r) continue;
 
-    if (r->router_id != router_id)
-    {
-      upd = babel_add_router_id(bif, r->router_id);
-      router_id = r->router_id;
-    }
-    else
-    {
-      upd = babel_add_tlv_update(bif);
-    }
 
     /* Our own seqno might have changed, in which case we update the routes we
        originate. */
     if (r->router_id == p->router_id && r->seqno < p->update_seqno)
       r->seqno = p->update_seqno;
-    upd->plen = e->n.pxlen;
-    upd->interval = bif->cf->update_interval*100;
-    upd->seqno = r->seqno;
-    upd->metric = r->metric;
-    babel_put_addr(&upd->header, e->n.prefix);
+    tlv.update.plen = e->n.pxlen;
+    tlv.update.interval = ifa->cf->update_interval*100;
+    tlv.update.seqno = r->seqno;
+    tlv.update.metric = r->metric;
+    tlv.update.prefix = e->n.prefix;
 
     /* Update feasibility distance. */
     s = babel_get_source(e, r->router_id);
     s->expires = now + BABEL_GARBAGE_INTERVAL;
-    if (upd->seqno > s->seqno
-       || (upd->seqno == s->seqno && upd->metric < s->metric))
+    if (tlv.update.seqno > s->seqno
+       || (tlv.update.seqno == s->seqno && tlv.update.metric < s->metric))
     {
-      s->seqno = upd->seqno;
-      s->metric = upd->metric;
+      s->seqno = tlv.update.seqno;
+      s->metric = tlv.update.metric;
     }
+    babel_enqueue(tlv, ifa);
   } FIB_WALK_END;
 }
 
@@ -696,19 +665,19 @@ static void
 babel_global_update(void *arg)
 {
   struct babel_proto *p = arg;
-  struct babel_iface *bif;
+  struct babel_iface *ifa;
   TRACE(D_EVENTS, "Sending global update. Seqno %d", p->update_seqno);
-  WALK_LIST(bif, p->interfaces)
-    bif->update_triggered = 1;
+  WALK_LIST(ifa, p->interfaces)
+    ifa->update_triggered = 1;
 }
 
 static void
 babel_update_timer(timer *t)
 {
-  struct babel_iface *bif = t->data;
-  struct babel_proto *p = bif->proto;
+  struct babel_iface *ifa = t->data;
+  struct babel_proto *p = ifa->proto;
   TRACE(D_EVENTS, "Update timer firing");
-  bif->update_triggered = 1;
+  ifa->update_triggered = 1;
 }
 
 
