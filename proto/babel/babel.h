@@ -230,7 +230,7 @@ struct babel_iface_config {
 
 struct babel_neighbor {
   node n;
-  struct babel_iface *bif;
+  struct babel_iface *ifa;
 
   ip_addr addr;
   u16 txcost;

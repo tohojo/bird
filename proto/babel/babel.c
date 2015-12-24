@@ -41,8 +41,6 @@
 #include "babel.h"
 
 
-#undef TRACE
-#define TRACE(level, msg, args...) do { if (p->p.debug & level) { log(L_TRACE "%s: " msg, p->p.name , ## args); } } while(0)
 #define BAD( x ) { log( L_REMOTE "%s: " x, p->p.name ); return 1; }
 
 /* computes a-b % 65535 for u16 datatypes */
@@ -250,37 +248,37 @@ babel_expire_routes(struct babel_proto *p)
 }
 
 static struct babel_neighbor *
-babel_find_neighbor(struct babel_iface *bif, ip_addr addr)
+babel_find_neighbor(struct babel_iface *ifa, ip_addr addr)
 {
   struct babel_neighbor *bn;
-  WALK_LIST(bn, bif->neigh_list)
+  WALK_LIST(bn, ifa->neigh_list)
     if (ipa_equal(bn->addr, addr))
       return bn;
   return NULL;
 }
 
 static struct babel_neighbor *
-babel_get_neighbor(struct babel_iface *bif, ip_addr addr)
+babel_get_neighbor(struct babel_iface *ifa, ip_addr addr)
 {
-  struct babel_neighbor *bn = babel_find_neighbor(bif, addr);
+  struct babel_neighbor *bn = babel_find_neighbor(ifa, addr);
   if (bn) return bn;
-  bn = mb_allocz(bif->pool, sizeof(struct babel_neighbor));
-  bn->bif = bif;
+  bn = mb_allocz(ifa->pool, sizeof(struct babel_neighbor));
+  bn->ifa = ifa;
   bn->addr = addr;
   bn->txcost = BABEL_INFINITY;
   init_list(&bn->routes);
-  add_tail(&bif->neigh_list, NODE bn);
+  add_tail(&ifa->neigh_list, NODE bn);
   return bn;
 }
 
 static void
 babel_expire_neighbors(struct babel_proto *p)
 {
-  struct babel_iface *bif;
+  struct babel_iface *ifa;
   struct babel_neighbor *bn, *bnx;
-  WALK_LIST(bif, p->interfaces)
+  WALK_LIST(ifa, p->interfaces)
   {
-    WALK_LIST_DELSAFE(bn, bnx, bif->neigh_list)
+    WALK_LIST_DELSAFE(bn, bnx, ifa->neigh_list)
     {
       if (bn->hello_expiry && bn->hello_expiry <= now)
         expire_hello(bn);
@@ -318,8 +316,8 @@ is_feasible(struct babel_source *s, u16 seqno, u16 metric)
 static u16
 babel_compute_rxcost(struct babel_neighbor *bn)
 {
-  struct babel_iface *bif = bn->bif;
-  struct babel_proto *p = bif->proto;
+  struct babel_iface *ifa = bn->ifa;
+  struct babel_proto *p = ifa->proto;
   u8 n, missed;
   u16 map=bn->hello_map;
 
@@ -327,14 +325,14 @@ babel_compute_rxcost(struct babel_neighbor *bn)
   n = __builtin_popcount(map); // number of bits set
   missed = bn->hello_n-n;
 
-  if (bif->cf->type == BABEL_IFACE_TYPE_WIRED)
+  if (ifa->cf->type == BABEL_IFACE_TYPE_WIRED)
   {
     /* k-out-of-j selection - Appendix 2.1 in the RFC. */
     DBG("Missed %d hellos from %I\n", missed, bn->addr);
     /* Link is bad if more than half the expected hellos were lost */
-    return (missed > 0 && n/missed < 2) ? BABEL_INFINITY : bif->cf->rxcost;
+    return (missed > 0 && n/missed < 2) ? BABEL_INFINITY : ifa->cf->rxcost;
   }
-  else if (bif->cf->type == BABEL_IFACE_TYPE_WIRELESS)
+  else if (ifa->cf->type == BABEL_IFACE_TYPE_WIRELESS)
   {
     /* ETX - Appendix 2.2 in the RFC.
 
@@ -357,16 +355,16 @@ babel_compute_rxcost(struct babel_neighbor *bn)
 static u16
 compute_cost(struct babel_neighbor *bn)
 {
-  struct babel_iface *bif = bn->bif;
-  struct babel_proto *p = bif->proto;
+  struct babel_iface *ifa = bn->ifa;
+  struct babel_proto *p = ifa->proto;
   u16 rxcost = babel_compute_rxcost(bn);
   if (rxcost == BABEL_INFINITY) return rxcost;
-  else if (bif->cf->type == BABEL_IFACE_TYPE_WIRED)
+  else if (ifa->cf->type == BABEL_IFACE_TYPE_WIRED)
   {
     /* k-out-of-j selection - Appendix 2.1 in the RFC. */
     return bn->txcost;
   }
-  else if (bif->cf->type == BABEL_IFACE_TYPE_WIRELESS)
+  else if (ifa->cf->type == BABEL_IFACE_TYPE_WIRELESS)
   {
     /* ETX - Appendix 2.2 in the RFC */
     return (MAX(bn->txcost, BABEL_RXCOST_WIRELESS) * rxcost)/BABEL_RXCOST_WIRELESS;
@@ -404,7 +402,7 @@ babel_build_rte(struct babel_proto *p, net *n, struct babel_route *r)
   if (r->neigh)
   {
     A.from = r->neigh->addr;
-    A.iface = r->neigh->bif->iface;
+    A.iface = r->neigh->ifa->iface;
   }
 
   a = rta_lookup(&A);
@@ -450,7 +448,7 @@ babel_unicast_seqno_request(struct babel_route *r)
   struct babel_entry *e = r->e;
   struct babel_proto *p = e->proto;
   struct babel_source *s = babel_find_source(e, r->router_id);
-  struct babel_iface *ifa = r->neigh->bif;
+  struct babel_iface *ifa = r->neigh->ifa;
   union babel_tlv tlv = {0};
   if (s && cache_seqno_request(p, e->n.prefix, e->n.pxlen, r->router_id, s->seqno+1))
   {
@@ -470,7 +468,7 @@ babel_unicast_seqno_request(struct babel_route *r)
 static void
 babel_send_route_request(struct babel_entry *e, struct babel_neighbor *n)
 {
-  struct babel_iface *ifa = n->bif;
+  struct babel_iface *ifa = n->ifa;
   struct babel_proto *p = e->proto;
   union babel_tlv tlv = {0};
   TRACE(D_PACKETS, "Babel: Sending route request for %I/%d to %I\n",
@@ -1106,7 +1104,7 @@ babel_dump_route(struct babel_route *r)
 {
   debug("Route neigh %I if %s seqno %d metric %d/%d router_id %0lx expires %d\n",
 	r->neigh ? r->neigh->addr : IPA_NONE,
-        r->neigh ? r->neigh->bif->ifname : "(none)",
+        r->neigh ? r->neigh->ifa->ifname : "(none)",
         r->seqno, r->advert_metric,
 	r->metric, r->router_id, r->expires ? r->expires-now : 0);
 }
@@ -1130,13 +1128,13 @@ babel_dump_neighbor(struct babel_neighbor *bn)
 }
 
 static void
-babel_dump_interface(struct babel_iface *bif)
+babel_dump_interface(struct babel_iface *ifa)
 {
   struct babel_neighbor *bn;
   debug("Babel: Interface %s addr %I rxcost %d type %d hello seqno %d intervals %d %d\n",
-	bif->ifname, bif->addr, bif->cf->rxcost, bif->cf->type, bif->hello_seqno,
-	bif->cf->hello_interval, bif->cf->update_interval);
-  WALK_LIST(bn,bif->neigh_list) { debug(" "); babel_dump_neighbor(bn); }
+	ifa->ifname, ifa->addr, ifa->cf->rxcost, ifa->cf->type, ifa->hello_seqno,
+	ifa->cf->hello_interval, ifa->cf->update_interval);
+  WALK_LIST(bn,ifa->neigh_list) { debug(" "); babel_dump_neighbor(bn); }
 
 }
 
@@ -1145,9 +1143,9 @@ babel_dump(struct proto *P)
 {
   struct babel_proto *p = (struct babel_proto *) P;
   struct babel_entry *e;
-  struct babel_iface *bif;
+  struct babel_iface *ifa;
   debug("Babel: router id %0lx update seqno %d\n", p->router_id, p->update_seqno);
-  WALK_LIST(bif, p->interfaces) {babel_dump_interface(bif);}
+  WALK_LIST(ifa, p->interfaces) {babel_dump_interface(ifa);}
   FIB_WALK(&p->rtable, n)
   {
     e = (struct babel_entry *)n;
@@ -1159,31 +1157,31 @@ babel_dump(struct proto *P)
 static struct babel_iface*
 babel_find_interface(struct babel_proto *p, struct iface *what)
 {
-  struct babel_iface *bif;
+  struct babel_iface *ifa;
 
-  WALK_LIST (bif, p->interfaces)
-    if (bif->iface == what)
-      return bif;
+  WALK_LIST (ifa, p->interfaces)
+    if (ifa->iface == what)
+      return ifa;
   return NULL;
 }
 
 static void
-kill_iface(struct babel_iface *bif)
+kill_iface(struct babel_iface *ifa)
 {
-  DBG( "Babel: Interface %s disappeared\n", bif->iface->name);
+  DBG( "Babel: Interface %s disappeared\n", ifa->iface->name);
   struct babel_neighbor *bn;
-  WALK_LIST_FIRST(bn, bif->neigh_list)
+  WALK_LIST_FIRST(bn, ifa->neigh_list)
     babel_flush_neighbor(bn);
-  rfree(bif->pool);
+  rfree(ifa->pool);
 }
 
 static void
-babel_iface_linkdown(struct babel_iface *bif)
+babel_iface_linkdown(struct babel_iface *ifa)
 {
   struct babel_neighbor *bn;
   struct babel_route *r;
   node *n;
-  WALK_LIST(bn, bif->neigh_list)
+  WALK_LIST(bn, ifa->neigh_list)
   {
     WALK_LIST(n, bn->routes)
     {
@@ -1201,12 +1199,12 @@ babel_iface_linkdown(struct babel_iface *bif)
 static void
 babel_open_interface(struct object_lock *lock)
 {
-  struct babel_iface *bif = lock->data;
-  struct babel_proto *p = bif->proto;
+  struct babel_iface *ifa = lock->data;
+  struct babel_proto *p = ifa->proto;
 
-  if (!babel_open_socket(bif))
+  if (!babel_open_socket(ifa))
   {
-    log(L_ERR "%s: Cannot open socket for %s", p->p.name, bif->iface->name);
+    log(L_ERR "%s: Cannot open socket for %s", p->p.name, ifa->iface->name);
   }
 }
 
@@ -1232,35 +1230,35 @@ babel_if_notify(struct proto *P, unsigned c, struct iface *iface)
     babel_new_interface(p, iface, iface->flags, k);
 
   }
-  struct babel_iface *bif = babel_find_interface(p, iface);
+  struct babel_iface *ifa = babel_find_interface(p, iface);
 
-  if (!bif)
+  if (!ifa)
     return;
 
   if (!(iface->flags & IF_CHANGE_LINK))
   {
     TRACE(D_EVENTS, "Interface %s lost link", iface->name);
-    babel_iface_linkdown(bif);
+    babel_iface_linkdown(ifa);
   }
 
   if (c & IF_CHANGE_DOWN)
   {
-    rem_node(NODE bif);
-    rfree(bif->lock);
-    kill_iface(bif);
+    rem_node(NODE ifa);
+    rfree(ifa->lock);
+    kill_iface(ifa);
   }
 }
 
 void
 babel_queue_timer(timer *t)
 {
-  struct babel_iface *bif = t->data;
-  if (bif->update_triggered)
+  struct babel_iface *ifa = t->data;
+  if (ifa->update_triggered)
   {
-    babel_send_update(bif);
-    bif->update_triggered = 0;
+    babel_send_update(ifa);
+    ifa->update_triggered = 0;
   }
-  ev_schedule(bif->send_event);
+  ev_schedule(ifa->send_event);
 }
 
 static void
@@ -1268,71 +1266,71 @@ babel_new_interface(struct babel_proto *p, struct iface *new,
                     unsigned long flags, struct iface_patt *patt)
 {
   struct babel_config *cf = (struct babel_config *) p->p.cf;
-  struct babel_iface * bif;
+  struct babel_iface * ifa;
   struct babel_iface_config *iface_cf = (struct babel_iface_config *) patt;
   struct object_lock *lock;
   pool *pool;
   DBG("New interface %s\n", new->name);
 
-  if (!new) return NULL;
+  if (!new) return;
 
   pool = rp_new(p->p.pool, new->name);
-  bif = mb_allocz(pool, sizeof( struct babel_iface ));
-  add_tail(&p->interfaces, NODE bif);
-  bif->pool = pool;
-  bif->iface = new;
-  bif->ifname = new->name;
-  bif->proto = p;
-  struct ifa* ifa;
-  WALK_LIST(ifa, new->addrs)
-    if (ipa_is_link_local(ifa->ip))
-      bif->addr = ifa->ip;
+  ifa = mb_allocz(pool, sizeof( struct babel_iface ));
+  add_tail(&p->interfaces, NODE ifa);
+  ifa->pool = pool;
+  ifa->iface = new;
+  ifa->ifname = new->name;
+  ifa->proto = p;
+  struct ifa* iface;
+  WALK_LIST(iface, new->addrs)
+    if (ipa_is_link_local(iface->ip))
+      ifa->addr = iface->ip;
   if (iface_cf)
   {
-    bif->cf = iface_cf;
+    ifa->cf = iface_cf;
 
-    if (bif->cf->type == BABEL_IFACE_TYPE_WIRED)
+    if (ifa->cf->type == BABEL_IFACE_TYPE_WIRED)
     {
-      if (bif->cf->hello_interval == BABEL_INFINITY)
-        bif->cf->hello_interval = BABEL_HELLO_INTERVAL_WIRED;
-      if (bif->cf->rxcost == BABEL_INFINITY)
-        bif->cf->rxcost = BABEL_RXCOST_WIRED;
+      if (ifa->cf->hello_interval == BABEL_INFINITY)
+        ifa->cf->hello_interval = BABEL_HELLO_INTERVAL_WIRED;
+      if (ifa->cf->rxcost == BABEL_INFINITY)
+        ifa->cf->rxcost = BABEL_RXCOST_WIRED;
     }
-    else if (bif->cf->type == BABEL_IFACE_TYPE_WIRELESS)
+    else if (ifa->cf->type == BABEL_IFACE_TYPE_WIRELESS)
     {
-      if (bif->cf->hello_interval == BABEL_INFINITY)
-        bif->cf->hello_interval = BABEL_HELLO_INTERVAL_WIRELESS;
-      if (bif->cf->rxcost == BABEL_INFINITY)
-        bif->cf->rxcost = BABEL_RXCOST_WIRELESS;
+      if (ifa->cf->hello_interval == BABEL_INFINITY)
+        ifa->cf->hello_interval = BABEL_HELLO_INTERVAL_WIRELESS;
+      if (ifa->cf->rxcost == BABEL_INFINITY)
+        ifa->cf->rxcost = BABEL_RXCOST_WIRELESS;
     }
-    if (bif->cf->update_interval == BABEL_INFINITY)
+    if (ifa->cf->update_interval == BABEL_INFINITY)
     {
-      bif->cf->update_interval = bif->cf->hello_interval*BABEL_UPDATE_INTERVAL_FACTOR;
+      ifa->cf->update_interval = ifa->cf->hello_interval*BABEL_UPDATE_INTERVAL_FACTOR;
     }
-    bif->cf->ihu_interval = bif->cf->hello_interval*BABEL_IHU_INTERVAL_FACTOR;
+    ifa->cf->ihu_interval = ifa->cf->hello_interval*BABEL_IHU_INTERVAL_FACTOR;
   }
-  init_list(&bif->neigh_list);
-  bif->hello_seqno = 1;
-  bif->max_pkt_len = new->mtu - BABEL_OVERHEAD;
+  init_list(&ifa->neigh_list);
+  ifa->hello_seqno = 1;
+  ifa->max_pkt_len = new->mtu - BABEL_OVERHEAD;
 
-  bif->hello_timer = tm_new_set(bif->pool, babel_hello_timer, bif, 0, bif->cf->hello_interval);
-  bif->update_timer = tm_new_set(bif->pool, babel_update_timer, bif, 0, bif->cf->update_interval);
-  bif->packet_timer = tm_new_set(bif->pool, babel_queue_timer, bif, BABEL_MAX_SEND_INTERVAL, 1);
+  ifa->hello_timer = tm_new_set(ifa->pool, babel_hello_timer, ifa, 0, ifa->cf->hello_interval);
+  ifa->update_timer = tm_new_set(ifa->pool, babel_update_timer, ifa, 0, ifa->cf->update_interval);
+  ifa->packet_timer = tm_new_set(ifa->pool, babel_queue_timer, ifa, BABEL_MAX_SEND_INTERVAL, 1);
 
 
-  bif->tlv_buf = bif->current_buf = mb_alloc(bif->pool, new->mtu);
-  init_list(&bif->tlv_queue);
-  babel_init_packet(bif->tlv_buf);
-  bif->send_event = ev_new(bif->pool);
-  bif->send_event->hook = babel_send_queue;
-  bif->send_event->data = bif;
+  ifa->tlv_buf = ifa->current_buf = mb_alloc(ifa->pool, new->mtu);
+  init_list(&ifa->tlv_queue);
+  babel_init_packet(ifa->tlv_buf);
+  ifa->send_event = ev_new(ifa->pool);
+  ifa->send_event->hook = babel_send_queue;
+  ifa->send_event->data = ifa;
 
-  lock = olock_new( bif->pool );
+  lock = olock_new( ifa->pool );
   lock->addr = IP6_BABEL_ROUTERS;
   lock->port = cf->port;
-  lock->iface = bif->iface;
+  lock->iface = ifa->iface;
   lock->hook = babel_open_interface;
-  lock->data = bif;
+  lock->data = ifa;
   lock->type = OBJLOCK_UDP;
   olock_acquire(lock);
 }
