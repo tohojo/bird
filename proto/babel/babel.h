@@ -316,32 +316,27 @@ void babel_init_config(struct babel_config *c);
 
 /* Handlers */
 
-int babel_handle_ack_req(union babel_tlv *tlv, struct babel_iface *bif);
-int babel_handle_ack(union babel_tlv *tlv, struct babel_iface *bif);
-int babel_handle_hello(union babel_tlv *tlv, struct babel_iface *bif);
-int babel_handle_ihu(union babel_tlv *tlv, struct babel_iface *bif);
-int babel_handle_router_id(union babel_tlv *tlv, struct babel_iface *bif);
-int babel_handle_update(union babel_tlv *tlv, struct babel_iface *bif);
-int babel_handle_route_request(union babel_tlv *tlv, struct babel_iface *bif);
-int babel_handle_seqno_request(union babel_tlv *tlv, struct babel_iface *bif);
+void babel_handle_ack_req(union babel_tlv *tlv, struct babel_iface *ifa);
+void babel_handle_ack(union babel_tlv *tlv, struct babel_iface *ifa);
+void babel_handle_hello(union babel_tlv *tlv, struct babel_iface *ifa);
+void babel_handle_ihu(union babel_tlv *tlv, struct babel_iface *ifa);
+void babel_handle_router_id(union babel_tlv *tlv, struct babel_iface *ifa);
+void babel_handle_update(union babel_tlv *tlv, struct babel_iface *ifa);
+void babel_handle_route_request(union babel_tlv *tlv, struct babel_iface *ifa);
+void babel_handle_seqno_request(union babel_tlv *tlv, struct babel_iface *ifa);
 
 
 /* Packet mangling code - packet.c */
+struct babel_tlv_node {
+  node n;
+  union babel_tlv tlv;
+};
+
 void babel_enqueue(union babel_tlv tlv, struct babel_iface *ifa);
 
-void babel_send_hello(struct babel_iface *bif, u8 send_ihu);
+void babel_send_hello(struct babel_iface *ifa, u8 send_ihu);
 void babel_send_unicast(union babel_tlv tlv, struct babel_iface *ifa, ip_addr dest);
 void babel_send_queue(void *arg);
-void babel_send_update(struct babel_iface *bif);
+void babel_send_update(struct babel_iface *ifa);
 void babel_init_packet(void *buf);
-int babel_open_socket(struct babel_iface *bif);
-void babel_new_unicast(struct babel_iface *bif);
-struct babel_tlv_header * babel_add_tlv_size(struct babel_iface *bif, u16 type, int size);
-struct babel_tlv_header * babel_add_tlv(struct babel_iface *bif, u16 len);
-#define BABEL_ADD_TLV_SEND(tlv,bif,func,addr) do {                      \
-    tlv=func(bif);                                                      \
-    if(!tlv) {                                                          \
-      babel_send_to(bif,addr);                                          \
-      babel_new_packet(bif);                                            \
-      tlv=func(bif);                                                    \
-    }} while (0);
+int babel_open_socket(struct babel_iface *ifa);

@@ -681,31 +681,22 @@ babel_update_timer(timer *t)
 }
 
 
-int
-babel_handle_ack_req(union babel_tlv *inc, struct babel_iface *bif)
+void
+babel_handle_ack_req(union babel_tlv *inc, struct babel_iface *ifa)
 {
-  struct babel_tlv_ack_req *tlv = (struct babel_tlv_ack_req *)inc;
+  struct babel_proto *p = ifa->proto;
+  struct babel_tlv_ack_req *tlv = &inc->ack_req;
   TRACE(D_PACKETS, "Received ACK req nonce %d interval %d", tlv->nonce, tlv->interval);
   if (tlv->interval)
   {
-    babel_send_ack(bif, tlv->sender, tlv->nonce);
+    babel_send_ack(ifa, tlv->sender, tlv->nonce);
   }
-  return 1;
-}
-
-int
-babel_handle_ack(union babel_tlv *inc, struct babel_iface *bif)
-{
-  struct babel_tlv_ack *tlv = (struct babel_tlv_ack *)inc;
-  TRACE(D_PACKETS, "Received ACK nonce %d", tlv->nonce);
-  /* We don't send any ACK requests, so no need to do anything with ACKs. */
-  return 1;
-}
+ }
 
 static void
 babel_flush_neighbor(struct babel_neighbor *bn)
 {
-  struct babel_proto *p = bn->bif->proto;
+  struct babel_proto *p = bn->ifa->proto;
   struct babel_route *r;
   node *n;
   TRACE(D_EVENTS, "Flushing neighbor %I", bn->addr);
@@ -771,39 +762,38 @@ update_hello_history(struct babel_neighbor *bn, u16 seqno, u16 interval)
 }
 
 
-int
-babel_handle_hello(union babel_tlv *inc, struct babel_iface *bif)
+void
+babel_handle_hello(union babel_tlv *inc, struct babel_iface *ifa)
 {
-  struct babel_tlv_hello *tlv = (struct babel_tlv_hello *)inc;
-  struct babel_neighbor *bn = babel_get_neighbor(bif, tlv->sender);
+  struct babel_proto *p = ifa->proto;
+  struct babel_tlv_hello *tlv = &inc->hello;
+  struct babel_neighbor *bn = babel_get_neighbor(ifa, tlv->sender);
   TRACE(D_PACKETS, "Handling hello seqno %d interval %d", tlv->seqno,
 	tlv->interval, tlv->sender);
   update_hello_history(bn, tlv->seqno, tlv->interval);
-  if (bif->cf->type == BABEL_IFACE_TYPE_WIRELESS)
-    babel_send_ihu(bif, bn);
-  return 0;
+  if (ifa->cf->type == BABEL_IFACE_TYPE_WIRELESS)
+    babel_send_ihu(ifa, bn);
 }
 
-int
-babel_handle_ihu(union babel_tlv *inc, struct babel_iface *bif)
+void
+babel_handle_ihu(union babel_tlv *inc, struct babel_iface *ifa)
 {
-  struct babel_tlv_ihu *tlv = (struct babel_tlv_ihu *)inc;
-  struct babel_proto *p = bif->proto;
+  struct babel_tlv_ihu *tlv = &inc->ihu;
+  struct babel_proto *p = ifa->proto;
 
-  if (!ipa_equal(tlv->addr, bif->addr)) return 1; // not for us
+  if (!ipa_equal(tlv->addr, ifa->addr)) return; // not for us
   TRACE(D_PACKETS, "Handling IHU rxcost %d interval %d", tlv->rxcost,
 	tlv->interval);
-  struct babel_neighbor *bn = babel_get_neighbor(bif, tlv->sender);
+  struct babel_neighbor *bn = babel_get_neighbor(ifa, tlv->sender);
   bn->txcost = tlv->rxcost;
   bn->ihu_expiry = now + 1.5*(tlv->interval/100);
-  return 0;
 }
 
-int
-babel_handle_update(union babel_tlv *inc, struct babel_iface *bif)
+void
+babel_handle_update(union babel_tlv *inc, struct babel_iface *ifa)
 {
-  struct babel_tlv_update *tlv = (struct babel_tlv_update *)inc;
-  struct babel_proto *p = bif->proto;
+  struct babel_tlv_update *tlv = &inc->update;
+  struct babel_proto *p = ifa->proto;
   struct babel_neighbor *n;
   struct babel_entry *e;
   struct babel_source *s;
@@ -813,17 +803,22 @@ babel_handle_update(union babel_tlv *inc, struct babel_iface *bif)
   TRACE(D_PACKETS, "Handling update for %I/%d with seqno %d metric %d",
 	tlv->prefix, tlv->plen, tlv->seqno, tlv->metric);
 
-  n = babel_find_neighbor(bif, tlv->sender);
+  n = babel_find_neighbor(ifa, tlv->sender);
   if (!n)
   {
     DBG("Haven't heard from neighbor %I; ignoring update.\n", tlv->sender);
-    return 1;
+    return;
   }
 
   if (tlv->router_id == p->router_id)
   {
     DBG("Ignoring update for our own router ID.\n");
-    return 1;
+    return;
+  }
+
+  if(tlv->ae == BABEL_AE_IP4) {
+    DBG("Ignoring update for IPv4 address.\n");
+    return;
   }
 
   /* RFC section 3.5.4:
@@ -860,7 +855,7 @@ babel_handle_update(union babel_tlv *inc, struct babel_iface *bif)
 */
   e = babel_find_entry(p, tlv->prefix, tlv->plen);
   if (!e && tlv->metric == BABEL_INFINITY)
-    return 1;
+    return;
 
   if (!e) e = babel_get_entry(p, tlv->prefix, tlv->plen);
 
@@ -872,7 +867,7 @@ babel_handle_update(union babel_tlv *inc, struct babel_iface *bif)
   {
 
     if (!feasible || tlv->metric == BABEL_INFINITY)
-      return 1;
+      return;
 
     r = babel_get_route(e, n);
     r->advert_metric = tlv->metric;
@@ -888,7 +883,7 @@ babel_handle_update(union babel_tlv *inc, struct babel_iface *bif)
        send a unicast seqno request (section 3.8.2.2 second paragraph). */
     babel_unicast_seqno_request(r);
 
-    if (tlv->router_id == s->router_id) return 1;
+    if (tlv->router_id == s->router_id) return;
     r->metric = BABEL_INFINITY; /* retraction */
   }
   else
@@ -913,50 +908,52 @@ babel_handle_update(union babel_tlv *inc, struct babel_iface *bif)
       babel_unicast_seqno_request(r);
   }
   babel_select_route(e);
-  return 0;
 }
 
 /* A retraction is an update with an infinite metric. */
-static void babel_send_retraction(struct babel_iface *bif, ip_addr prefix, int plen)
+static void babel_send_retraction(struct babel_iface *ifa, ip_addr prefix, int plen)
 {
-  struct babel_proto *p = bif->proto;
-  struct babel_tlv_update *upd;
-  upd = babel_add_router_id(bif, p->router_id);
-  upd->plen = plen;
-  upd->interval = bif->cf->update_interval*100;
-  upd->seqno = p->update_seqno;
-  upd->metric = BABEL_INFINITY;
-  babel_put_addr(&upd->header, prefix);
+  struct babel_proto *p = ifa->proto;
+  union babel_tlv tlv = {0};
+  tlv.type = BABEL_TYPE_UPDATE;
+  tlv.update.plen = plen;
+  tlv.update.interval = ifa->cf->update_interval*100;
+  tlv.update.seqno = p->update_seqno;
+  tlv.update.metric = BABEL_INFINITY;
+  tlv.update.prefix = prefix;
+  tlv.update.router_id = p->router_id;
+  babel_enqueue(tlv, ifa);
 }
 
-int
-babel_handle_route_request(union babel_tlv *inc, struct babel_iface *bif)
+void
+babel_handle_route_request(union babel_tlv *inc, struct babel_iface *ifa)
 {
-  struct babel_tlv_route_request *tlv = (struct babel_tlv_route_request *)inc;
-  struct babel_proto *p = bif->proto;
+  struct babel_tlv_route_request *tlv = &inc->route_request;
+  struct babel_proto *p = ifa->proto;
   struct babel_entry *e;
 
   TRACE(D_PACKETS, "Handling route request for %I/%d on interface %s",
-	tlv->prefix, tlv->plen, bif->ifname);
+	tlv->prefix, tlv->plen, ifa->ifname);
+
+  if(tlv->ae == BABEL_AE_IP4) return;
 
   /* Wildcard request - full update on the interface */
   if (ipa_equal(tlv->prefix,IPA_NONE))
   {
-    bif->update_triggered = 1;
-    return 0;
+    ifa->update_triggered = 1;
+    return;
   }
   /* Non-wildcard request - see if we have an entry for the route. If not, send
      a retraction, otherwise send an update. */
   e = babel_find_entry(p, tlv->prefix, tlv->plen);
   if (!e)
   {
-    babel_send_retraction(bif, tlv->prefix, tlv->plen);
+    babel_send_retraction(ifa, tlv->prefix, tlv->plen);
   }
   else
   {
-    bif->update_triggered = 1;
+    ifa->update_triggered = 1;
   }
-  return 0;
 }
 
 static void
@@ -1006,8 +1003,6 @@ babel_forward_seqno_request(struct babel_entry *e,
 {
   struct babel_proto *p = e->proto;
   struct babel_route *r;
-  struct babel_iface *bif;
-  struct babel_tlv_seqno_request *out;
   TRACE(D_PACKETS, "Forwarding seqno request for %I/%d router_id %0lx",
 	e->n.prefix, e->n.pxlen, in->router_id);
   WALK_LIST(r, e->routes)
@@ -1017,15 +1012,14 @@ babel_forward_seqno_request(struct babel_entry *e,
     {
       if (!cache_seqno_request(p, e->n.prefix, e->n.pxlen, in->router_id, in->seqno))
 	return;
-      bif = r->neigh->bif;
-      babel_new_unicast(bif);
-      out = babel_add_tlv_seqno_request(bif);
-      out->plen = in->plen;
-      out->seqno = in->seqno;
-      out->hop_count = in->hop_count-1;
-      out->router_id = in->router_id;
-      babel_put_addr(&out->header, e->n.prefix);
-      babel_send_unicast(bif, r->neigh->addr);
+      union babel_tlv tlv = {0};
+      tlv.type = BABEL_TYPE_SEQNO_REQUEST;
+      tlv.seqno_request.plen = in->plen;
+      tlv.seqno_request.seqno = in->seqno;
+      tlv.seqno_request.hop_count = in->hop_count-1;
+      tlv.seqno_request.router_id = in->router_id;
+      tlv.seqno_request.prefix = e->n.prefix;
+      babel_send_unicast(tlv, r->neigh->ifa, r->neigh->addr);
       return;
     }
   }
@@ -1062,24 +1056,27 @@ babel_forward_seqno_request(struct babel_entry *e,
    against its list of recently forwarded requests and avoid forwarding it if it
    is redundant.
 */
-int
-babel_handle_seqno_request(union babel_tlv *inc, struct babel_iface *bif)
+void
+babel_handle_seqno_request(union babel_tlv *inc, struct babel_iface *ifa)
 {
-  struct babel_tlv_seqno_request *tlv = (struct babel_tlv_seqno_request *)inc;
+  struct babel_proto *p = ifa->proto;
+  struct babel_tlv_seqno_request *tlv = &inc->seqno_request;
   struct babel_entry *e;
   struct babel_route *r;
+
+  if(tlv->ae == BABEL_AE_IP4) return;
 
   TRACE(D_PACKETS, "Handling seqno request for %I/%d router_id %0lx seqno %d hop count %d",
 	tlv->prefix, tlv->plen, tlv->router_id, tlv->seqno, tlv->hop_count);
 
   e = babel_find_entry(p, tlv->prefix, tlv->plen);
-  if (!e || !e->selected || e->selected->metric == BABEL_INFINITY) return 1;
+  if (!e || !e->selected || e->selected->metric == BABEL_INFINITY) return;
 
   r = e->selected;
   if (r->router_id != tlv->router_id || ge_mod64k(r->seqno, tlv->seqno))
   {
-    bif->update_triggered = 1;
-    return 0;
+    ifa->update_triggered = 1;
+    return;
   }
 
   /* seqno is larger; check if we own the router id */
@@ -1087,15 +1084,13 @@ babel_handle_seqno_request(union babel_tlv *inc, struct babel_iface *bif)
   {
     p->update_seqno++;
     ev_schedule(p->update_event);
-    return 0;
+    return;
   }
 
   if (tlv->hop_count > 1)
   {
     babel_forward_seqno_request(e, tlv, tlv->sender);
   }
-
-  return 1;
 
 }
 

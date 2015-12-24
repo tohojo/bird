@@ -96,7 +96,7 @@ struct babel_pkt_tlv_data {
                                 union babel_tlv *tlv, struct babel_parse_state *state);
   int (*write_tlv)(struct babel_pkt_tlv_header *hdr,
                    union babel_tlv *tlv, struct babel_write_state *state, int max_len);
-  int (*handle_tlv)(union babel_tlv *tlv, struct babel_iface *bif);
+  void (*handle_tlv)(union babel_tlv *tlv, struct babel_iface *ifa);
 };
 
 const static struct babel_pkt_tlv_data tlv_data[BABEL_TYPE_MAX] = {
