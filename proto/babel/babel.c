@@ -423,7 +423,7 @@ babel_send_seqno_request(struct babel_entry *e)
   struct babel_route *r = e->selected;
   struct babel_source *s = babel_find_source(e, r->router_id);
   struct babel_iface *ifa;
-  union babel_tlv tlv;
+  union babel_tlv tlv = {0};
 
   if (s && cache_seqno_request(p, e->n.prefix, e->n.pxlen, r->router_id, s->seqno+1))
   {
@@ -451,7 +451,7 @@ babel_unicast_seqno_request(struct babel_route *r)
   struct babel_proto *p = e->proto;
   struct babel_source *s = babel_find_source(e, r->router_id);
   struct babel_iface *ifa = r->neigh->bif;
-  union babel_tlv tlv;
+  union babel_tlv tlv = {0};
   if (s && cache_seqno_request(p, e->n.prefix, e->n.pxlen, r->router_id, s->seqno+1))
   {
     TRACE(D_EVENTS, "Sending seqno request for %I/%d router_id %0lx",
@@ -472,7 +472,7 @@ babel_send_route_request(struct babel_entry *e, struct babel_neighbor *n)
 {
   struct babel_iface *ifa = n->bif;
   struct babel_proto *p = e->proto;
-  union babel_tlv tlv;
+  union babel_tlv tlv = {0};
   TRACE(D_PACKETS, "Babel: Sending route request for %I/%d to %I\n",
         e->n.prefix, e->n.pxlen, n->addr);
   tlv.type = BABEL_TYPE_ROUTE_REQUEST;
@@ -561,7 +561,7 @@ static void
 babel_send_ack(struct babel_iface *ifa, ip_addr dest, u16 nonce)
 {
   struct babel_proto *p = ifa->proto;
-  union babel_tlv tlv;
+  union babel_tlv tlv = {0};
   TRACE(D_PACKETS, "Babel: Sending ACK to %I with nonce %d\n", dest, nonce);
   tlv.type = BABEL_TYPE_ACK;
   tlv.ack.nonce = nonce;
@@ -569,51 +569,55 @@ babel_send_ack(struct babel_iface *ifa, ip_addr dest, u16 nonce)
 }
 
 static void
-babel_add_ihu(struct babel_iface *bif, struct babel_neighbor *bn)
+babel_build_ihu(union babel_tlv *tlv, struct babel_iface *ifa, struct babel_neighbor *bn)
 {
-  struct babel_tlv_ihu *tlv = babel_add_tlv_ihu(bif);
-  babel_put_addr_ihu(&tlv->header, bn->addr);
-  tlv->rxcost = babel_compute_rxcost(bn);
-  tlv->interval = bif->cf->ihu_interval*100;
+  tlv->type = BABEL_TYPE_IHU;
+  tlv->ihu.addr = bn->addr;
+  tlv->ihu.rxcost = babel_compute_rxcost(bn);
+  tlv->ihu.interval = ifa->cf->ihu_interval*100;
 }
 
 static void
-babel_add_ihus(struct babel_iface *bif)
+babel_queue_ihus(struct babel_iface *ifa)
 {
   struct babel_neighbor *bn;
-  WALK_LIST(bn, bif->neigh_list)
-    babel_add_ihu(bif,bn);
+  WALK_LIST(bn, ifa->neigh_list) {
+    union babel_tlv tlv = {0};
+    babel_build_ihu(&tlv, ifa, bn);
+    babel_enqueue(tlv, ifa);
+  }
 }
 
 static void
-babel_send_ihu(struct babel_iface *bif, struct babel_neighbor *bn)
+babel_send_ihu(struct babel_iface *ifa, struct babel_neighbor *bn)
 {
-  struct babel_proto *p = bif->proto;
+  struct babel_proto *p = ifa->proto;
   TRACE(D_PACKETS, "Babel: Sending IHUs");
-  babel_new_unicast(bif);
-  babel_add_ihu(bif, bn);
-  babel_send_unicast(bif, bn->addr);
+  union babel_tlv tlv = {0};
+  babel_build_ihu(&tlv, ifa, bn);
+  babel_send_unicast(tlv, ifa, bn->addr);
 }
 
 void
-babel_send_hello(struct babel_iface *bif, u8 send_ihu)
+babel_send_hello(struct babel_iface *ifa, u8 send_ihu)
 {
-  struct babel_proto *p = bif->proto;
-  struct babel_tlv_hello *tlv;
-  TRACE(D_PACKETS, "Babel: Sending hello on interface %s", bif->ifname);
-  tlv = babel_add_tlv_hello(bif);
-  tlv->seqno = bif->hello_seqno++;
-  tlv->interval = bif->cf->hello_interval*100;
+  struct babel_proto *p = ifa->proto;
+  union babel_tlv tlv = {0};
+  TRACE(D_PACKETS, "Babel: Sending hello on interface %s", ifa->ifname);
+  tlv.type = BABEL_TYPE_HELLO;
+  tlv.hello.seqno = ifa->hello_seqno++;
+  tlv.hello.interval = ifa->cf->hello_interval*100;
+  babel_enqueue(tlv, ifa);
 
-  if (send_ihu) babel_add_ihus(bif);
+  if (send_ihu) babel_queue_ihus(ifa);
 }
 
 static void
 babel_hello_timer(timer *t)
 {
-  struct babel_iface *bif = t->data;
-  babel_send_hello(bif, (bif->cf->type == BABEL_IFACE_TYPE_WIRED &&
-                         bif->hello_seqno % BABEL_IHU_INTERVAL_FACTOR == 0));
+  struct babel_iface *ifa = t->data;
+  babel_send_hello(ifa, (ifa->cf->type == BABEL_IFACE_TYPE_WIRED &&
+                         ifa->hello_seqno % BABEL_IHU_INTERVAL_FACTOR == 0));
 }
 
 /* Function to add router_id -- a router id TLV is always followed by an update
