@@ -75,25 +75,6 @@ static void babel_send_route_request(struct babel_entry *e, struct babel_neighbo
 static int cache_seqno_request(struct babel_proto *p, ip_addr prefix, u8 plen,
 			       u64 router_id, u16 seqno);
 
-struct babel_tlv_node *
-tlv_new(slab *slab)
-{
-  struct babel_tlv_node *tlv = sl_alloc(slab);
-  memset(tlv, 0, sizeof(*tlv));
-  tlv->refcnt = 1;
-  tlv->slab = slab;
-}
-void
-tlv_incref(struct babel_tlv_node * tlv)
-{
-  tlv->refcnt++;
-}
-void tlv_decref(struct babel_tlv_node *tlv)
-{
-  tlv->refcnt--;
-  if(!tlv->refcnt)
-    sl_free(tlv->slab, tlv);
-}
 
 static void
 babel_init_entry(struct fib_node *n)
@@ -442,29 +423,24 @@ babel_send_seqno_request(struct babel_entry *e)
   struct babel_route *r = e->selected;
   struct babel_source *s = babel_find_source(e, r->router_id);
   struct babel_iface *ifa;
-  struct babel_tlv_node *tlvn;
-  union babel_tlv *tlv;
+  union babel_tlv tlv;
 
   if (s && cache_seqno_request(p, e->n.prefix, e->n.pxlen, r->router_id, s->seqno+1))
   {
     TRACE(D_EVENTS, "Sending seqno request for %I/%d router_id %0lx",
           e->n.prefix, e->n.pxlen, r->router_id);
 
-    tlvn = tlv_new(p->tlv_slab);
-    tlv = &tlvn->tlv;
-
-    tlv->type = BABEL_TYPE_SEQNO_REQUEST;
-    tlv->seqno_request.plen = e->n.pxlen;
-    tlv->seqno_request.seqno = s->seqno + 1;
-    tlv->seqno_request.hop_count = BABEL_INITIAL_HOP_COUNT;
-    tlv->seqno_request.router_id = r->router_id;
-    tlv->seqno_request.prefix = e->n.prefix;
+    tlv.type = BABEL_TYPE_SEQNO_REQUEST;
+    tlv.seqno_request.plen = e->n.pxlen;
+    tlv.seqno_request.seqno = s->seqno + 1;
+    tlv.seqno_request.hop_count = BABEL_INITIAL_HOP_COUNT;
+    tlv.seqno_request.router_id = r->router_id;
+    tlv.seqno_request.prefix = e->n.prefix;
 
     WALK_LIST(ifa, p->interfaces)
     {
-      babel_enqueue(tlvn, ifa);
+      babel_enqueue(tlv, ifa);
     }
-    tlv_decref(tlvn);
   }
 }
 
@@ -475,23 +451,19 @@ babel_unicast_seqno_request(struct babel_route *r)
   struct babel_proto *p = e->proto;
   struct babel_source *s = babel_find_source(e, r->router_id);
   struct babel_iface *ifa = r->neigh->bif;
-  struct babel_tlv_node *tlvn;
-  union babel_tlv *tlv;
+  union babel_tlv tlv;
   if (s && cache_seqno_request(p, e->n.prefix, e->n.pxlen, r->router_id, s->seqno+1))
   {
     TRACE(D_EVENTS, "Sending seqno request for %I/%d router_id %0lx",
           e->n.prefix, e->n.pxlen, r->router_id);
-    tlvn = tlv_new(p->tlv_slab);
-    tlv = &tlvn->tlv;
 
-    tlv->type = BABEL_TYPE_SEQNO_REQUEST;
-    tlv->seqno_request.plen = e->n.pxlen;
-    tlv->seqno_request.seqno = s->seqno + 1;
-    tlv->seqno_request.hop_count = BABEL_INITIAL_HOP_COUNT;
-    tlv->seqno_request.router_id = r->router_id;
-    tlv->seqno_request.prefix = e->n.prefix;
-    babel_send_unicast(tlvn, ifa, r->neigh->addr);
-    tlv_decref(tlvn);
+    tlv.type = BABEL_TYPE_SEQNO_REQUEST;
+    tlv.seqno_request.plen = e->n.pxlen;
+    tlv.seqno_request.seqno = s->seqno + 1;
+    tlv.seqno_request.hop_count = BABEL_INITIAL_HOP_COUNT;
+    tlv.seqno_request.router_id = r->router_id;
+    tlv.seqno_request.prefix = e->n.prefix;
+    babel_send_unicast(tlv, ifa, r->neigh->addr);
   }
 }
 
@@ -500,15 +472,13 @@ babel_send_route_request(struct babel_entry *e, struct babel_neighbor *n)
 {
   struct babel_iface *ifa = n->bif;
   struct babel_proto *p = e->proto;
-  struct babel_tlv_node *tlvn = tlv_new(p->tlv_slab);
-  union babel_tlv *tlv = &tlvn->tlv;
+  union babel_tlv tlv;
   TRACE(D_PACKETS, "Babel: Sending route request for %I/%d to %I\n",
         e->n.prefix, e->n.pxlen, n->addr);
-  tlv->type = BABEL_TYPE_ROUTE_REQUEST;
-  tlv->route_request.prefix = e->n.prefix;
-  tlv->route_request.plen = e->n.pxlen;
-  babel_send_unicast(tlvn, ifa, n->addr);
-  tlv_decref(tlvn);
+  tlv.type = BABEL_TYPE_ROUTE_REQUEST;
+  tlv.route_request.prefix = e->n.prefix;
+  tlv.route_request.plen = e->n.pxlen;
+  babel_send_unicast(tlv, ifa, n->addr);
 }
 
 
@@ -591,13 +561,11 @@ static void
 babel_send_ack(struct babel_iface *ifa, ip_addr dest, u16 nonce)
 {
   struct babel_proto *p = ifa->proto;
-  struct babel_tlv_node *tlvn = tlv_new(p->tlv_slab);
-  union babel_tlv *tlv = &tlvn->tlv;
+  union babel_tlv tlv;
   TRACE(D_PACKETS, "Babel: Sending ACK to %I with nonce %d\n", dest, nonce);
-  tlv->type = BABEL_TYPE_ACK;
-  tlv->ack.nonce = nonce;
-  babel_send_unicast(tlvn, ifa, dest);
-  tlv_decref(tlvn);
+  tlv.type = BABEL_TYPE_ACK;
+  tlv.ack.nonce = nonce;
+  babel_send_unicast(tlv, ifa, dest);
 }
 
 static void

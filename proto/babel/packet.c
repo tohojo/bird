@@ -588,6 +588,7 @@ babel_send(struct babel_iface *bif)
 
 static void babel_write_queue(struct babel_iface *ifa, list queue)
 {
+  struct babel_proto *p = ifa->proto;
   struct babel_pkt_header *dst = (void *)ifa->sock->tbuf;
   struct babel_pkt_tlv_header *hdr;
   struct babel_tlv_node *cur;
@@ -603,7 +604,7 @@ static void babel_write_queue(struct babel_iface *ifa, list queue)
     dst->length += written;
     hdr = (void *)((char *) hdr + written);
     rem_node(NODE cur);
-    tlv_decref(cur);
+    sl_free(p->tlv_slab, cur);
   }
 }
 
@@ -621,10 +622,14 @@ babel_send_queue(void *arg)
 }
 
 void
-babel_send_unicast(struct babel_tlv_node *tlvn, struct babel_iface *ifa, ip_addr dest)
+babel_send_unicast(union babel_tlv tlv, struct babel_iface *ifa, ip_addr dest)
 {
   list queue;
+  struct babel_proto *p = ifa->proto;
+  struct babel_tlv_node *tlvn = sl_alloc(p->tlv_slab);
   init_list(&queue);
+
+  tlvn->tlv = tlv;
   add_tail(&queue, NODE tlvn);
   babel_write_queue(ifa, queue);
   babel_send_to(ifa, dest);
@@ -632,9 +637,11 @@ babel_send_unicast(struct babel_tlv_node *tlvn, struct babel_iface *ifa, ip_addr
 
 
 void
-babel_enqueue(struct babel_tlv_node *tlvn, struct babel_iface *ifa)
+babel_enqueue(union babel_tlv tlv, struct babel_iface *ifa)
 {
-  tlv_incref(tlvn);
+  struct babel_proto *p = ifa->proto;
+  struct babel_tlv_node *tlvn = sl_alloc(p->tlv_slab);
+  tlvn->tlv = tlv;
   add_tail(&ifa->tlv_queue, NODE tlvn);
 }
 
@@ -669,7 +676,7 @@ babel_process_packet(struct babel_pkt_header *pkt, int size,
     return;
   }
 
-  cur = tlv_new(proto->tlv_slab);
+  cur = sl_alloc(proto->tlv_slab);
   while((char *)tlv < p+size)
   {
     if((res = read_tlv(tlv, &cur->tlv, &state)) == PARSE_SUCCESS)
@@ -677,7 +684,7 @@ babel_process_packet(struct babel_pkt_header *pkt, int size,
       cur->tlv.type = tlv->type;
       add_tail(&tlvs, NODE cur);
       NEXT_TLV(tlv);
-      cur = tlv_new(proto->tlv_slab);
+      cur = sl_alloc(proto->tlv_slab);
   }
     else if(res == PARSE_IGNORE)
     {
@@ -686,14 +693,14 @@ babel_process_packet(struct babel_pkt_header *pkt, int size,
     else
     {
       DBG("TLV read error for type %d\n",tlv->type);
-      tlv_decref(cur);
+      sl_free(proto->tlv_slab, cur);
       break;
     }
   }
   WALK_LIST_FIRST(cur, tlvs) {
     tlv_data[cur->tlv.type].handle_tlv(&cur->tlv, bif);
     rem_node(NODE cur);
-    tlv_decref(cur);
+    sl_free(proto->tlv_slab, cur);
   }
 }
 

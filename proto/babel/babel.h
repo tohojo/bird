@@ -168,16 +168,6 @@ union babel_tlv {
   struct babel_tlv_seqno_request seqno_request;
 };
 
-struct babel_tlv_node {
-  node n;
-  u16 refcnt;
-  slab *slab;
-  union babel_tlv tlv;
-};
-
-struct babel_tlv_node * tlv_new(slab *slab);
-void tlv_incref(struct babel_tlv_node * tlv);
-void tlv_decref(struct babel_tlv_node * tlv);
 
 
 /* Stores forwarded seqno requests for duplicate suppression. */
@@ -337,10 +327,10 @@ int babel_handle_seqno_request(union babel_tlv *tlv, struct babel_iface *bif);
 
 
 /* Packet mangling code - packet.c */
-void babel_enqueue(struct babel_tlv_node *tlv, struct babel_iface *ifa);
+void babel_enqueue(union babel_tlv tlv, struct babel_iface *ifa);
 
 void babel_send_hello(struct babel_iface *bif, u8 send_ihu);
-void babel_send_unicast(struct babel_tlv_node *tlvn, struct babel_iface *ifa, ip_addr dest);
+void babel_send_unicast(union babel_tlv tlv, struct babel_iface *ifa, ip_addr dest);
 void babel_send_queue(void *arg);
 void babel_send_update(struct babel_iface *bif);
 void babel_init_packet(void *buf);

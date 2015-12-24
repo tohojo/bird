@@ -34,6 +34,12 @@ struct babel_write_state {
   ip_addr next_hop;
 };
 
+struct babel_tlv_node {
+  node n;
+  union babel_tlv tlv;
+};
+
+
 struct babel_pkt_tlv_header {
   u8 type;
   u8 length;
