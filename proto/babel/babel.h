@@ -203,8 +203,6 @@ struct babel_iface {
   list neigh_list; /* List of neighbors seen on this iface (struct babel_neighbor) */
   list tlv_queue;
 
-  void *tlv_buf;
-  void *current_buf;
   int update_triggered;
 
   u16 hello_seqno;              /* To be increased on each hello */

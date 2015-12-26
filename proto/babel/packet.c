@@ -557,15 +557,6 @@ babel_init_packet(void *buf)
   hdr->version = BABEL_VERSION;
 }
 
-void
-babel_new_unicast(struct babel_iface *bif)
-{
-  babel_init_packet(bif->sock->tbuf);
-  bif->current_buf = bif->sock->tbuf;
-}
-
-
-
 static void
 babel_send_to(struct babel_iface *bif, ip_addr dest)
 {
@@ -614,6 +605,7 @@ babel_send_queue(void *arg)
 {
   struct babel_iface *ifa = arg;
   if(EMPTY_LIST(ifa->tlv_queue)) return;
+  DBG("Sending TLV queue\n");
   babel_write_queue(ifa, ifa->tlv_queue);
   babel_send(ifa);
 

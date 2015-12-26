@@ -1318,9 +1318,7 @@ babel_new_interface(struct babel_proto *p, struct iface *new,
   ifa->packet_timer = tm_new_set(ifa->pool, babel_queue_timer, ifa, BABEL_MAX_SEND_INTERVAL, 1);
 
 
-  ifa->tlv_buf = ifa->current_buf = mb_alloc(ifa->pool, new->mtu);
   init_list(&ifa->tlv_queue);
-  babel_init_packet(ifa->tlv_buf);
   ifa->send_event = ev_new(ifa->pool);
   ifa->send_event->hook = babel_send_queue;
   ifa->send_event->data = ifa;
