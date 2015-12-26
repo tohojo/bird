@@ -645,7 +645,6 @@ babel_process_packet(struct babel_pkt_header *pkt, int size,
     .proto	  = proto,
     .bif	  = bif,
     .saddr	  = saddr,
-    .prefix	  = IPA_NONE,
     .next_hop	  = saddr,
   };
   list tlvs;
