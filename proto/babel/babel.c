@@ -560,7 +560,7 @@ babel_send_ack(struct babel_iface *ifa, ip_addr dest, u16 nonce)
 {
   struct babel_proto *p = ifa->proto;
   union babel_tlv tlv = {0};
-  TRACE(D_PACKETS, "Babel: Sending ACK to %I with nonce %d\n", dest, nonce);
+  TRACE(D_PACKETS, "Sending ACK to %I with nonce %d\n", dest, nonce);
   tlv.type = BABEL_TYPE_ACK;
   tlv.ack.nonce = nonce;
   babel_send_unicast(&tlv, ifa, dest);

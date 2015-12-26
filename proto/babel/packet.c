@@ -715,7 +715,7 @@ babel_rx(sock *s, int size)
   if (! bif->iface || s->lifindex != bif->iface->index)
     return 1;
 
-  DBG("Babel: incoming packet: %d bytes from %I via %s\n", size, s->faddr, bif->iface->name);
+  TRACE(D_PACKETS, "incoming packet: %d bytes from %I via %s", size, s->faddr, bif->iface->name);
   if (size < sizeof(struct babel_pkt_header)) BAD( "Too small packet" );
 
   if (ipa_equal(bif->iface->addr->ip, s->faddr))
