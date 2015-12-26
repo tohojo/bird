@@ -727,28 +727,31 @@ int
 babel_open_socket(struct babel_iface *ifa)
 {
   struct babel_proto *p = ifa->proto;
-  ifa->sock = sk_new( ifa->pool );
-  ifa->sock->type = SK_UDP;
-  ifa->sock->sport = ifa->cf->port;
-  ifa->sock->rx_hook = babel_rx;
-  ifa->sock->data =  ifa;
-  ifa->sock->rbsize = 10240;
-  ifa->sock->iface = ifa->iface;
-  ifa->sock->tbuf = mb_alloc( ifa->pool, ifa->iface->mtu);
-  ifa->sock->err_hook = babel_tx_err;
-  ifa->sock->dport = ifa->cf->port;
-  ifa->sock->daddr = IP6_BABEL_ROUTERS;
+  sock *sock;
+  sock = sk_new( ifa->pool );
+  sock->type = SK_UDP;
+  sock->sport = ifa->cf->port;
+  sock->rx_hook = babel_rx;
+  sock->data =  ifa;
+  sock->rbsize = 10240;
+  sock->iface = ifa->iface;
+  sock->tbuf = mb_alloc( ifa->pool, ifa->iface->mtu);
+  sock->err_hook = babel_tx_err;
+  sock->dport = ifa->cf->port;
+  sock->daddr = IP6_BABEL_ROUTERS;
 
-  ifa->sock->tos = ifa->cf->tx_tos;
-  ifa->sock->priority = ifa->cf->tx_priority;
-  ifa->sock->flags = SKF_LADDR_RX;
-  if (sk_open( ifa->sock) < 0)
+  sock->tos = ifa->cf->tx_tos;
+  sock->priority = ifa->cf->tx_priority;
+  sock->flags = SKF_LADDR_RX;
+  if (sk_open( sock) < 0)
     goto err;
-  if (sk_setup_multicast( ifa->sock) < 0)
+  if (sk_setup_multicast( sock) < 0)
     goto err;
-  if (sk_join_group( ifa->sock,  ifa->sock->daddr) < 0)
+  if (sk_join_group( sock,  sock->daddr) < 0)
     goto err;
-  TRACE(D_EVENTS, "Listening on %s, port %d, mode multicast (%I)",  ifa->iface->name, ifa->cf->port,  ifa->sock->daddr );
+  TRACE(D_EVENTS, "Listening on %s, port %d, mode multicast (%I)",  ifa->iface->name, ifa->cf->port,  sock->daddr );
+
+  ifa->sock = sock;
 
   tm_start(ifa->hello_timer, ifa->cf->hello_interval);
   tm_start(ifa->update_timer, ifa->cf->update_interval);
@@ -760,9 +763,9 @@ babel_open_socket(struct babel_iface *ifa)
   return 1;
 
  err:
-  sk_log_error(ifa->sock, p->p.name);
+  sk_log_error(sock, p->p.name);
   log(L_ERR "%s: Cannot open socket for %s", p->p.name,  ifa->iface->name);
-  rfree(ifa->sock);
+  rfree(sock);
   return 0;
 
 }
