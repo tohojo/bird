@@ -764,7 +764,6 @@ babel_open_socket(struct babel_iface *ifa)
 
  err:
   sk_log_error(sock, p->p.name);
-  log(L_ERR "%s: Cannot open socket for %s", p->p.name,  ifa->iface->name);
   rfree(sock);
   return 0;
 
