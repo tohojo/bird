@@ -732,19 +732,19 @@ update_hello_history(struct babel_neighbor *bn, u16 seqno, u16 interval)
   /* if the expected and seen seqnos are within 16 of each other (mod 65535),
      the modular difference is going to be less than 16 for one of the
      directions. Otherwise, the values differ too much, so just reset. */
-  else if (diff_mod64k(seqno, bn->next_hello_seqno) > 16 &&
-     diff_mod64k(bn->next_hello_seqno,seqno) > 16)
+  else if (((u16) seqno - bn->next_hello_seqno) > 16 &&
+           ((u16) bn->next_hello_seqno - seqno) > 16)
   {
     /* note state reset - flush entries */
     bn->hello_map = bn->hello_n = 0;
   }
-  else if ((diff = diff_mod64k(bn->next_hello_seqno,seqno)) <= 16)
+  else if ((diff = ((u16) bn->next_hello_seqno - seqno)) <= 16)
   {
     /* sending node increased interval; reverse history */
     bn->hello_map >>= diff;
     bn->hello_n = (diff < bn->hello_n) ? bn->hello_n - diff : 0;
   }
-  else if ((diff = diff_mod64k(seqno,bn->next_hello_seqno)) <= 16)
+  else if ((diff = ((u16) seqno - bn->next_hello_seqno)) <= 16)
   {
     /* sending node decreased interval; fast-forward */
     bn->hello_map <<= diff;
