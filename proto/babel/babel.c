@@ -569,10 +569,13 @@ babel_send_ack(struct babel_iface *ifa, ip_addr dest, u16 nonce)
 static void
 babel_build_ihu(union babel_tlv *tlv, struct babel_iface *ifa, struct babel_neighbor *bn)
 {
+  struct babel_proto *p = ifa->proto;
   tlv->type = BABEL_TYPE_IHU;
   tlv->ihu.addr = bn->addr;
   tlv->ihu.rxcost = babel_compute_rxcost(bn);
   tlv->ihu.interval = ifa->cf->ihu_interval*100;
+  TRACE(D_PACKETS, "Sending IHU to %I with rxcost %d interval %d",
+        tlv->ihu.addr, tlv->ihu.rxcost, tlv->ihu.interval);
 }
 
 static void

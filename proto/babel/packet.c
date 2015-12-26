@@ -453,6 +453,7 @@ babel_write_ihu(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv,
     return sizeof(struct babel_pkt_tlv_ihu);
   }
   put_ip6_ll(&pkt_tlv->addr, tlv->ihu.addr);
+  pkt_tlv->ae = BABEL_AE_IP6_LL;
   hdr->length += 8;
   return sizeof(struct babel_pkt_tlv_ihu) + 8;
 }
