@@ -650,7 +650,7 @@ babel_process_packet(struct babel_pkt_header *pkt, int size,
   list tlvs;
   struct babel_tlv_node *cur;
   init_list(&tlvs);
-  char *p = (char *)pkt;
+  char *ptr = (char *)pkt;
   enum parse_result res;
 
   pkt->length = ntohs(pkt->length);
@@ -664,7 +664,7 @@ babel_process_packet(struct babel_pkt_header *pkt, int size,
   }
 
   cur = sl_alloc(proto->tlv_slab);
-  while((char *)tlv < p+size)
+  while((char *)tlv < ptr + size)
   {
     if((res = read_tlv(tlv, &cur->tlv, &state)) == PARSE_SUCCESS)
     {
