@@ -333,7 +333,7 @@ babel_compute_rxcost(struct babel_neighbor *bn)
     /* k-out-of-j selection - Appendix 2.1 in the RFC. */
     DBG("Missed %d hellos from %I\n", missed, bn->addr);
     /* Link is bad if more than half the expected hellos were lost */
-    return (missed > 0 && n/missed < 2) ? BABEL_INFINITY : ifa->cf->rxcost;
+    return (missed > bn->hello_n/2) ? BABEL_INFINITY : ifa->cf->rxcost;
   }
 }
 
