@@ -27,7 +27,7 @@ CF_ADDTO(proto, babel_cfg '}' { } )
 
 babel_cfg_start: proto_start BABEL {
      this_proto = proto_config_new(&proto_babel, $1);
-     babel_init_config(BABEL_CFG);
+     init_list(&BABEL_CFG->iface_list);
    }
  ;
 

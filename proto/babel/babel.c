@@ -1429,12 +1429,6 @@ babel_init(struct proto_config *cfg)
   return p;
 }
 
-void
-babel_init_config(struct babel_config *c)
-{
-  init_list(&c->iface_list);
-}
-
 static void
 babel_get_route_info(rte *rte, byte *buf, ea_list *attrs)
 {
