@@ -716,29 +716,30 @@ expire_ihu(struct babel_neighbor *bn)
 static void
 update_hello_history(struct babel_neighbor *bn, u16 seqno, u16 interval)
 {
-  u8 diff;
-  if (seqno == bn->next_hello_seqno) {/* do nothing */}
-  /* if the expected and seen seqnos are within 16 of each other (mod 65535),
+  u16 delta = ((u16) seqno - bn->next_hello_seqno);
+  if (delta == 0) {/* do nothing */}
+  /* if the expected and seen seqnos are within 16 of each other (mod 2^16),
      the modular difference is going to be less than 16 for one of the
      directions. Otherwise, the values differ too much, so just reset. */
-  else if (((u16) seqno - bn->next_hello_seqno) > 16 &&
-           ((u16) bn->next_hello_seqno - seqno) > 16)
+  else if (delta <= 16)
   {
-    /* note state reset - flush entries */
-    bn->hello_map = bn->hello_n = 0;
+    /* sending node decreased interval; fast-forward */
+    bn->hello_map <<= delta;
+    bn->hello_n = MIN(bn->hello_n + delta, 16);
   }
-  else if ((diff = ((u16) bn->next_hello_seqno - seqno)) <= 16)
+  else if (delta >= 0xfff0)
   {
+    u8 diff = (0xffff - delta);
     /* sending node increased interval; reverse history */
     bn->hello_map >>= diff;
     bn->hello_n = (diff < bn->hello_n) ? bn->hello_n - diff : 0;
   }
-  else if ((diff = ((u16) seqno - bn->next_hello_seqno)) <= 16)
+  else
   {
-    /* sending node decreased interval; fast-forward */
-    bn->hello_map <<= diff;
-    bn->hello_n = MIN(bn->hello_n + diff, 16);
+    /* note state reset - flush entries */
+    bn->hello_map = bn->hello_n = 0;
   }
+
   /* current entry */
   bn->hello_map = (bn->hello_map << 1) | 1;
   bn->next_hello_seqno = seqno+1;
