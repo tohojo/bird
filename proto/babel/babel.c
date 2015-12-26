@@ -371,10 +371,10 @@ compute_cost(struct babel_neighbor *bn)
 
 /* Simple additive metric - Appendix 3.1 in the RFC */
 static u16
-compute_metric(struct babel_neighbor *bn, u16 metric)
+compute_metric(struct babel_neighbor *bn, uint metric)
 {
-  u16 cost = compute_cost(bn);
-  return (cost == BABEL_INFINITY) ? cost : cost+metric;
+  metric += compute_cost(bn);
+  return MIN(metric, BABEL_INFINITY);
 }
 
 static rte *
