@@ -43,12 +43,6 @@
 
 #define BAD( x ) { log( L_REMOTE "%s: " x, p->p.name ); return 1; }
 
-/* computes a-b % 65535 for u16 datatypes */
-static inline u16
-diff_mod64k(u16 a, u16 b)
-{
-  return a >= b ? a-b : 0xffff-b+a;
-}
 /* Is one number larger than another mod 65535? Since diff_mod64k is always >=
    0, just use a simple cutoff value to determine if the difference is small
    enough that one is really larger. Since these comparisons are only made for
@@ -56,7 +50,7 @@ diff_mod64k(u16 a, u16 b)
    safe.*/
 static inline u16 ge_mod64k(u16 a, u16 b)
 {
-  return diff_mod64k(a,b) < 0xfff0;
+  return ((u16) a-b) < 0xfff0;
 }
 
 static void babel_new_interface(struct babel_proto *p, struct iface *new,
