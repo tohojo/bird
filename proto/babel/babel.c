@@ -271,10 +271,10 @@ expire_neighbors(struct babel_proto *p)
   {
     WALK_LIST_DELSAFE(bn, bnx, ifa->neigh_list)
     {
-      if (bn->hello_expiry && bn->hello_expiry <= now)
-        expire_hello(bn);
       if (bn->ihu_expiry && bn->ihu_expiry <= now)
         expire_ihu(bn);
+      if (bn->hello_expiry && bn->hello_expiry <= now)
+        expire_hello(bn);
     }
   }
 }
