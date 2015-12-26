@@ -100,7 +100,6 @@ babel_flush_entry(struct babel_entry *e)
 {
   struct babel_proto *p = e->proto;
   TRACE(D_EVENTS, "Flushing entry %I/%d", e->n.prefix, e->n.pxlen);
-  rem_node(&e->garbage_node);
   if (p) fib_delete(&p->rtable, e);
 }
 
@@ -143,8 +142,6 @@ expire_sources(struct babel_entry *e)
       sl_free(p->source_slab, n);
     }
   }
-  if (EMPTY_LIST(e->sources) && EMPTY_LIST(e->routes))
-    add_tail(&p->garbage, &e->garbage_node); /* to be removed later */
 }
 
 static struct babel_route *
@@ -218,8 +215,10 @@ babel_expire_routes(struct babel_proto *p)
 {
   struct babel_entry *e;
   struct babel_route *r, *rx;
-  node *n;
-  FIB_WALK(&p->rtable, n)
+  struct fib_iterator fit;
+  FIB_ITERATE_INIT(&fit, &p->rtable);
+ loop:
+  FIB_ITERATE_START(&p->rtable, &fit, n)
   {
     e = (struct babel_entry *)n;
     WALK_LIST_DELSAFE(r, rx, e->routes)
@@ -233,12 +232,13 @@ babel_expire_routes(struct babel_proto *p)
         expire_route(r);
     }
     expire_sources(e);
-  } FIB_WALK_END;
-  WALK_LIST_FIRST(n, p->garbage)
-  {
-    e = SKIP_BACK(struct babel_entry, garbage_node, n);
-    babel_flush_entry(e);
+    if(EMPTY_LIST(e->sources) && EMPTY_LIST(e->routes)) {
+      FIB_ITERATE_PUT(&fit, n);
+      babel_flush_entry(e);
+      goto loop;
+    }
   }
+  FIB_ITERATE_END(n);
 }
 
 static struct babel_neighbor *
@@ -1506,7 +1506,6 @@ babel_start(struct proto *P)
   DBG( "Babel: starting instance...\n" );
   fib_init( &p->rtable, P->pool, sizeof( struct babel_entry ), 0, babel_init_entry );
   init_list( &p->interfaces );
-  init_list( &p->garbage );
   p->timer = tm_new_set(P->pool, babel_timer, p, 0, 1);
   tm_start( p->timer, 2 );
   p->update_seqno = 1;

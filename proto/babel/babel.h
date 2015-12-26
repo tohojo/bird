@@ -273,7 +273,6 @@ struct babel_route {
 
 struct babel_entry {
   struct fib_node n;
-  node garbage_node;
   struct babel_proto *proto;
   struct babel_route *selected;
 
@@ -294,7 +293,6 @@ struct babel_proto {
   struct proto p;
   timer *timer;
   struct fib rtable;
-  list garbage;        /* Entries to be garbage collected (struct babel_entry) */
   list interfaces;     /* Interfaces we really know about (struct babel_iface) */
   u16 update_seqno;   /* To be increased on request */
   u64 router_id;
