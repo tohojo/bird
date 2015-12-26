@@ -571,7 +571,7 @@ babel_send_to(struct babel_iface *bif, ip_addr dest)
 {
   sock *s = bif->sock;
   struct babel_pkt_header *hdr = (void *) s->tbuf;
-  int len = hdr->length+sizeof(struct babel_pkt_header);
+  int len = get_u16(&hdr->length)+sizeof(struct babel_pkt_header);
   int done;
 
   DBG( "Sending %d bytes to %I\n", len, dest);
@@ -593,19 +593,20 @@ static void babel_write_queue(struct babel_iface *ifa, list queue)
   struct babel_pkt_tlv_header *hdr;
   struct babel_tlv_node *cur;
   struct babel_write_state state = {0};
-  int written;
+  u16 written, len = 0;
 
   babel_init_packet(dst);
-  hdr = FIRST_TLV(ifa->tlv_buf);
+  hdr = FIRST_TLV(dst);
   WALK_LIST_FIRST(cur, ifa->tlv_queue) {
     if((written = write_tlv(hdr, &cur->tlv, &state,
                             ifa->max_pkt_len - ((char *)hdr-(char *)dst))) == 0)
       break;
-    dst->length += written;
+    len += written;
     hdr = (void *)((char *) hdr + written);
     rem_node(NODE cur);
     sl_free(p->tlv_slab, cur);
   }
+  put_u16(&dst->length, len);
 }
 
 void
