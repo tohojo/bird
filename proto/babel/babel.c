@@ -1010,37 +1010,7 @@ babel_forward_seqno_request(struct babel_entry *e,
   }
 }
 
-/* The RFC section 3.8.1.2 on seqno requests:
-
-   When a node receives a seqno request for a given router-id and sequence
-   number, it checks whether its routing table contains a selected entry for
-   that prefix; if no such entry exists, or the entry has infinite metric, it
-   ignores the request.
-
-   If a selected route for the given prefix exists, and either the router-ids
-   are different or the router-ids are equal and the entry's sequence number is
-   no smaller than the requested sequence number, it MUST send an update for the
-   given prefix.
-
-   If the router-ids match but the requested seqno is larger than the route
-   entry's, the node compares the router-id against its own router-id. If the
-   router-id is its own, then it increases its sequence number by 1 and sends an
-   update. A node MUST NOT increase its sequence number by more than 1 in
-   response to a route request.
-
-   If the requested router-id is not its own, the received request's hop count
-   is 2 or more, and the node has a route (not necessarily a feasible one) for
-   the requested prefix that does not use the requestor as a next hop, the node
-   SHOULD forward the request. It does so by decreasing the hop count and
-   sending the request in a unicast packet destined to a neighbour that
-   advertises the given prefix (not necessarily the selected neighbour) and that
-   is distinct from the neighbour from which the request was received.
-
-   A node SHOULD maintain a list of recently forwarded requests and forward the
-   reply in a timely manner. A node SHOULD compare every incoming request
-   against its list of recently forwarded requests and avoid forwarding it if it
-   is redundant.
-*/
+/* This follows the RFC, section 3.8.1.2 on seqno requests. */
 void
 babel_handle_seqno_request(union babel_tlv *inc, struct babel_iface *ifa)
 {
@@ -1049,14 +1019,18 @@ babel_handle_seqno_request(union babel_tlv *inc, struct babel_iface *ifa)
   struct babel_entry *e;
   struct babel_route *r;
 
+  /* we don't speak no IPv4 */
   if(tlv->ae == BABEL_AE_IP4) return;
 
   TRACE(D_PACKETS, "Handling seqno request for %I/%d router_id %lR seqno %d hop count %d",
 	tlv->prefix, tlv->plen, tlv->router_id, tlv->seqno, tlv->hop_count);
 
+  /* ignore if we have no such entry or entry has infinite metric */
   e = babel_find_entry(p, tlv->prefix, tlv->plen);
   if (!e || !e->selected || e->selected->metric == BABEL_INFINITY) return;
 
+  /* trigger update on incoming interface if we have a selected route with
+     different router id or seqno no smaller than requested */
   r = e->selected;
   if (r->router_id != tlv->router_id || ge_mod64k(r->seqno, tlv->seqno))
   {
@@ -1067,12 +1041,12 @@ babel_handle_seqno_request(union babel_tlv *inc, struct babel_iface *ifa)
   /* seqno is larger; check if we own the router id */
   if (tlv->router_id == p->router_id)
   {
+    /* ours; update seqno and trigger global update */
     p->update_seqno++;
     ev_schedule(p->update_event);
-    return;
   }
-
-  if (tlv->hop_count > 1)
+  /* not ours; forward if TTL allows */
+  else if (tlv->hop_count > 1)
   {
     babel_forward_seqno_request(e, tlv, tlv->sender);
   }
