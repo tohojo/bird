@@ -263,6 +263,22 @@ babel_get_neighbor(struct babel_iface *ifa, ip_addr addr)
 }
 
 static void
+babel_flush_neighbor(struct babel_neighbor *bn)
+{
+  struct babel_proto *p = bn->ifa->proto;
+  struct babel_route *r;
+  node *n;
+  TRACE(D_EVENTS, "Flushing neighbor %I", bn->addr);
+  rem_node(NODE bn);
+  WALK_LIST_FIRST(n, bn->routes)
+  {
+    r = SKIP_BACK(struct babel_route, neigh_route, n);
+    babel_flush_route(r);
+  }
+  mb_free(bn);
+}
+
+static void
 expire_neighbors(struct babel_proto *p)
 {
   struct babel_iface *ifa;
@@ -677,22 +693,6 @@ babel_handle_ack_req(union babel_tlv *inc, struct babel_iface *ifa)
     babel_send_ack(ifa, tlv->sender, tlv->nonce);
   }
  }
-
-static void
-babel_flush_neighbor(struct babel_neighbor *bn)
-{
-  struct babel_proto *p = bn->ifa->proto;
-  struct babel_route *r;
-  node *n;
-  TRACE(D_EVENTS, "Flushing neighbor %I", bn->addr);
-  rem_node(NODE bn);
-  WALK_LIST_FIRST(n, bn->routes)
-  {
-    r = SKIP_BACK(struct babel_route, neigh_route, n);
-    babel_flush_route(r);
-  }
-  mb_free(bn);
-}
 
 static void
 expire_hello(struct babel_neighbor *bn)
