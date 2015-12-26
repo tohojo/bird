@@ -12,7 +12,7 @@
 
 struct babel_parse_state {
   struct babel_proto *proto;
-  struct babel_iface *bif;
+  struct babel_iface *ifa;
   ip_addr saddr;
   u64 router_id;
   /* A router_id may be 0, so we need a separate variable to track whether we

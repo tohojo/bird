@@ -21,7 +21,7 @@
 #define TLV_SIZE(t) (t->type == BABEL_TLV_PAD0 ? 1 : t->length + sizeof(struct babel_pkt_tlv_header))
 
 
-static void babel_send_to(struct babel_iface *bif, ip_addr dest);
+static void babel_send_to(struct babel_iface *ifa, ip_addr dest);
 
 static inline ip_addr
 get_ip6_ll(void *p)
@@ -570,9 +570,9 @@ babel_send_to(struct babel_iface *ifa, ip_addr dest)
 }
 
 static void
-babel_send(struct babel_iface *bif)
+babel_send(struct babel_iface *ifa)
 {
-  babel_send_to(bif, IP6_BABEL_ROUTERS);
+  babel_send_to(ifa, IP6_BABEL_ROUTERS);
 }
 
 static void babel_write_queue(struct babel_iface *ifa, list queue)
@@ -640,13 +640,13 @@ babel_enqueue(union babel_tlv *tlv, struct babel_iface *ifa)
 
 void
 babel_process_packet(struct babel_pkt_header *pkt, int size,
-                     ip_addr saddr, int port, struct babel_iface *bif)
+                     ip_addr saddr, int port, struct babel_iface *ifa)
 {
   struct babel_pkt_tlv_header *tlv = FIRST_TLV(pkt);
-  struct babel_proto *proto = bif->proto;
+  struct babel_proto *proto = ifa->proto;
   struct babel_parse_state state = {
     .proto	  = proto,
-    .bif	  = bif,
+    .ifa	  = ifa,
     .saddr	  = saddr,
     .next_hop	  = saddr,
   };
@@ -701,7 +701,7 @@ babel_process_packet(struct babel_pkt_header *pkt, int size,
   /* Parsing done, handle all parsed TLVs */
   WALK_LIST_FIRST(cur, tlvs) {
     if(tlv_data[cur->tlv.type].handle_tlv != NULL)
-      tlv_data[cur->tlv.type].handle_tlv(&cur->tlv, bif);
+      tlv_data[cur->tlv.type].handle_tlv(&cur->tlv, ifa);
     rem_node(NODE cur);
     sl_free(proto->tlv_slab, cur);
   }
@@ -721,15 +721,15 @@ babel_err_hook( sock *sk, int err )
 static int
 babel_rx(sock *s, int size)
 {
-  struct babel_iface *bif = s->data;
-  struct babel_proto *p = bif->proto;
-  if (! bif->iface || s->lifindex != bif->iface->index)
+  struct babel_iface *ifa = s->data;
+  struct babel_proto *p = ifa->proto;
+  if (! ifa->iface || s->lifindex != ifa->iface->index)
     return 1;
 
-  TRACE(D_PACKETS, "incoming packet: %d bytes from %I via %s", size, s->faddr, bif->iface->name);
+  TRACE(D_PACKETS, "incoming packet: %d bytes from %I via %s", size, s->faddr, ifa->iface->name);
   if (size < sizeof(struct babel_pkt_header)) BAD( "Too small packet" );
 
-  if (ipa_equal(bif->iface->addr->ip, s->faddr))
+  if (ipa_equal(ifa->iface->addr->ip, s->faddr))
   {
     DBG("My own packet\n");
     return 1;
@@ -737,7 +737,7 @@ babel_rx(sock *s, int size)
 
   if (!ipa_is_link_local(s->faddr)) { BAD("Non-link local sender"); }
 
-  babel_process_packet((struct babel_pkt_header *) s->rbuf, size, s->faddr, s->fport, bif );
+  babel_process_packet((struct babel_pkt_header *) s->rbuf, size, s->faddr, s->fport, ifa );
   return 1;
 }
 
