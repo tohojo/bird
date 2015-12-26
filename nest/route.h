@@ -555,10 +555,10 @@ extern struct protocol *attr_class_to_protocol[EAP_MAX];
 #define DEF_PREF_DIRECT	    	240	/* Directly connected */
 #define DEF_PREF_STATIC		200	/* Static route */
 #define DEF_PREF_OSPF		150	/* OSPF intra-area, inter-area and type 1 external routes */
+#define DEF_PREF_BABEL		130	/* Babel */
 #define DEF_PREF_RIP		120	/* RIP */
 #define DEF_PREF_BGP		100	/* BGP */
 #define DEF_PREF_PIPE		70	/* Routes piped from other tables */
-#define DEF_PREF_BABEL		42	/* Babel */
 #define DEF_PREF_INHERITED	10	/* Routes inherited from other routing daemons */
 
 
