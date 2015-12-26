@@ -182,11 +182,6 @@ struct babel_seqno_request {
   bird_clock_t updated;
 };
 
-struct babel_seqno_request_cache {
-  slab *slab;
-  list entries;  /* Seqno requests in the cache (struct babel_seqno_request) */
-};
-
 
 struct babel_iface {
   node n;
@@ -305,7 +300,8 @@ struct babel_proto {
   slab *source_slab;
   slab *tlv_slab;
 
-  struct babel_seqno_request_cache *seqno_cache;
+  slab *seqno_slab;
+  list seqno_cache;  /* Seqno requests in the cache (struct babel_seqno_request) */
 };
 
 

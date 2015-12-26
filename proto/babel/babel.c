@@ -943,15 +943,15 @@ babel_handle_route_request(union babel_tlv *inc, struct babel_iface *ifa)
 }
 
 static void
-expire_seqno_requests(struct babel_seqno_request_cache *c)
+expire_seqno_requests(struct babel_proto *p)
 {
   struct babel_seqno_request *n, *nx;
-  WALK_LIST_DELSAFE(n, nx, c->entries)
+  WALK_LIST_DELSAFE(n, nx, p->seqno_cache)
   {
     if (n->updated < now-BABEL_SEQNO_REQUEST_EXPIRY)
     {
       rem_node(NODE n);
-      sl_free(c->slab, n);
+      sl_free(p->seqno_slab, n);
     }
   }
 }
@@ -962,9 +962,8 @@ static int
 cache_seqno_request(struct babel_proto *p, ip_addr prefix, u8 plen,
                     u64 router_id, u16 seqno)
 {
-  struct babel_seqno_request_cache *c = p->seqno_cache;
   struct babel_seqno_request *r;
-  WALK_LIST(r, c->entries)
+  WALK_LIST(r, p->seqno_cache)
   {
     if (ipa_equal(r->prefix, prefix) && r->plen == plen &&
        r->router_id == router_id && r->seqno == seqno)
@@ -972,13 +971,13 @@ cache_seqno_request(struct babel_proto *p, ip_addr prefix, u8 plen,
   }
 
   /* no entries found */
-  r = sl_alloc(c->slab);
+  r = sl_alloc(p->seqno_slab);
   r->prefix = prefix;
   r->plen = plen;
   r->router_id = router_id;
   r->seqno = seqno;
   r->updated = now;
-  add_tail(&c->entries, NODE r);
+  add_tail(&p->seqno_cache, NODE r);
   return 1;
 }
 
@@ -1349,7 +1348,7 @@ babel_timer(timer *t)
 {
   struct babel_proto *p = t->data;
   babel_expire_routes(p);
-  expire_seqno_requests(p->seqno_cache);
+  expire_seqno_requests(p);
   babel_expire_neighbors(p);
 }
 
@@ -1508,10 +1507,8 @@ babel_start(struct proto *P)
   p->route_slab = sl_new(P->pool, sizeof(struct babel_route));
   p->source_slab = sl_new(P->pool, sizeof(struct babel_source));
   p->tlv_slab = sl_new(P->pool, sizeof(struct babel_tlv_node));
-
-  p->seqno_cache = mb_allocz(P->pool, sizeof(struct babel_seqno_request_cache));
-  p->seqno_cache->slab = sl_new(P->pool, sizeof(struct babel_seqno_request));
-  init_list(&p->seqno_cache->entries);
+  p->seqno_slab = sl_new(P->pool, sizeof(struct babel_seqno_request));
+  init_list(&p->seqno_cache);
   DBG( "Babel: ...done\n");
   return PS_UP;
 }
