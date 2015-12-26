@@ -40,6 +40,8 @@
 #define IP6_HEADER_LENGTH	40
 #define UDP_HEADER_LENGTH	8
 
+#define ROUTER_ID_64_LENGTH 23
+
 
 #ifdef IPV6
 #define MAX_PREFIX_LENGTH 128
