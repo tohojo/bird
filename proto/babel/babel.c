@@ -772,7 +772,7 @@ babel_handle_ihu(union babel_tlv *inc, struct babel_iface *ifa)
 	tlv->interval);
   struct babel_neighbor *bn = babel_get_neighbor(ifa, tlv->sender);
   bn->txcost = tlv->rxcost;
-  bn->ihu_expiry = now + 1.5*(tlv->interval/100);
+  bn->ihu_expiry = now + (3*tlv->interval)/200; // 1.5*interval/100
 }
 
 void
