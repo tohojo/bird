@@ -692,7 +692,8 @@ babel_process_packet(struct babel_pkt_header *pkt, int size,
     }
   }
   WALK_LIST_FIRST(cur, tlvs) {
-    tlv_data[cur->tlv.type].handle_tlv(&cur->tlv, bif);
+    if(tlv_data[cur->tlv.type].handle_tlv != NULL)
+      tlv_data[cur->tlv.type].handle_tlv(&cur->tlv, bif);
     rem_node(NODE cur);
     sl_free(proto->tlv_slab, cur);
   }
