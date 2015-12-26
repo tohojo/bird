@@ -678,10 +678,11 @@ babel_process_packet(struct babel_pkt_header *pkt, int size,
       add_tail(&tlvs, NODE cur);
       NEXT_TLV(tlv);
       cur = sl_alloc(proto->tlv_slab);
-  }
+    }
     else if(res == PARSE_IGNORE)
     {
       DBG("Ignoring TLV of type %d\n",tlv->type);
+      NEXT_TLV(tlv);
     }
     else
     {
