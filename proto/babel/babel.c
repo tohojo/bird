@@ -322,7 +322,7 @@ babel_compute_rxcost(struct babel_neighbor *bn)
   u16 map=bn->hello_map;
 
   if (!map) return BABEL_INFINITY;
-  n = __builtin_popcount(map); // number of bits set
+  n = u16_popcount(map); // number of bits set
   missed = bn->hello_n-n;
 
   if (ifa->cf->type == BABEL_IFACE_TYPE_WIRED)
