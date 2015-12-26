@@ -21,8 +21,6 @@
 #define TLV_SIZE(t) (t->type == BABEL_TLV_PAD0 ? 1 : t->length + sizeof(struct babel_pkt_tlv_header))
 
 
-static void babel_send_to(struct babel_iface *ifa, ip_addr dest);
-
 static inline ip_addr
 get_ip6_ll(void *p)
 {
@@ -555,27 +553,18 @@ babel_init_packet(void *buf)
   hdr->version = BABEL_VERSION;
 }
 
-static void
+static int
 babel_send_to(struct babel_iface *ifa, ip_addr dest)
 {
-  sock *s = ifa->sock;
-  struct babel_pkt_header *hdr = (void *) s->tbuf;
+  sock *sk = ifa->sock;
+  struct babel_pkt_header *hdr = (void *) sk->tbuf;
   int len = get_u16(&hdr->length)+sizeof(struct babel_pkt_header);
-  int done;
 
-  DBG("Sending %d bytes to %I\n", len, dest);
-  done = sk_send_to(s, len, dest, 0);
-  if (!done)
-    log(L_WARN "Babel: TX queue full on %s", ifa->ifname);
+  DBG("Babel: Sending %d bytes to %I\n", len, dest);
+  return sk_send_to(sk, len, dest, 0);
 }
 
-static void
-babel_send(struct babel_iface *ifa)
-{
-  babel_send_to(ifa, IP6_BABEL_ROUTERS);
-}
-
-static void babel_write_queue(struct babel_iface *ifa, list queue)
+static int babel_write_queue(struct babel_iface *ifa, list queue)
 {
   struct babel_proto *p = ifa->proto;
   struct babel_pkt_header *dst = (void *)ifa->sock->tbuf;
@@ -583,6 +572,9 @@ static void babel_write_queue(struct babel_iface *ifa, list queue)
   struct babel_tlv_node *cur;
   struct babel_write_state state = {};
   u16 written, len = 0;
+
+  if(EMPTY_LIST(queue))
+    return 0;
 
   babel_init_packet(dst);
   hdr = FIRST_TLV(dst);
@@ -596,20 +588,15 @@ static void babel_write_queue(struct babel_iface *ifa, list queue)
     sl_free(p->tlv_slab, cur);
   }
   put_u16(&dst->length, len);
+  return len;
 }
 
 void
 babel_send_queue(void *arg)
 {
   struct babel_iface *ifa = arg;
-  if (EMPTY_LIST(ifa->tlv_queue)) return;
-  DBG("Sending TLV queue\n");
-  babel_write_queue(ifa, ifa->tlv_queue);
-  babel_send(ifa);
-
-  /* re-schedule if we still have data to send */
-  if (!EMPTY_LIST(ifa->tlv_queue))
-    ev_schedule(ifa->send_event);
+  while (babel_write_queue(ifa, ifa->tlv_queue) > 0 &&
+         babel_send_to(ifa, IP6_BABEL_ROUTERS) > 0) ;
 }
 
 void
@@ -669,9 +656,9 @@ babel_process_packet(struct babel_pkt_header *pkt, int size,
 
   /* First pass through the packet TLV by TLV, parsing each into internal data
      structures. */
-  for(cur = sl_alloc(proto->tlv_slab);
-      (char *)tlv < ptr + len;
-      NEXT_TLV(tlv))
+  for (cur = sl_alloc(proto->tlv_slab);
+       (char *)tlv < ptr + len;
+       NEXT_TLV(tlv))
   {
     if ((char *)tlv + tlv->length > ptr + len) {
       log(L_ERR "Babel: Framing error: TLV type %d length %d exceeds end of packet\n",
@@ -714,7 +701,19 @@ babel_err_hook(sock *sk, int err)
   struct babel_proto *p = ifa->proto;
 
   log(L_ERR "%s: Socket error on %s: %M", p->p.name, ifa->iface->name, err);
+  /* FIXME: Drop queued TLVs here? */
+}
 
+
+static void
+babel_tx_hook(sock *sk)
+{
+  struct babel_iface *ifa = sk->data;
+
+  DBG("Babel: TX hook called (iface %s, src %I, dst %I)\n",
+      sk->iface->name, sk->saddr, sk->daddr);
+
+  babel_send_queue(ifa);
 }
 
 
