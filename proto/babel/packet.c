@@ -733,9 +733,9 @@ babel_open_socket(struct babel_iface *ifa)
   sock->sport = ifa->cf->port;
   sock->rx_hook = babel_rx;
   sock->data =  ifa;
-  sock->rbsize = 10240;
+  sock->rbsize = MAX(512, ifa->iface->mtu);
+  sock->tbsize = sock->rbsize;
   sock->iface = ifa->iface;
-  sock->tbuf = mb_alloc( ifa->pool, ifa->iface->mtu);
   sock->err_hook = babel_tx_err;
   sock->dport = ifa->cf->port;
   sock->daddr = IP6_BABEL_ROUTERS;
