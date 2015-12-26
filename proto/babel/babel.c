@@ -454,7 +454,7 @@ babel_send_route_request(struct babel_entry *e, struct babel_neighbor *n)
   struct babel_iface *ifa = n->ifa;
   struct babel_proto *p = e->proto;
   union babel_tlv tlv = {0};
-  TRACE(D_PACKETS, "Babel: Sending route request for %I/%d to %I\n",
+  TRACE(D_PACKETS, "Sending route request for %I/%d to %I\n",
         e->n.prefix, e->n.pxlen, n->addr);
   tlv.type = BABEL_TLV_ROUTE_REQUEST;
   tlv.route_request.prefix = e->n.prefix;
@@ -576,7 +576,7 @@ static void
 babel_send_ihu(struct babel_iface *ifa, struct babel_neighbor *bn)
 {
   struct babel_proto *p = ifa->proto;
-  TRACE(D_PACKETS, "Babel: Sending IHUs");
+  TRACE(D_PACKETS, "Sending IHUs");
   union babel_tlv tlv = {0};
   babel_build_ihu(&tlv, ifa, bn);
   babel_send_unicast(&tlv, ifa, bn->addr);
@@ -587,7 +587,7 @@ babel_send_hello(struct babel_iface *ifa, u8 send_ihu)
 {
   struct babel_proto *p = ifa->proto;
   union babel_tlv tlv = {0};
-  TRACE(D_PACKETS, "Babel: Sending hello on interface %s", ifa->ifname);
+  TRACE(D_PACKETS, "Sending hello on interface %s", ifa->ifname);
   tlv.type = BABEL_TLV_HELLO;
   tlv.hello.seqno = ifa->hello_seqno++;
   tlv.hello.interval = ifa->cf->hello_interval*100;
