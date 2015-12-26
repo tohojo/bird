@@ -211,7 +211,7 @@ refresh_route(struct babel_route *r)
 }
 
 static void
-babel_expire_routes(struct babel_proto *p)
+expire_routes(struct babel_proto *p)
 {
   struct babel_entry *e;
   struct babel_route *r, *rx;
@@ -266,7 +266,7 @@ babel_get_neighbor(struct babel_iface *ifa, ip_addr addr)
 }
 
 static void
-babel_expire_neighbors(struct babel_proto *p)
+expire_neighbors(struct babel_proto *p)
 {
   struct babel_iface *ifa;
   struct babel_neighbor *bn, *bnx;
@@ -1347,9 +1347,9 @@ static void
 babel_timer(timer *t)
 {
   struct babel_proto *p = t->data;
-  babel_expire_routes(p);
+  expire_routes(p);
   expire_seqno_requests(p);
-  babel_expire_neighbors(p);
+  expire_neighbors(p);
 }
 
 
