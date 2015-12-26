@@ -184,7 +184,7 @@ static void
 babel_flush_route(struct babel_route *r)
 {
   struct babel_proto *p = r->e->proto;
-  DBG("Flush route %I/%d router_id %0lx neigh %I\n",
+  DBG("Flush route %I/%d router_id %lR neigh %I\n",
       r->e->n.prefix, r->e->n.pxlen, r->router_id, r->neigh ? r->neigh->addr : IPA_NONE);
   rem_node(NODE r);
   if (r->neigh) rem_node(&r->neigh_route);
@@ -197,7 +197,7 @@ expire_route(struct babel_route *r)
 {
   struct babel_entry *e = r->e;
   struct babel_proto *p = r->e->proto;
-  TRACE(D_EVENTS, "Route expiry timer for %I/%d router_id %0lx fired",
+  TRACE(D_EVENTS, "Route expiry timer for %I/%d router_id %lR fired",
 	r->e->n.prefix, r->e->n.pxlen, r->router_id);
   if (r->metric < BABEL_INFINITY)
   {
@@ -425,7 +425,7 @@ babel_send_seqno_request(struct babel_entry *e)
 
   if (s && cache_seqno_request(p, e->n.prefix, e->n.pxlen, r->router_id, s->seqno+1))
   {
-    TRACE(D_EVENTS, "Sending seqno request for %I/%d router_id %0lx",
+    TRACE(D_EVENTS, "Sending seqno request for %I/%d router_id %lR",
           e->n.prefix, e->n.pxlen, r->router_id);
 
     tlv.type = BABEL_TYPE_SEQNO_REQUEST;
@@ -452,7 +452,7 @@ babel_unicast_seqno_request(struct babel_route *r)
   union babel_tlv tlv = {0};
   if (s && cache_seqno_request(p, e->n.prefix, e->n.pxlen, r->router_id, s->seqno+1))
   {
-    TRACE(D_EVENTS, "Sending seqno request for %I/%d router_id %0lx",
+    TRACE(D_EVENTS, "Sending seqno request for %I/%d router_id %lR",
           e->n.prefix, e->n.pxlen, r->router_id);
 
     tlv.type = BABEL_TYPE_SEQNO_REQUEST;
@@ -513,7 +513,7 @@ babel_select_route(struct babel_entry *e)
   if (cur && cur->neigh && ((!e->selected && cur->metric < BABEL_INFINITY)
 			   || (e->selected && cur->metric < e->selected->metric)))
                            {
-      TRACE(D_EVENTS, "Picked new route for prefix %I/%d: router id %0lx metric %d",
+      TRACE(D_EVENTS, "Picked new route for prefix %I/%d: router id %lR metric %d",
 	    e->n.prefix, e->n.pxlen, cur->router_id, cur->metric);
       /* Notify the nest of the update. If we change router ID, we also trigger
 	 a global update. */
@@ -1005,7 +1005,7 @@ babel_forward_seqno_request(struct babel_entry *e,
 {
   struct babel_proto *p = e->proto;
   struct babel_route *r;
-  TRACE(D_PACKETS, "Forwarding seqno request for %I/%d router_id %0lx",
+  TRACE(D_PACKETS, "Forwarding seqno request for %I/%d router_id %lR",
 	e->n.prefix, e->n.pxlen, in->router_id);
   WALK_LIST(r, e->routes)
   {
@@ -1068,7 +1068,7 @@ babel_handle_seqno_request(union babel_tlv *inc, struct babel_iface *ifa)
 
   if(tlv->ae == BABEL_AE_IP4) return;
 
-  TRACE(D_PACKETS, "Handling seqno request for %I/%d router_id %0lx seqno %d hop count %d",
+  TRACE(D_PACKETS, "Handling seqno request for %I/%d router_id %lR seqno %d hop count %d",
 	tlv->prefix, tlv->plen, tlv->router_id, tlv->seqno, tlv->hop_count);
 
   e = babel_find_entry(p, tlv->prefix, tlv->plen);
@@ -1099,14 +1099,14 @@ babel_handle_seqno_request(union babel_tlv *inc, struct babel_iface *ifa)
 static void
 babel_dump_source(struct babel_source *s)
 {
-  debug("Source router_id %0lx seqno %d metric %d expires %d\n",
+  debug("Source router_id %lR seqno %d metric %d expires %d\n",
 	s->router_id, s->seqno, s->metric, s->expires ? s->expires-now : 0);
 }
 
 static void
 babel_dump_route(struct babel_route *r)
 {
-  debug("Route neigh %I if %s seqno %d metric %d/%d router_id %0lx expires %d\n",
+  debug("Route neigh %I if %s seqno %d metric %d/%d router_id %lR expires %d\n",
 	r->neigh ? r->neigh->addr : IPA_NONE,
         r->neigh ? r->neigh->ifa->ifname : "(none)",
         r->seqno, r->advert_metric,
@@ -1148,7 +1148,7 @@ babel_dump(struct proto *P)
   struct babel_proto *p = (struct babel_proto *) P;
   struct babel_entry *e;
   struct babel_iface *ifa;
-  debug("Babel: router id %0lx update seqno %d\n", p->router_id, p->update_seqno);
+  debug("Babel: router id %lR update seqno %d\n", p->router_id, p->update_seqno);
   WALK_LIST(ifa, p->interfaces) {babel_dump_interface(ifa);}
   FIB_WALK(&p->rtable, n)
   {
@@ -1485,7 +1485,7 @@ babel_init_config(struct babel_config *c)
 static void
 babel_get_route_info(rte *rte, byte *buf, ea_list *attrs)
 {
-  buf += bsprintf(buf, " (%d/%0lx)", rte->u.babel.metric, rte->u.babel.router_id);
+  buf += bsprintf(buf, " (%d/%lR)", rte->u.babel.metric, rte->u.babel.router_id);
 }
 
 static int
