@@ -767,7 +767,11 @@ babel_handle_ihu(union babel_tlv *inc, struct babel_iface *ifa)
   struct babel_tlv_ihu *tlv = &inc->ihu;
   struct babel_proto *p = ifa->proto;
 
-  if (!ipa_equal(tlv->addr, ifa->addr)) return; // not for us
+  /* we don't speak no IPv4 */
+  if(tlv->ae == BABEL_AE_IP4) return;
+
+  if (tlv->ae != BABEL_AE_WILDCARD && !ipa_equal(tlv->addr, ifa->addr))
+    return; // not for us
   TRACE(D_PACKETS, "Handling IHU rxcost %d interval %d", tlv->rxcost,
 	tlv->interval);
   struct babel_neighbor *bn = babel_get_neighbor(ifa, tlv->sender);
@@ -802,6 +806,7 @@ babel_handle_update(union babel_tlv *inc, struct babel_iface *ifa)
     return;
   }
 
+  /* we don't speak no IPv4 */
   if(tlv->ae == BABEL_AE_IP4) {
     DBG("Ignoring update for IPv4 address.\n");
     return;
@@ -921,6 +926,7 @@ babel_handle_route_request(union babel_tlv *inc, struct babel_iface *ifa)
   TRACE(D_PACKETS, "Handling route request for %I/%d on interface %s",
 	tlv->prefix, tlv->plen, ifa->ifname);
 
+  /* we don't speak no IPv4 */
   if(tlv->ae == BABEL_AE_IP4) return;
 
   /* Wildcard request - full update on the interface */
