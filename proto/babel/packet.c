@@ -241,15 +241,13 @@ babel_read_update(struct babel_pkt_tlv_header *hdr,
                   struct babel_parse_state *state)
 {
   struct babel_pkt_tlv_update * pkt_tlv = (struct babel_pkt_tlv_update *) hdr;
-  u8 len; char buf[16] = {0};
+  char buf[16] = {0};
+  u8 len = (pkt_tlv->plen + 7)/8;
   tlv->update.ae = pkt_tlv->ae;
   tlv->update.plen = pkt_tlv->plen;
   tlv->update.interval = get_u16(&pkt_tlv->interval);
   tlv->update.seqno = get_u16(&pkt_tlv->seqno);
   tlv->update.metric = get_u16(&pkt_tlv->metric);
-
-  len = tlv->update.plen/8;
-  if(tlv->update.plen % 8) len++;
 
   if(tlv->update.plen > MAX_PREFIX_LENGTH)
     return PARSE_ERROR;
@@ -310,11 +308,10 @@ babel_read_route_request(struct babel_pkt_tlv_header *hdr,
                          struct babel_parse_state *state)
 {
   struct babel_pkt_tlv_route_request * pkt_tlv = (struct babel_pkt_tlv_route_request *) hdr;
-  u8 len; char buf[16] = {0};
+  u8 len = (pkt_tlv->plen + 7)/8;
+  char buf[16] = {0};
   tlv->route_request.ae = pkt_tlv->ae;
   tlv->route_request.plen = pkt_tlv->plen;
-  len = tlv->route_request.plen/8;
-  if(tlv->route_request.plen % 8) len++;
 
   if(tlv->route_request.plen > MAX_PREFIX_LENGTH)
     return PARSE_ERROR;
@@ -352,14 +349,13 @@ babel_read_seqno_request(struct babel_pkt_tlv_header *hdr,
                          struct babel_parse_state *state)
 {
   struct babel_pkt_tlv_seqno_request * pkt_tlv = (struct babel_pkt_tlv_seqno_request *) hdr;
-  u8 len; char buf[16] = {0};
+  u8 len = (pkt_tlv->plen + 7)/8;
+  char buf[16] = {0};
   tlv->seqno_request.ae = pkt_tlv->ae;
   tlv->seqno_request.plen = pkt_tlv->plen;
   tlv->seqno_request.seqno = get_u16(&pkt_tlv->seqno);
   tlv->seqno_request.hop_count = pkt_tlv->hop_count;
   tlv->seqno_request.router_id = get_u64(&pkt_tlv->router_id);
-  len = tlv->seqno_request.plen/8;
-  if(tlv->seqno_request.plen % 8) len++;
 
   if(tlv->seqno_request.plen > MAX_PREFIX_LENGTH)
     return PARSE_ERROR;
@@ -467,8 +463,7 @@ babel_write_update(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv,
   struct babel_pkt_tlv_update * pkt_tlv = (struct babel_pkt_tlv_update *) hdr;
   struct babel_pkt_tlv_router_id * router_id;
   char buf[16] = {0};
-  u8 size, len = tlv->update.plen/8;
-  if(tlv->update.plen % 8) len++;
+  u8 size, len = (tlv->update.plen + 7)/8;
   size = sizeof(struct babel_pkt_tlv_update) + len;
 
   if(max_len < size || ((!state->router_id_seen ||
@@ -509,8 +504,7 @@ babel_write_route_request(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv
 
   struct babel_pkt_tlv_route_request * pkt_tlv = (struct babel_pkt_tlv_route_request *) hdr;
   char buf[16] = {0};
-  u8 size, len = tlv->route_request.plen/8;
-  if(tlv->route_request.plen % 8) len++;
+  u8 size, len = (tlv->route_request.plen + 7)/8;
   size = sizeof(struct babel_pkt_tlv_route_request) + len;
   if(max_len < size)
     return 0;
@@ -531,8 +525,7 @@ babel_write_seqno_request(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv
 
   struct babel_pkt_tlv_seqno_request * pkt_tlv = (struct babel_pkt_tlv_seqno_request *) hdr;
   char buf[16] = {0};
-  u8 size, len = tlv->seqno_request.plen/8;
-  if(tlv->seqno_request.plen % 8) len++;
+  u8 size, len = (tlv->seqno_request.plen + 7)/8;
   size = sizeof(struct babel_pkt_tlv_seqno_request) + len;
   if(max_len < size)
     return 0;
