@@ -311,7 +311,6 @@ static u16
 babel_compute_rxcost(struct babel_neighbor *bn)
 {
   struct babel_iface *ifa = bn->ifa;
-  struct babel_proto *p = ifa->proto;
   u8 n, missed;
   u16 map=bn->hello_map;
 
@@ -319,14 +318,7 @@ babel_compute_rxcost(struct babel_neighbor *bn)
   n = u16_popcount(map); // number of bits set
   missed = bn->hello_n-n;
 
-  if (ifa->cf->type == BABEL_IFACE_TYPE_WIRED)
-  {
-    /* k-out-of-j selection - Appendix 2.1 in the RFC. */
-    DBG("Missed %d hellos from %I\n", missed, bn->addr);
-    /* Link is bad if more than half the expected hellos were lost */
-    return (missed > 0 && n/missed < 2) ? BABEL_INFINITY : ifa->cf->rxcost;
-  }
-  else if (ifa->cf->type == BABEL_IFACE_TYPE_WIRELESS)
+  if (ifa->cf->type == BABEL_IFACE_TYPE_WIRELESS)
   {
     /* ETX - Appendix 2.2 in the RFC.
 
@@ -341,7 +333,10 @@ babel_compute_rxcost(struct babel_neighbor *bn)
   }
   else
   {
-    BAD("Unknown interface type!");
+    /* k-out-of-j selection - Appendix 2.1 in the RFC. */
+    DBG("Missed %d hellos from %I\n", missed, bn->addr);
+    /* Link is bad if more than half the expected hellos were lost */
+    return (missed > 0 && n/missed < 2) ? BABEL_INFINITY : ifa->cf->rxcost;
   }
 }
 
@@ -350,14 +345,8 @@ static u16
 compute_cost(struct babel_neighbor *bn)
 {
   struct babel_iface *ifa = bn->ifa;
-  struct babel_proto *p = ifa->proto;
   u16 rxcost = babel_compute_rxcost(bn);
   if (rxcost == BABEL_INFINITY) return rxcost;
-  else if (ifa->cf->type == BABEL_IFACE_TYPE_WIRED)
-  {
-    /* k-out-of-j selection - Appendix 2.1 in the RFC. */
-    return bn->txcost;
-  }
   else if (ifa->cf->type == BABEL_IFACE_TYPE_WIRELESS)
   {
     /* ETX - Appendix 2.2 in the RFC */
@@ -365,7 +354,8 @@ compute_cost(struct babel_neighbor *bn)
   }
   else
   {
-    BAD("Unknown interface type!");
+    /* k-out-of-j selection - Appendix 2.1 in the RFC. */
+    return bn->txcost;
   }
 }
 
@@ -611,7 +601,7 @@ static void
 babel_hello_timer(timer *t)
 {
   struct babel_iface *ifa = t->data;
-  babel_send_hello(ifa, (ifa->cf->type == BABEL_IFACE_TYPE_WIRED &&
+  babel_send_hello(ifa, (ifa->cf->type == BABEL_IFACE_TYPE_WIRELESS ||
                          ifa->hello_seqno % BABEL_IHU_INTERVAL_FACTOR == 0));
 }
 
@@ -1287,19 +1277,19 @@ babel_new_interface(struct babel_proto *p, struct iface *new,
   {
     ifa->cf = iface_cf;
 
-    if (ifa->cf->type == BABEL_IFACE_TYPE_WIRED)
-    {
-      if (ifa->cf->hello_interval == BABEL_INFINITY)
-        ifa->cf->hello_interval = BABEL_HELLO_INTERVAL_WIRED;
-      if (ifa->cf->rxcost == BABEL_INFINITY)
-        ifa->cf->rxcost = BABEL_RXCOST_WIRED;
-    }
-    else if (ifa->cf->type == BABEL_IFACE_TYPE_WIRELESS)
+    if (ifa->cf->type == BABEL_IFACE_TYPE_WIRELESS)
     {
       if (ifa->cf->hello_interval == BABEL_INFINITY)
         ifa->cf->hello_interval = BABEL_HELLO_INTERVAL_WIRELESS;
       if (ifa->cf->rxcost == BABEL_INFINITY)
         ifa->cf->rxcost = BABEL_RXCOST_WIRELESS;
+    }
+    else
+    {
+      if (ifa->cf->hello_interval == BABEL_INFINITY)
+        ifa->cf->hello_interval = BABEL_HELLO_INTERVAL_WIRED;
+      if (ifa->cf->rxcost == BABEL_INFINITY)
+        ifa->cf->rxcost = BABEL_RXCOST_WIRED;
     }
     if (ifa->cf->update_interval == BABEL_INFINITY)
     {

@@ -83,8 +83,10 @@ enum babel_tlv_type {
 };
 
 enum babel_iface_type {
-  BABEL_IFACE_TYPE_WIRED,
-  BABEL_IFACE_TYPE_WIRELESS,
+  /* In practice, UNDEF and WIRED give equivalent behaviour */
+  BABEL_IFACE_TYPE_UNDEF    = 0,
+  BABEL_IFACE_TYPE_WIRED    = 1,
+  BABEL_IFACE_TYPE_WIRELESS = 2,
   BABEL_IFACE_TYPE_MAX
 };
 
