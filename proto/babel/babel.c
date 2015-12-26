@@ -88,9 +88,7 @@ babel_find_entry(struct babel_proto *p, ip_addr prefix, u8 plen)
 static struct babel_entry *
 babel_get_entry(struct babel_proto *p, ip_addr prefix, u8 plen)
 {
-  struct babel_entry *e = babel_find_entry(p, prefix, plen);
-  if (e) return e;
-  e = fib_get(&p->rtable, &prefix, plen);
+  struct babel_entry *e = fib_get(&p->rtable, &prefix, plen);
   e->proto = p;
   return e;
 }
@@ -100,7 +98,7 @@ babel_flush_entry(struct babel_entry *e)
 {
   struct babel_proto *p = e->proto;
   TRACE(D_EVENTS, "Flushing entry %I/%d", e->n.prefix, e->n.pxlen);
-  if (p) fib_delete(&p->rtable, e);
+  fib_delete(&p->rtable, e);
 }
 
 static struct babel_source *
