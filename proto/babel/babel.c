@@ -1432,7 +1432,7 @@ babel_init(struct proto_config *cfg)
 static void
 babel_get_route_info(rte *rte, byte *buf, ea_list *attrs)
 {
-  buf += bsprintf(buf, " (%d/%lR)", rte->u.babel.metric, rte->u.babel.router_id);
+  buf += bsprintf(buf, " (%d/%d) [%lR]", rte->pref, rte->u.babel.metric, rte->u.babel.router_id);
 }
 
 static int
