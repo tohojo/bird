@@ -1251,19 +1251,19 @@ babel_new_interface(struct babel_proto *p, struct iface *new,
 
     if (ifa->cf->type == BABEL_IFACE_TYPE_WIRELESS)
     {
-      if (ifa->cf->hello_interval == BABEL_INFINITY)
+      if (!ifa->cf->hello_interval)
         ifa->cf->hello_interval = BABEL_HELLO_INTERVAL_WIRELESS;
-      if (ifa->cf->rxcost == BABEL_INFINITY)
+      if (!ifa->cf->rxcost)
         ifa->cf->rxcost = BABEL_RXCOST_WIRELESS;
     }
     else
     {
-      if (ifa->cf->hello_interval == BABEL_INFINITY)
+      if (!ifa->cf->hello_interval)
         ifa->cf->hello_interval = BABEL_HELLO_INTERVAL_WIRED;
-      if (ifa->cf->rxcost == BABEL_INFINITY)
+      if (!ifa->cf->rxcost)
         ifa->cf->rxcost = BABEL_RXCOST_WIRED;
     }
-    if (ifa->cf->update_interval == BABEL_INFINITY)
+    if (!ifa->cf->update_interval)
     {
       ifa->cf->update_interval = ifa->cf->hello_interval*BABEL_UPDATE_INTERVAL_FACTOR;
     }

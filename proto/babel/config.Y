@@ -65,12 +65,9 @@ babel_iface_init:
      add_tail(&BABEL_CFG->iface_list, NODE this_ipatt);
      init_list(&this_ipatt->ipn_list);
      BABEL_IFACE_CFG->port = BABEL_PORT;
-     BABEL_IFACE_CFG->rxcost = BABEL_INFINITY;
      BABEL_IFACE_CFG->type = BABEL_IFACE_TYPE_WIRED;
      BABEL_IFACE_CFG->tx_tos = IP_PREC_INTERNET_CONTROL;
      BABEL_IFACE_CFG->tx_priority = sk_priority_control;
-     BABEL_IFACE_CFG->hello_interval = BABEL_INFINITY;
-     BABEL_IFACE_CFG->update_interval = BABEL_INFINITY;
    }
  ;
 
