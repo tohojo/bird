@@ -377,8 +377,10 @@ babel_build_rte(struct babel_proto *p, net *n, struct babel_route *r)
     .cast = RTC_UNICAST,
     .dest = r->metric == BABEL_INFINITY ? RTD_UNREACHABLE : RTD_ROUTER,
     .flags = 0,
-    .gw = r->next_hop,
   };
+
+  if(r->metric < BABEL_INFINITY)
+    A.gw = r->next_hop;
 
   if (r->neigh)
   {
