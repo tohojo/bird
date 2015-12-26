@@ -644,6 +644,7 @@ babel_send_update(struct babel_iface *ifa)
     tlv.update.seqno = r->seqno;
     tlv.update.metric = r->metric;
     tlv.update.prefix = e->n.prefix;
+    tlv.update.router_id = r->router_id;
 
     /* Update feasibility distance. */
     s = babel_get_source(e, r->router_id);
