@@ -622,14 +622,14 @@ babel_send_queue(void *arg)
 }
 
 void
-babel_send_unicast(union babel_tlv tlv, struct babel_iface *ifa, ip_addr dest)
+babel_send_unicast(union babel_tlv *tlv, struct babel_iface *ifa, ip_addr dest)
 {
   list queue;
   struct babel_proto *p = ifa->proto;
   struct babel_tlv_node *tlvn = sl_alloc(p->tlv_slab);
   init_list(&queue);
 
-  tlvn->tlv = tlv;
+  tlvn->tlv = *tlv;
   add_tail(&queue, NODE tlvn);
   babel_write_queue(ifa, queue);
   babel_send_to(ifa, dest);
@@ -637,11 +637,11 @@ babel_send_unicast(union babel_tlv tlv, struct babel_iface *ifa, ip_addr dest)
 
 
 void
-babel_enqueue(union babel_tlv tlv, struct babel_iface *ifa)
+babel_enqueue(union babel_tlv *tlv, struct babel_iface *ifa)
 {
   struct babel_proto *p = ifa->proto;
   struct babel_tlv_node *tlvn = sl_alloc(p->tlv_slab);
-  tlvn->tlv = tlv;
+  tlvn->tlv = *tlv;
   add_tail(&ifa->tlv_queue, NODE tlvn);
 }
 

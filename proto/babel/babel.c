@@ -437,7 +437,7 @@ babel_send_seqno_request(struct babel_entry *e)
 
     WALK_LIST(ifa, p->interfaces)
     {
-      babel_enqueue(tlv, ifa);
+      babel_enqueue(&tlv, ifa);
     }
   }
 }
@@ -461,7 +461,7 @@ babel_unicast_seqno_request(struct babel_route *r)
     tlv.seqno_request.hop_count = BABEL_INITIAL_HOP_COUNT;
     tlv.seqno_request.router_id = r->router_id;
     tlv.seqno_request.prefix = e->n.prefix;
-    babel_send_unicast(tlv, ifa, r->neigh->addr);
+    babel_send_unicast(&tlv, ifa, r->neigh->addr);
   }
 }
 
@@ -476,7 +476,7 @@ babel_send_route_request(struct babel_entry *e, struct babel_neighbor *n)
   tlv.type = BABEL_TYPE_ROUTE_REQUEST;
   tlv.route_request.prefix = e->n.prefix;
   tlv.route_request.plen = e->n.pxlen;
-  babel_send_unicast(tlv, ifa, n->addr);
+  babel_send_unicast(&tlv, ifa, n->addr);
 }
 
 
@@ -563,7 +563,7 @@ babel_send_ack(struct babel_iface *ifa, ip_addr dest, u16 nonce)
   TRACE(D_PACKETS, "Babel: Sending ACK to %I with nonce %d\n", dest, nonce);
   tlv.type = BABEL_TYPE_ACK;
   tlv.ack.nonce = nonce;
-  babel_send_unicast(tlv, ifa, dest);
+  babel_send_unicast(&tlv, ifa, dest);
 }
 
 static void
@@ -582,7 +582,7 @@ babel_queue_ihus(struct babel_iface *ifa)
   WALK_LIST(bn, ifa->neigh_list) {
     union babel_tlv tlv = {0};
     babel_build_ihu(&tlv, ifa, bn);
-    babel_enqueue(tlv, ifa);
+    babel_enqueue(&tlv, ifa);
   }
 }
 
@@ -593,7 +593,7 @@ babel_send_ihu(struct babel_iface *ifa, struct babel_neighbor *bn)
   TRACE(D_PACKETS, "Babel: Sending IHUs");
   union babel_tlv tlv = {0};
   babel_build_ihu(&tlv, ifa, bn);
-  babel_send_unicast(tlv, ifa, bn->addr);
+  babel_send_unicast(&tlv, ifa, bn->addr);
 }
 
 void
@@ -605,7 +605,7 @@ babel_send_hello(struct babel_iface *ifa, u8 send_ihu)
   tlv.type = BABEL_TYPE_HELLO;
   tlv.hello.seqno = ifa->hello_seqno++;
   tlv.hello.interval = ifa->cf->hello_interval*100;
-  babel_enqueue(tlv, ifa);
+  babel_enqueue(&tlv, ifa);
 
   if (send_ihu) babel_queue_ihus(ifa);
 }
@@ -654,7 +654,7 @@ babel_send_update(struct babel_iface *ifa)
       s->seqno = tlv.update.seqno;
       s->metric = tlv.update.metric;
     }
-    babel_enqueue(tlv, ifa);
+    babel_enqueue(&tlv, ifa);
   } FIB_WALK_END;
 }
 
@@ -920,7 +920,7 @@ static void babel_send_retraction(struct babel_iface *ifa, ip_addr prefix, int p
   tlv.update.metric = BABEL_INFINITY;
   tlv.update.prefix = prefix;
   tlv.update.router_id = p->router_id;
-  babel_enqueue(tlv, ifa);
+  babel_enqueue(&tlv, ifa);
 }
 
 void
@@ -1017,7 +1017,7 @@ babel_forward_seqno_request(struct babel_entry *e,
       tlv.seqno_request.hop_count = in->hop_count-1;
       tlv.seqno_request.router_id = in->router_id;
       tlv.seqno_request.prefix = e->n.prefix;
-      babel_send_unicast(tlv, r->neigh->ifa, r->neigh->addr);
+      babel_send_unicast(&tlv, r->neigh->ifa, r->neigh->addr);
       return;
     }
   }

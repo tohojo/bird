@@ -332,10 +332,10 @@ struct babel_tlv_node {
   union babel_tlv tlv;
 };
 
-void babel_enqueue(union babel_tlv tlv, struct babel_iface *ifa);
+void babel_enqueue(union babel_tlv *tlv, struct babel_iface *ifa);
 
 void babel_send_hello(struct babel_iface *ifa, u8 send_ihu);
-void babel_send_unicast(union babel_tlv tlv, struct babel_iface *ifa, ip_addr dest);
+void babel_send_unicast(union babel_tlv *tlv, struct babel_iface *ifa, ip_addr dest);
 void babel_send_queue(void *arg);
 void babel_send_update(struct babel_iface *ifa);
 void babel_init_packet(void *buf);
