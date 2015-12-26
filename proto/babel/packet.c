@@ -719,25 +719,25 @@ babel_err_hook(sock *sk, int err)
 
 
 static int
-babel_rx(sock *s, int size)
+babel_rx_hook(sock *sk, int size)
 {
-  struct babel_iface *ifa = s->data;
+  struct babel_iface *ifa = sk->data;
   struct babel_proto *p = ifa->proto;
-  if (! ifa->iface || s->lifindex != ifa->iface->index)
+  if (!ifa->iface || sk->lifindex != ifa->iface->index)
     return 1;
 
-  TRACE(D_PACKETS, "incoming packet: %d bytes from %I via %s", size, s->faddr, ifa->iface->name);
+  TRACE(D_PACKETS, "incoming packet: %d bytes from %I via %s", size, sk->faddr, ifa->iface->name);
   if (size < sizeof(struct babel_pkt_header)) BAD("Too small packet");
 
-  if (ipa_equal(ifa->iface->addr->ip, s->faddr))
+  if (ipa_equal(ifa->iface->addr->ip, sk->faddr))
   {
     DBG("My own packet\n");
     return 1;
   }
 
-  if (!ipa_is_link_local(s->faddr)) { BAD("Non-link local sender"); }
+  if (!ipa_is_link_local(sk->faddr)) { BAD("Non-link local sender"); }
 
-  babel_process_packet((struct babel_pkt_header *) s->rbuf, size, s->faddr, s->fport, ifa);
+  babel_process_packet((struct babel_pkt_header *) sk->rbuf, size, sk->faddr, sk->fport, ifa);
   return 1;
 }
 
@@ -745,32 +745,33 @@ int
 babel_open_socket(struct babel_iface *ifa)
 {
   struct babel_proto *p = ifa->proto;
-  sock *sock;
-  sock = sk_new(ifa->pool);
-  sock->type = SK_UDP;
-  sock->sport = ifa->cf->port;
-  sock->rx_hook = babel_rx;
-  sock->data = ifa;
-  sock->rbsize = MAX(512, ifa->iface->mtu);
-  sock->tbsize = sock->rbsize;
-  sock->iface = ifa->iface;
-  sock->err_hook = babel_err_hook;
-  sock->dport = ifa->cf->port;
-  sock->daddr = IP6_BABEL_ROUTERS;
+  sock *sk;
+  sk = sk_new(ifa->pool);
+  sk->type = SK_UDP;
+  sk->sport = ifa->cf->port;
+  sk->rx_hook = babel_rx_hook;
+  sk->tx_hook = babel_tx_hook;
+  sk->data = ifa;
+  sk->rbsize = MAX(512, ifa->iface->mtu);
+  sk->tbsize = sk->rbsize;
+  sk->iface = ifa->iface;
+  sk->err_hook = babel_err_hook;
+  sk->dport = ifa->cf->port;
+  sk->daddr = IP6_BABEL_ROUTERS;
 
-  sock->tos = ifa->cf->tx_tos;
-  sock->priority = ifa->cf->tx_priority;
-  sock->flags = SKF_LADDR_RX;
-  if (sk_open(sock) < 0)
+  sk->tos = ifa->cf->tx_tos;
+  sk->priority = ifa->cf->tx_priority;
+  sk->flags = SKF_LADDR_RX;
+  if (sk_open(sk) < 0)
     goto err;
-  if (sk_setup_multicast(sock) < 0)
+  if (sk_setup_multicast(sk) < 0)
     goto err;
-  if (sk_join_group(sock, sock->daddr) < 0)
+  if (sk_join_group(sk, sk->daddr) < 0)
     goto err;
   TRACE(D_EVENTS, "Listening on %s, port %d, mode multicast (%I)",
-        ifa->iface->name, ifa->cf->port, sock->daddr);
+        ifa->iface->name, ifa->cf->port, sk->daddr);
 
-  ifa->sock = sock;
+  ifa->sock = sk;
 
   tm_start(ifa->hello_timer, ifa->cf->hello_interval);
   tm_start(ifa->update_timer, ifa->cf->update_interval);
@@ -782,8 +783,8 @@ babel_open_socket(struct babel_iface *ifa)
   return 1;
 
  err:
-  sk_log_error(sock, p->p.name);
-  rfree(sock);
+  sk_log_error(sk, p->p.name);
+  rfree(sk);
   return 0;
 
 }
