@@ -767,7 +767,8 @@ babel_open_socket(struct babel_iface *ifa)
     goto err;
   if (sk_join_group(sock, sock->daddr) < 0)
     goto err;
-  TRACE(D_EVENTS, "Listening on %s, port %d, mode multicast (%I)", ifa->iface->name, ifa->cf->port, sock->daddr);
+  TRACE(D_EVENTS, "Listening on %s, port %d, mode multicast (%I)",
+        ifa->iface->name, ifa->cf->port, sock->daddr);
 
   ifa->sock = sock;
 
