@@ -243,7 +243,6 @@ struct babel_entry;
 
 struct babel_source {
   node n;
-  struct babel_entry *e;
 
   u64 router_id;
   u16 seqno;

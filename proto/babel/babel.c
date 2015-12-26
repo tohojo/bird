@@ -122,7 +122,6 @@ babel_get_source(struct babel_entry *e, u64 router_id)
   s = sl_alloc(p->source_slab);
   s->router_id = router_id;
   s->expires = now + BABEL_GARBAGE_INTERVAL;
-  s->e = e;
   s->seqno = 0;
   s->metric = BABEL_INFINITY;
   add_tail(&e->sources, NODE s);
