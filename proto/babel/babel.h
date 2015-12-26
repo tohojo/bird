@@ -230,7 +230,7 @@ struct babel_neighbor {
 
   ip_addr addr;
   u16 txcost;
-  u8 hello_n;
+  u8 hello_cnt;
   u16 hello_map;
   u16 next_hello_seqno;
   /* expiry timers */

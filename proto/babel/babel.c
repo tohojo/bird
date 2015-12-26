@@ -55,8 +55,8 @@ static inline u16 ge_mod64k(u16 a, u16 b)
 
 static void babel_new_interface(struct babel_proto *p, struct iface *new,
                                 unsigned long flags, struct iface_patt *patt);
-static void expire_hello(struct babel_neighbor *bn);
-static void expire_ihu(struct babel_neighbor *bn);
+static void expire_hello(struct babel_neighbor *n);
+static void expire_ihu(struct babel_neighbor *n);
 static void expire_sources(struct babel_entry *e);
 static void expire_route(struct babel_route *r);
 static void refresh_route(struct babel_route *r);
@@ -241,56 +241,56 @@ expire_routes(struct babel_proto *p)
 static struct babel_neighbor *
 babel_find_neighbor(struct babel_iface *ifa, ip_addr addr)
 {
-  struct babel_neighbor *bn;
-  WALK_LIST(bn, ifa->neigh_list)
-    if (ipa_equal(bn->addr, addr))
-      return bn;
+  struct babel_neighbor *n;
+  WALK_LIST(n, ifa->neigh_list)
+    if (ipa_equal(n->addr, addr))
+      return n;
   return NULL;
 }
 
 static struct babel_neighbor *
 babel_get_neighbor(struct babel_iface *ifa, ip_addr addr)
 {
-  struct babel_neighbor *bn = babel_find_neighbor(ifa, addr);
-  if (bn) return bn;
-  bn = mb_allocz(ifa->pool, sizeof(struct babel_neighbor));
-  bn->ifa = ifa;
-  bn->addr = addr;
-  bn->txcost = BABEL_INFINITY;
-  init_list(&bn->routes);
-  add_tail(&ifa->neigh_list, NODE bn);
-  return bn;
+  struct babel_neighbor *n = babel_find_neighbor(ifa, addr);
+  if (n) return n;
+  n = mb_allocz(ifa->pool, sizeof(struct babel_neighbor));
+  n->ifa = ifa;
+  n->addr = addr;
+  n->txcost = BABEL_INFINITY;
+  init_list(&n->routes);
+  add_tail(&ifa->neigh_list, NODE n);
+  return n;
 }
 
 static void
-babel_flush_neighbor(struct babel_neighbor *bn)
+babel_flush_neighbor(struct babel_neighbor *n)
 {
-  struct babel_proto *p = bn->ifa->proto;
+  struct babel_proto *p = n->ifa->proto;
   struct babel_route *r;
-  node *n;
-  TRACE(D_EVENTS, "Flushing neighbor %I", bn->addr);
-  rem_node(NODE bn);
-  WALK_LIST_FIRST(n, bn->routes)
+  node *nod;
+  TRACE(D_EVENTS, "Flushing neighbor %I", n->addr);
+  rem_node(NODE n);
+  WALK_LIST_FIRST(nod, n->routes)
   {
-    r = SKIP_BACK(struct babel_route, neigh_route, n);
+    r = SKIP_BACK(struct babel_route, neigh_route, nod);
     babel_flush_route(r);
   }
-  mb_free(bn);
+  mb_free(n);
 }
 
 static void
 expire_neighbors(struct babel_proto *p)
 {
   struct babel_iface *ifa;
-  struct babel_neighbor *bn, *bnx;
+  struct babel_neighbor *n, *bnx;
   WALK_LIST(ifa, p->interfaces)
   {
-    WALK_LIST_DELSAFE(bn, bnx, ifa->neigh_list)
+    WALK_LIST_DELSAFE(n, bnx, ifa->neigh_list)
     {
-      if (bn->ihu_expiry && bn->ihu_expiry <= now)
-        expire_ihu(bn);
-      if (bn->hello_expiry && bn->hello_expiry <= now)
-        expire_hello(bn);
+      if (n->ihu_expiry && n->ihu_expiry <= now)
+        expire_ihu(n);
+      if (n->hello_expiry && n->hello_expiry <= now)
+        expire_hello(n);
     }
   }
 }
@@ -321,15 +321,15 @@ is_feasible(struct babel_source *s, u16 seqno, u16 metric)
 }
 
 static u16
-babel_compute_rxcost(struct babel_neighbor *bn)
+babel_compute_rxcost(struct babel_neighbor *n)
 {
-  struct babel_iface *ifa = bn->ifa;
-  u8 n, missed;
-  u16 map=bn->hello_map;
+  struct babel_iface *ifa = n->ifa;
+  u8 cnt, missed;
+  u16 map=n->hello_map;
 
   if (!map) return BABEL_INFINITY;
-  n = u16_popcount(map); // number of bits set
-  missed = bn->hello_n-n;
+  cnt = u16_popcount(map); // number of bits set
+  missed = n->hello_cnt-cnt;
 
   if (ifa->cf->type == BABEL_IFACE_TYPE_WIRELESS)
   {
@@ -338,45 +338,45 @@ babel_compute_rxcost(struct babel_neighbor *bn)
        beta = prob. of successful transmission.
        rxcost = BABEL_RXCOST_WIRELESS/beta
 
-       Since: beta = 1-missed/bn->hello_n = n/bn->hello_n
-       Then: rxcost = BABEL_RXCOST_WIRELESS * bn->hello_n / n
+       Since: beta = 1-missed/n->hello_cnt = cnt/n->hello_cnt
+       Then: rxcost = BABEL_RXCOST_WIRELESS * n->hello_cnt / cnt
    */
-    if (!n) return BABEL_INFINITY;
-    return BABEL_RXCOST_WIRELESS * bn->hello_n / n;
+    if (!cnt) return BABEL_INFINITY;
+    return BABEL_RXCOST_WIRELESS * n->hello_cnt / cnt;
   }
   else
   {
     /* k-out-of-j selection - Appendix 2.1 in the RFC. */
-    DBG("Missed %d hellos from %I\n", missed, bn->addr);
+    DBG("Missed %d hellos from %I\n", missed, n->addr);
     /* Link is bad if more than half the expected hellos were lost */
-    return (missed > bn->hello_n/2) ? BABEL_INFINITY : ifa->cf->rxcost;
+    return (missed > n->hello_cnt/2) ? BABEL_INFINITY : ifa->cf->rxcost;
   }
 }
 
 
 static u16
-compute_cost(struct babel_neighbor *bn)
+compute_cost(struct babel_neighbor *n)
 {
-  struct babel_iface *ifa = bn->ifa;
-  u16 rxcost = babel_compute_rxcost(bn);
+  struct babel_iface *ifa = n->ifa;
+  u16 rxcost = babel_compute_rxcost(n);
   if (rxcost == BABEL_INFINITY) return rxcost;
   else if (ifa->cf->type == BABEL_IFACE_TYPE_WIRELESS)
   {
     /* ETX - Appendix 2.2 in the RFC */
-    return (MAX(bn->txcost, BABEL_RXCOST_WIRELESS) * rxcost)/BABEL_RXCOST_WIRELESS;
+    return (MAX(n->txcost, BABEL_RXCOST_WIRELESS) * rxcost)/BABEL_RXCOST_WIRELESS;
   }
   else
   {
     /* k-out-of-j selection - Appendix 2.1 in the RFC. */
-    return bn->txcost;
+    return n->txcost;
   }
 }
 
 /* Simple additive metric - Appendix 3.1 in the RFC */
 static u16
-compute_metric(struct babel_neighbor *bn, uint metric)
+compute_metric(struct babel_neighbor *n, uint metric)
 {
-  metric += compute_cost(bn);
+  metric += compute_cost(n);
   return MIN(metric, BABEL_INFINITY);
 }
 
@@ -566,12 +566,12 @@ babel_send_ack(struct babel_iface *ifa, ip_addr dest, u16 nonce)
 }
 
 static void
-babel_build_ihu(union babel_tlv *tlv, struct babel_iface *ifa, struct babel_neighbor *bn)
+babel_build_ihu(union babel_tlv *tlv, struct babel_iface *ifa, struct babel_neighbor *n)
 {
   struct babel_proto *p = ifa->proto;
   tlv->type = BABEL_TLV_IHU;
-  tlv->ihu.addr = bn->addr;
-  tlv->ihu.rxcost = babel_compute_rxcost(bn);
+  tlv->ihu.addr = n->addr;
+  tlv->ihu.rxcost = babel_compute_rxcost(n);
   tlv->ihu.interval = ifa->cf->ihu_interval*100;
   TRACE(D_PACKETS, "Sending IHU to %I with rxcost %d interval %d",
         tlv->ihu.addr, tlv->ihu.rxcost, tlv->ihu.interval);
@@ -580,22 +580,22 @@ babel_build_ihu(union babel_tlv *tlv, struct babel_iface *ifa, struct babel_neig
 static void
 babel_queue_ihus(struct babel_iface *ifa)
 {
-  struct babel_neighbor *bn;
-  WALK_LIST(bn, ifa->neigh_list) {
+  struct babel_neighbor *n;
+  WALK_LIST(n, ifa->neigh_list) {
     union babel_tlv tlv = {};
-    babel_build_ihu(&tlv, ifa, bn);
+    babel_build_ihu(&tlv, ifa, n);
     babel_enqueue(&tlv, ifa);
   }
 }
 
 static void
-babel_send_ihu(struct babel_iface *ifa, struct babel_neighbor *bn)
+babel_send_ihu(struct babel_iface *ifa, struct babel_neighbor *n)
 {
   struct babel_proto *p = ifa->proto;
   TRACE(D_PACKETS, "Sending IHUs");
   union babel_tlv tlv = {};
-  babel_build_ihu(&tlv, ifa, bn);
-  babel_send_unicast(&tlv, ifa, bn->addr);
+  babel_build_ihu(&tlv, ifa, n);
+  babel_send_unicast(&tlv, ifa, n->addr);
 }
 
 void
@@ -695,28 +695,28 @@ babel_handle_ack_req(union babel_tlv *inc, struct babel_iface *ifa)
  }
 
 static void
-expire_hello(struct babel_neighbor *bn)
+expire_hello(struct babel_neighbor *n)
 {
-  bn->hello_map <<= 1;
-  if (bn->hello_n < 16) bn->hello_n++;
-  if (!bn->hello_map)
+  n->hello_map <<= 1;
+  if (n->hello_cnt < 16) n->hello_cnt++;
+  if (!n->hello_map)
   {
-    babel_flush_neighbor(bn);
+    babel_flush_neighbor(n);
   }
 }
 
 static void
-expire_ihu(struct babel_neighbor *bn)
+expire_ihu(struct babel_neighbor *n)
 {
-  bn->txcost = BABEL_INFINITY;
+  n->txcost = BABEL_INFINITY;
 }
 
 
 /* update hello history according to Appendix A1 of the RFC */
 static void
-update_hello_history(struct babel_neighbor *bn, u16 seqno, u16 interval)
+update_hello_history(struct babel_neighbor *n, u16 seqno, u16 interval)
 {
-  u16 delta = ((u16) seqno - bn->next_hello_seqno);
+  u16 delta = ((u16) seqno - n->next_hello_seqno);
   if (delta == 0) {/* do nothing */}
   /* if the expected and seen seqnos are within 16 of each other (mod 2^16),
      the modular difference is going to be less than 16 for one of the
@@ -724,27 +724,27 @@ update_hello_history(struct babel_neighbor *bn, u16 seqno, u16 interval)
   else if (delta <= 16)
   {
     /* sending node decreased interval; fast-forward */
-    bn->hello_map <<= delta;
-    bn->hello_n = MIN(bn->hello_n + delta, 16);
+    n->hello_map <<= delta;
+    n->hello_cnt = MIN(n->hello_cnt + delta, 16);
   }
   else if (delta >= 0xfff0)
   {
     u8 diff = (0xffff - delta);
     /* sending node increased interval; reverse history */
-    bn->hello_map >>= diff;
-    bn->hello_n = (diff < bn->hello_n) ? bn->hello_n - diff : 0;
+    n->hello_map >>= diff;
+    n->hello_cnt = (diff < n->hello_cnt) ? n->hello_cnt - diff : 0;
   }
   else
   {
     /* note state reset - flush entries */
-    bn->hello_map = bn->hello_n = 0;
+    n->hello_map = n->hello_cnt = 0;
   }
 
   /* current entry */
-  bn->hello_map = (bn->hello_map << 1) | 1;
-  bn->next_hello_seqno = seqno+1;
-  if (bn->hello_n < 16) bn->hello_n++;
-  bn->hello_expiry = now + (BABEL_HELLO_EXPIRY_FACTOR*interval)/100;
+  n->hello_map = (n->hello_map << 1) | 1;
+  n->next_hello_seqno = seqno+1;
+  if (n->hello_cnt < 16) n->hello_cnt++;
+  n->hello_expiry = now + (BABEL_HELLO_EXPIRY_FACTOR*interval)/100;
 }
 
 
@@ -753,12 +753,12 @@ babel_handle_hello(union babel_tlv *inc, struct babel_iface *ifa)
 {
   struct babel_proto *p = ifa->proto;
   struct babel_tlv_hello *tlv = &inc->hello;
-  struct babel_neighbor *bn = babel_get_neighbor(ifa, tlv->sender);
+  struct babel_neighbor *n = babel_get_neighbor(ifa, tlv->sender);
   TRACE(D_PACKETS, "Handling hello seqno %d interval %d", tlv->seqno,
 	tlv->interval, tlv->sender);
-  update_hello_history(bn, tlv->seqno, tlv->interval);
+  update_hello_history(n, tlv->seqno, tlv->interval);
   if (ifa->cf->type == BABEL_IFACE_TYPE_WIRELESS)
-    babel_send_ihu(ifa, bn);
+    babel_send_ihu(ifa, n);
 }
 
 void
@@ -774,9 +774,9 @@ babel_handle_ihu(union babel_tlv *inc, struct babel_iface *ifa)
     return; // not for us
   TRACE(D_PACKETS, "Handling IHU rxcost %d interval %d", tlv->rxcost,
 	tlv->interval);
-  struct babel_neighbor *bn = babel_get_neighbor(ifa, tlv->sender);
-  bn->txcost = tlv->rxcost;
-  bn->ihu_expiry = now + (3*tlv->interval)/200; // 1.5*interval/100
+  struct babel_neighbor *n = babel_get_neighbor(ifa, tlv->sender);
+  n->txcost = tlv->rxcost;
+  n->ihu_expiry = now + (3*tlv->interval)/200; // 1.5*interval/100
 }
 
 void
@@ -1086,22 +1086,22 @@ babel_dump_entry(struct babel_entry *e)
 }
 
 static void
-babel_dump_neighbor(struct babel_neighbor *bn)
+babel_dump_neighbor(struct babel_neighbor *n)
 {
   debug("Neighbor %I txcost %d hello_map %x next seqno %d expires %d/%d\n",
-	bn->addr, bn->txcost, bn->hello_map, bn->next_hello_seqno,
-        bn->hello_expiry ? bn->hello_expiry - now : 0,
-        bn->ihu_expiry ? bn->ihu_expiry - now : 0);
+	n->addr, n->txcost, n->hello_map, n->next_hello_seqno,
+        n->hello_expiry ? n->hello_expiry - now : 0,
+        n->ihu_expiry ? n->ihu_expiry - now : 0);
 }
 
 static void
 babel_dump_interface(struct babel_iface *ifa)
 {
-  struct babel_neighbor *bn;
+  struct babel_neighbor *n;
   debug("Babel: Interface %s addr %I rxcost %d type %d hello seqno %d intervals %d %d\n",
 	ifa->ifname, ifa->addr, ifa->cf->rxcost, ifa->cf->type, ifa->hello_seqno,
 	ifa->cf->hello_interval, ifa->cf->update_interval);
-  WALK_LIST(bn,ifa->neigh_list) { debug(" "); babel_dump_neighbor(bn); }
+  WALK_LIST(n,ifa->neigh_list) { debug(" "); babel_dump_neighbor(n); }
 
 }
 
@@ -1136,23 +1136,23 @@ static void
 kill_iface(struct babel_iface *ifa)
 {
   DBG( "Babel: Interface %s disappeared\n", ifa->iface->name);
-  struct babel_neighbor *bn;
-  WALK_LIST_FIRST(bn, ifa->neigh_list)
-    babel_flush_neighbor(bn);
+  struct babel_neighbor *n;
+  WALK_LIST_FIRST(n, ifa->neigh_list)
+    babel_flush_neighbor(n);
   rfree(ifa->pool);
 }
 
 static void
 babel_iface_linkdown(struct babel_iface *ifa)
 {
-  struct babel_neighbor *bn;
+  struct babel_neighbor *n;
   struct babel_route *r;
-  node *n;
-  WALK_LIST(bn, ifa->neigh_list)
+  node *nod;
+  WALK_LIST(n, ifa->neigh_list)
   {
-    WALK_LIST(n, bn->routes)
+    WALK_LIST(nod, n->routes)
     {
-      r = SKIP_BACK(struct babel_route, neigh_route, n);
+      r = SKIP_BACK(struct babel_route, neigh_route, nod);
       r->metric = BABEL_INFINITY;
       r->expires = now + r->expiry_interval;
       babel_select_route(r->e);
