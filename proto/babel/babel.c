@@ -948,7 +948,7 @@ expire_seqno_requests(struct babel_proto *p)
   struct babel_seqno_request *n, *nx;
   WALK_LIST_DELSAFE(n, nx, p->seqno_cache)
   {
-    if (n->updated < now-BABEL_SEQNO_REQUEST_EXPIRY)
+    if (n->updated + BABEL_SEQNO_REQUEST_EXPIRY <= now)
     {
       rem_node(NODE n);
       sl_free(p->seqno_slab, n);
