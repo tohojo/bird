@@ -15,7 +15,7 @@
 #include "babel.h"
 #include "packet.h"
 
-#define BAD( x ) { log( L_REMOTE "%s: " x, p->p.name ); return 1; }
+#define BAD(x) { log(L_REMOTE "%s: " x, p->p.name); return 1; }
 #define FIRST_TLV(p) ((struct babel_pkt_tlv_header *)(((struct babel_pkt_header *) p) + 1))
 #define NEXT_TLV(t) (t = (void *)((char *)t) + TLV_SIZE(t))
 #define TLV_SIZE(t) (t->type == BABEL_TLV_PAD0 ? 1 : t->length + sizeof(struct babel_pkt_tlv_header))
@@ -144,12 +144,12 @@ read_tlv(struct babel_pkt_tlv_header *hdr,
          union babel_tlv *tlv,
          struct babel_parse_state *state)
 {
-  if(hdr->type <= BABEL_TLV_PADN ||
+  if (hdr->type <= BABEL_TLV_PADN ||
      hdr->type >= BABEL_TLV_MAX ||
      tlv_data[hdr->type].read_tlv == NULL)
     return PARSE_IGNORE;
 
-  if(TLV_SIZE(hdr) < tlv_data[hdr->type].min_size)
+  if (TLV_SIZE(hdr) < tlv_data[hdr->type].min_size)
     return PARSE_ERROR;
 
   return tlv_data[hdr->type].read_tlv(hdr, tlv, state);
@@ -191,14 +191,14 @@ babel_read_ihu(struct babel_pkt_tlv_header *hdr,
   tlv->ihu.rxcost = get_u16(&pkt_tlv->rxcost);
   tlv->ihu.interval = get_u16(&pkt_tlv->interval);
 
-  if(tlv->ihu.ae >= BABEL_AE_MAX)
+  if (tlv->ihu.ae >= BABEL_AE_MAX)
     return PARSE_IGNORE;
 
   // We handle link-local IPs. In every other case, the addr field will be 0 but
   // validation will succeed. The handler takes care of these cases.
-  if(tlv->ihu.ae == BABEL_AE_IP6_LL)
+  if (tlv->ihu.ae == BABEL_AE_IP6_LL)
   {
-    if(TLV_SIZE(hdr) < sizeof(struct babel_pkt_tlv_ihu)+8) return PARSE_ERROR;
+    if (TLV_SIZE(hdr) < sizeof(struct babel_pkt_tlv_ihu)+8) return PARSE_ERROR;
     tlv->ihu.addr = get_ip6_ll(&pkt_tlv->addr);
   }
   tlv->ihu.sender = state->saddr;
@@ -224,12 +224,12 @@ babel_read_next_hop(struct babel_pkt_tlv_header *hdr,
 {
   struct babel_pkt_tlv_next_hop * pkt_tlv = (struct babel_pkt_tlv_next_hop *) hdr;
 
-  if(pkt_tlv->ae >= BABEL_AE_MAX)
+  if (pkt_tlv->ae >= BABEL_AE_MAX)
     return PARSE_IGNORE;
 
-  if(pkt_tlv->ae == BABEL_AE_IP6_LL)
+  if (pkt_tlv->ae == BABEL_AE_IP6_LL)
   {
-    if(TLV_SIZE(hdr) < sizeof(struct babel_pkt_tlv_next_hop)+8) return PARSE_ERROR;
+    if (TLV_SIZE(hdr) < sizeof(struct babel_pkt_tlv_next_hop)+8) return PARSE_ERROR;
     state->next_hop = get_ip6_ll(&pkt_tlv->addr);
   }
   return PARSE_SUCCESS;
@@ -249,38 +249,38 @@ babel_read_update(struct babel_pkt_tlv_header *hdr,
   tlv->update.seqno = get_u16(&pkt_tlv->seqno);
   tlv->update.metric = get_u16(&pkt_tlv->metric);
 
-  if(tlv->update.plen > MAX_PREFIX_LENGTH)
+  if (tlv->update.plen > MAX_PREFIX_LENGTH)
     return PARSE_ERROR;
 
-  if(tlv->update.ae >= BABEL_AE_MAX)
+  if (tlv->update.ae >= BABEL_AE_MAX)
     return PARSE_IGNORE;
   /* Can only omit bits if a previous update defined a prefix to take them from */
-  if(pkt_tlv->omitted && ipa_equal(state->prefix, IPA_NONE))
+  if (pkt_tlv->omitted && ipa_equal(state->prefix, IPA_NONE))
     return PARSE_ERROR;
 
   /* TLV should be large enough to hold the entire prefix */
-  if(TLV_SIZE(hdr) < sizeof(struct babel_pkt_tlv_update) + len - pkt_tlv->omitted)
+  if (TLV_SIZE(hdr) < sizeof(struct babel_pkt_tlv_update) + len - pkt_tlv->omitted)
     return PARSE_ERROR;
 
   /* IP address decoding */
-  if(tlv->update.ae == BABEL_AE_WILDCARD || tlv->update.ae == BABEL_AE_IP4)
+  if (tlv->update.ae == BABEL_AE_WILDCARD || tlv->update.ae == BABEL_AE_IP4)
   {
     tlv->update.prefix = IPA_NONE;
   }
-  else if(tlv->update.ae == BABEL_AE_IP6_LL)
+  else if (tlv->update.ae == BABEL_AE_IP6_LL)
   {
     tlv->update.prefix = get_ip6_ll(&pkt_tlv->addr);
   }
   else
   {
     /* if we have omitted bytes, get them from previous prefix */
-    if(pkt_tlv->omitted) put_ipa(buf, state->prefix);
+    if (pkt_tlv->omitted) put_ipa(buf, state->prefix);
     /* if the prefix is longer than the omitted octets, copy the rest */
-    if(pkt_tlv->omitted < len) memcpy(buf+pkt_tlv->omitted,
+    if (pkt_tlv->omitted < len) memcpy(buf+pkt_tlv->omitted,
                                       &pkt_tlv->addr,
                                       len - pkt_tlv->omitted);
     /* make sure the tail is zeroed */
-    if(len < 16) memset(buf+len, 0, 16-len);
+    if (len < 16) memset(buf+len, 0, 16-len);
     tlv->update.prefix = get_ipa(buf);
   }
   if (pkt_tlv->flags & BABEL_FLAG_DEF_PREFIX)
@@ -289,11 +289,11 @@ babel_read_update(struct babel_pkt_tlv_header *hdr,
   }
   if (pkt_tlv->flags & BABEL_FLAG_ROUTER_ID)
   {
-    if(pkt_tlv->ae == BABEL_AE_IP4) return PARSE_ERROR;
+    if (pkt_tlv->ae == BABEL_AE_IP4) return PARSE_ERROR;
     state->router_id = ((u64) _I2(tlv->update.prefix)) << 32 | _I3(tlv->update.prefix);
     state->router_id_seen = 1;
   }
-  if(!state->router_id_seen) return PARSE_ERROR;
+  if (!state->router_id_seen) return PARSE_ERROR;
 
   tlv->update.router_id = state->router_id;
   tlv->update.next_hop = state->next_hop;
@@ -313,24 +313,24 @@ babel_read_route_request(struct babel_pkt_tlv_header *hdr,
   tlv->route_request.ae = pkt_tlv->ae;
   tlv->route_request.plen = pkt_tlv->plen;
 
-  if(tlv->route_request.plen > MAX_PREFIX_LENGTH)
+  if (tlv->route_request.plen > MAX_PREFIX_LENGTH)
     return PARSE_ERROR;
 
   /* Prefixes cannot be link-local addresses. */
-  if(tlv->route_request.ae >= BABEL_AE_IP6_LL)
+  if (tlv->route_request.ae >= BABEL_AE_IP6_LL)
     return PARSE_ERROR;
 
   /* enough space to hold the prefix */
-  if(TLV_SIZE(hdr) < sizeof(struct babel_pkt_tlv_route_request) + len)
+  if (TLV_SIZE(hdr) < sizeof(struct babel_pkt_tlv_route_request) + len)
     return PARSE_ERROR;
 
   /* wildcard requests must have plen 0, others must not */
-  if((tlv->route_request.ae == BABEL_AE_WILDCARD && tlv->route_request.plen > 0) ||
+  if ((tlv->route_request.ae == BABEL_AE_WILDCARD && tlv->route_request.plen > 0) ||
      (tlv->route_request.ae != BABEL_AE_WILDCARD && tlv->route_request.plen == 0))
     return PARSE_ERROR;
 
   /* IP address decoding */
-  if(tlv->route_request.ae == BABEL_AE_WILDCARD || tlv->route_request.ae == BABEL_AE_IP4)
+  if (tlv->route_request.ae == BABEL_AE_WILDCARD || tlv->route_request.ae == BABEL_AE_IP4)
   {
     tlv->route_request.prefix = IPA_NONE;
   }
@@ -357,24 +357,24 @@ babel_read_seqno_request(struct babel_pkt_tlv_header *hdr,
   tlv->seqno_request.hop_count = pkt_tlv->hop_count;
   tlv->seqno_request.router_id = get_u64(&pkt_tlv->router_id);
 
-  if(tlv->seqno_request.plen > MAX_PREFIX_LENGTH)
+  if (tlv->seqno_request.plen > MAX_PREFIX_LENGTH)
     return PARSE_ERROR;
 
   /* Prefixes cannot be link-local addresses. */
-  if(tlv->seqno_request.ae >= BABEL_AE_IP6_LL)
+  if (tlv->seqno_request.ae >= BABEL_AE_IP6_LL)
     return PARSE_ERROR;
 
   /* enough space to hold the prefix */
-  if(TLV_SIZE(hdr) < sizeof(struct babel_pkt_tlv_seqno_request) + len)
+  if (TLV_SIZE(hdr) < sizeof(struct babel_pkt_tlv_seqno_request) + len)
     return PARSE_ERROR;
 
   /* wildcard requests must have plen 0, others must not */
-  if((tlv->seqno_request.ae == BABEL_AE_WILDCARD && tlv->seqno_request.plen > 0) ||
+  if ((tlv->seqno_request.ae == BABEL_AE_WILDCARD && tlv->seqno_request.plen > 0) ||
      (tlv->seqno_request.ae != BABEL_AE_WILDCARD && tlv->seqno_request.plen == 0))
     return PARSE_ERROR;
 
   /* IP address decoding */
-  if(tlv->seqno_request.ae == BABEL_AE_WILDCARD || tlv->seqno_request.ae == BABEL_AE_IP4)
+  if (tlv->seqno_request.ae == BABEL_AE_WILDCARD || tlv->seqno_request.ae == BABEL_AE_IP4)
   {
     tlv->seqno_request.prefix = IPA_NONE;
   }
@@ -394,12 +394,12 @@ write_tlv(struct babel_pkt_tlv_header *hdr,
           struct babel_write_state *state,
           int max_len)
 {
-  if(tlv->type <= BABEL_TLV_PADN ||
+  if (tlv->type <= BABEL_TLV_PADN ||
      tlv->type >= BABEL_TLV_MAX ||
      tlv_data[tlv->type].write_tlv == NULL)
     return 0;
 
-  if(max_len < tlv_data[tlv->type].min_size)
+  if (max_len < tlv_data[tlv->type].min_size)
     return 0;
 
   memset(hdr, 0, tlv_data[tlv->type].min_size);
@@ -437,14 +437,14 @@ babel_write_ihu(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv,
 
   struct babel_pkt_tlv_ihu * pkt_tlv = (struct babel_pkt_tlv_ihu *) hdr;
 
-  if(ipa_is_link_local(tlv->ihu.addr) && max_len < sizeof(struct babel_pkt_tlv_ihu) + 8)
+  if (ipa_is_link_local(tlv->ihu.addr) && max_len < sizeof(struct babel_pkt_tlv_ihu) + 8)
     return 0;
 
   hdr->type = BABEL_TLV_IHU;
   hdr->length = sizeof(struct babel_pkt_tlv_ihu) - sizeof(struct babel_pkt_tlv_header);
   put_u16(&pkt_tlv->rxcost, tlv->ihu.rxcost);
   put_u16(&pkt_tlv->interval, tlv->ihu.interval);
-  if(!ipa_is_link_local(tlv->ihu.addr))
+  if (!ipa_is_link_local(tlv->ihu.addr))
   {
     pkt_tlv->ae = BABEL_AE_WILDCARD;
     return sizeof(struct babel_pkt_tlv_ihu);
@@ -469,13 +469,13 @@ babel_write_update(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv,
   /* If we haven't added the right router ID previous to this update, we really
      add two TLVs to the packet buffer. Check that we have space for this (if
      relevant), and also if we have space for the update TLV itself.. */
-  if(max_len < size || ((!state->router_id_seen ||
+  if (max_len < size || ((!state->router_id_seen ||
                          state->router_id != tlv->update.router_id) &&
                         max_len < size + sizeof(struct babel_pkt_tlv_router_id)))
     return 0;
   put_ipa(buf, tlv->update.prefix);
 
-  if(!state->router_id_seen || state->router_id != tlv->update.router_id) {
+  if (!state->router_id_seen || state->router_id != tlv->update.router_id) {
     hdr->type = BABEL_TLV_ROUTER_ID;
     hdr->length = sizeof(struct babel_pkt_tlv_router_id) - sizeof(struct babel_pkt_tlv_header);
     router_id = (struct babel_pkt_tlv_router_id *)hdr;
@@ -509,7 +509,7 @@ babel_write_route_request(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv
   char buf[16] = {};
   u8 size, len = (tlv->route_request.plen + 7)/8;
   size = sizeof(struct babel_pkt_tlv_route_request) + len;
-  if(max_len < size)
+  if (max_len < size)
     return 0;
   put_ipa(buf, tlv->route_request.prefix);
 
@@ -530,7 +530,7 @@ babel_write_seqno_request(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv
   char buf[16] = {};
   u8 size, len = (tlv->seqno_request.plen + 7)/8;
   size = sizeof(struct babel_pkt_tlv_seqno_request) + len;
-  if(max_len < size)
+  if (max_len < size)
     return 0;
   put_ipa(buf, tlv->seqno_request.prefix);
 
@@ -563,9 +563,9 @@ babel_send_to(struct babel_iface *ifa, ip_addr dest)
   int len = get_u16(&hdr->length)+sizeof(struct babel_pkt_header);
   int done;
 
-  DBG( "Sending %d bytes to %I\n", len, dest);
+  DBG("Sending %d bytes to %I\n", len, dest);
   done = sk_send_to(s, len, dest, 0);
-  if(!done)
+  if (!done)
     log(L_WARN "Babel: TX queue full on %s", ifa->ifname);
 }
 
@@ -587,7 +587,7 @@ static void babel_write_queue(struct babel_iface *ifa, list queue)
   babel_init_packet(dst);
   hdr = FIRST_TLV(dst);
   WALK_LIST_FIRST(cur, ifa->tlv_queue) {
-    if((written = write_tlv(hdr, &cur->tlv, &state,
+    if ((written = write_tlv(hdr, &cur->tlv, &state,
                             ifa->max_pkt_len - ((char *)hdr-(char *)dst))) == 0)
       break;
     len += written;
@@ -602,13 +602,13 @@ void
 babel_send_queue(void *arg)
 {
   struct babel_iface *ifa = arg;
-  if(EMPTY_LIST(ifa->tlv_queue)) return;
+  if (EMPTY_LIST(ifa->tlv_queue)) return;
   DBG("Sending TLV queue\n");
   babel_write_queue(ifa, ifa->tlv_queue);
   babel_send(ifa);
 
   /* re-schedule if we still have data to send */
-  if(!EMPTY_LIST(ifa->tlv_queue))
+  if (!EMPTY_LIST(ifa->tlv_queue))
     ev_schedule(ifa->send_event);
 }
 
@@ -657,9 +657,9 @@ babel_process_packet(struct babel_pkt_header *pkt, int size,
   list tlvs;
   init_list(&tlvs);
 
-  if(pkt->magic != BABEL_MAGIC
+  if (pkt->magic != BABEL_MAGIC
      || pkt->version != BABEL_VERSION
-     || len + sizeof(struct babel_pkt_header) > size )
+     || len + sizeof(struct babel_pkt_header) > size)
   {
     log(L_ERR "Babel: Invalid packet: magic %d version %d length %d size %d\n",
 	pkt->magic, pkt->version, pkt->length, size);
@@ -673,20 +673,20 @@ babel_process_packet(struct babel_pkt_header *pkt, int size,
       (char *)tlv < ptr + len;
       NEXT_TLV(tlv))
   {
-    if((char *)tlv + tlv->length > ptr + len) {
+    if ((char *)tlv + tlv->length > ptr + len) {
       log(L_ERR "Babel: Framing error: TLV type %d length %d exceeds end of packet\n",
           tlv->type, tlv->length);
       sl_free(proto->tlv_slab, cur);
       break;
     }
 
-    if((res = read_tlv(tlv, &cur->tlv, &state)) == PARSE_SUCCESS)
+    if ((res = read_tlv(tlv, &cur->tlv, &state)) == PARSE_SUCCESS)
     {
       cur->tlv.type = tlv->type;
       add_tail(&tlvs, NODE cur);
       cur = sl_alloc(proto->tlv_slab);
     }
-    else if(res == PARSE_IGNORE)
+    else if (res == PARSE_IGNORE)
     {
       DBG("Ignoring TLV of type %d\n",tlv->type);
     }
@@ -700,7 +700,7 @@ babel_process_packet(struct babel_pkt_header *pkt, int size,
 
   /* Parsing done, handle all parsed TLVs */
   WALK_LIST_FIRST(cur, tlvs) {
-    if(tlv_data[cur->tlv.type].handle_tlv != NULL)
+    if (tlv_data[cur->tlv.type].handle_tlv != NULL)
       tlv_data[cur->tlv.type].handle_tlv(&cur->tlv, ifa);
     rem_node(NODE cur);
     sl_free(proto->tlv_slab, cur);
@@ -708,7 +708,7 @@ babel_process_packet(struct babel_pkt_header *pkt, int size,
 }
 
 static void
-babel_err_hook( sock *sk, int err )
+babel_err_hook(sock *sk, int err)
 {
   struct babel_iface *ifa = sk->data;
   struct babel_proto *p = ifa->proto;
@@ -727,7 +727,7 @@ babel_rx(sock *s, int size)
     return 1;
 
   TRACE(D_PACKETS, "incoming packet: %d bytes from %I via %s", size, s->faddr, ifa->iface->name);
-  if (size < sizeof(struct babel_pkt_header)) BAD( "Too small packet" );
+  if (size < sizeof(struct babel_pkt_header)) BAD("Too small packet");
 
   if (ipa_equal(ifa->iface->addr->ip, s->faddr))
   {
@@ -737,7 +737,7 @@ babel_rx(sock *s, int size)
 
   if (!ipa_is_link_local(s->faddr)) { BAD("Non-link local sender"); }
 
-  babel_process_packet((struct babel_pkt_header *) s->rbuf, size, s->faddr, s->fport, ifa );
+  babel_process_packet((struct babel_pkt_header *) s->rbuf, size, s->faddr, s->fport, ifa);
   return 1;
 }
 
@@ -746,7 +746,7 @@ babel_open_socket(struct babel_iface *ifa)
 {
   struct babel_proto *p = ifa->proto;
   sock *sock;
-  sock = sk_new( ifa->pool );
+  sock = sk_new(ifa->pool);
   sock->type = SK_UDP;
   sock->sport = ifa->cf->port;
   sock->rx_hook = babel_rx;
@@ -761,13 +761,13 @@ babel_open_socket(struct babel_iface *ifa)
   sock->tos = ifa->cf->tx_tos;
   sock->priority = ifa->cf->tx_priority;
   sock->flags = SKF_LADDR_RX;
-  if (sk_open( sock) < 0)
+  if (sk_open(sock) < 0)
     goto err;
-  if (sk_setup_multicast( sock) < 0)
+  if (sk_setup_multicast(sock) < 0)
     goto err;
-  if (sk_join_group( sock,  sock->daddr) < 0)
+  if (sk_join_group(sock, sock->daddr) < 0)
     goto err;
-  TRACE(D_EVENTS, "Listening on %s, port %d, mode multicast (%I)",  ifa->iface->name, ifa->cf->port,  sock->daddr );
+  TRACE(D_EVENTS, "Listening on %s, port %d, mode multicast (%I)", ifa->iface->name, ifa->cf->port, sock->daddr);
 
   ifa->sock = sock;
 

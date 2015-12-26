@@ -41,7 +41,7 @@
 #include "babel.h"
 
 
-#define BAD( x ) { log( L_REMOTE "%s: " x, p->p.name ); return 1; }
+#define BAD(x) { log(L_REMOTE "%s: " x, p->p.name); return 1; }
 
 /* Is one number larger than another mod 65535? Since diff_mod64k is always >=
    0, just use a simple cutoff value to determine if the difference is small
@@ -229,7 +229,7 @@ expire_routes(struct babel_proto *p)
         expire_route(r);
     }
     expire_sources(e);
-    if(EMPTY_LIST(e->sources) && EMPTY_LIST(e->routes)) {
+    if (EMPTY_LIST(e->sources) && EMPTY_LIST(e->routes)) {
       FIB_ITERATE_PUT(&fit, n);
       babel_flush_entry(e);
       goto loop;
@@ -395,7 +395,7 @@ babel_build_rte(struct babel_proto *p, net *n, struct babel_route *r)
     .flags = 0,
   };
 
-  if(r->metric < BABEL_INFINITY)
+  if (r->metric < BABEL_INFINITY)
     A.gw = r->next_hop;
 
   if (r->neigh)
@@ -768,7 +768,7 @@ babel_handle_ihu(union babel_tlv *inc, struct babel_iface *ifa)
   struct babel_proto *p = ifa->proto;
 
   /* we don't speak no IPv4 */
-  if(tlv->ae == BABEL_AE_IP4) return;
+  if (tlv->ae == BABEL_AE_IP4) return;
 
   if (tlv->ae != BABEL_AE_WILDCARD && !ipa_equal(tlv->addr, ifa->addr))
     return; // not for us
@@ -807,7 +807,7 @@ babel_handle_update(union babel_tlv *inc, struct babel_iface *ifa)
   }
 
   /* we don't speak no IPv4 */
-  if(tlv->ae == BABEL_AE_IP4) {
+  if (tlv->ae == BABEL_AE_IP4) {
     DBG("Ignoring update for IPv4 address.\n");
     return;
   }
@@ -927,7 +927,7 @@ babel_handle_route_request(union babel_tlv *inc, struct babel_iface *ifa)
 	tlv->prefix, tlv->plen, ifa->ifname);
 
   /* we don't speak no IPv4 */
-  if(tlv->ae == BABEL_AE_IP4) return;
+  if (tlv->ae == BABEL_AE_IP4) return;
 
   /* Wildcard request - full update on the interface */
   if (ipa_equal(tlv->prefix,IPA_NONE))
@@ -1026,7 +1026,7 @@ babel_handle_seqno_request(union babel_tlv *inc, struct babel_iface *ifa)
   struct babel_route *r;
 
   /* we don't speak no IPv4 */
-  if(tlv->ae == BABEL_AE_IP4) return;
+  if (tlv->ae == BABEL_AE_IP4) return;
 
   TRACE(D_PACKETS, "Handling seqno request for %I/%d router_id %lR seqno %d hop count %d",
 	tlv->prefix, tlv->plen, tlv->router_id, tlv->seqno, tlv->hop_count);
@@ -1135,7 +1135,7 @@ babel_find_interface(struct babel_proto *p, struct iface *what)
 static void
 kill_iface(struct babel_iface *ifa)
 {
-  DBG( "Babel: Interface %s disappeared\n", ifa->iface->name);
+  DBG("Babel: Interface %s disappeared\n", ifa->iface->name);
   struct babel_neighbor *n;
   WALK_LIST_FIRST(n, ifa->neigh_list)
     babel_flush_neighbor(n);
@@ -1241,7 +1241,7 @@ babel_new_interface(struct babel_proto *p, struct iface *new,
   if (!new) return;
 
   pool = rp_new(p->p.pool, new->name);
-  ifa = mb_allocz(pool, sizeof( struct babel_iface ));
+  ifa = mb_allocz(pool, sizeof(struct babel_iface));
   add_tail(&p->interfaces, NODE ifa);
   ifa->pool = pool;
   ifa->iface = new;
@@ -1289,7 +1289,7 @@ babel_new_interface(struct babel_proto *p, struct iface *new,
   ifa->send_event->hook = babel_send_queue;
   ifa->send_event->data = ifa;
 
-  lock = olock_new( ifa->pool );
+  lock = olock_new(ifa->pool);
   lock->addr = IP6_BABEL_ROUTERS;
   lock->port = ifa->cf->port;
   lock->iface = ifa->iface;
@@ -1446,8 +1446,8 @@ babel_get_attr(eattr *a, byte *buf, int buflen UNUSED)
 {
   switch (a->id)
   {
-  case EA_BABEL_METRIC: bsprintf( buf, "metric: %d", a->u.data ); return GA_FULL;
-  case EA_BABEL_ROUTER_ID: bsprintf( buf, "router id: %lR", a->u.data ); return GA_FULL;
+  case EA_BABEL_METRIC: bsprintf(buf, "metric: %d", a->u.data); return GA_FULL;
+  case EA_BABEL_ROUTER_ID: bsprintf(buf, "router id: %lR", a->u.data); return GA_FULL;
   default: return GA_UNKNOWN;
   }
 }
@@ -1463,11 +1463,11 @@ babel_start(struct proto *P)
 {
   struct babel_proto *p = (struct babel_proto *) P;
   struct babel_config *cf = (struct babel_config *) P->cf;
-  DBG( "Babel: starting instance...\n" );
-  fib_init( &p->rtable, P->pool, sizeof( struct babel_entry ), 0, babel_init_entry );
-  init_list( &p->interfaces );
+  DBG("Babel: starting instance...\n");
+  fib_init(&p->rtable, P->pool, sizeof(struct babel_entry), 0, babel_init_entry);
+  init_list(&p->interfaces);
   p->timer = tm_new_set(P->pool, babel_timer, p, 0, 1);
-  tm_start( p->timer, 2 );
+  tm_start(p->timer, 2);
   p->update_seqno = 1;
   p->router_id = proto_get_router_id(&cf->c);
   p->update_event = ev_new(P->pool);
@@ -1480,7 +1480,7 @@ babel_start(struct proto *P)
   p->tlv_slab = sl_new(P->pool, sizeof(struct babel_tlv_node));
   p->seqno_slab = sl_new(P->pool, sizeof(struct babel_seqno_request));
   init_list(&p->seqno_cache);
-  DBG( "Babel: ...done\n");
+  DBG("Babel: ...done\n");
   return PS_UP;
 }
 
