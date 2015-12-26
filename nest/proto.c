@@ -921,7 +921,6 @@ protos_build(void)
 #endif
 #ifdef CONFIG_BABEL
   proto_build(&proto_babel);
-  bfd_init_all();
 #endif
 
   proto_pool = rp_new(&root_pool, "Protocols");
