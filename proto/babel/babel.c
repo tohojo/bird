@@ -1349,8 +1349,6 @@ babel_make_tmp_attrs(struct rte *rt, struct linpool *pool)
 static void
 babel_store_tmp_attrs(struct rte *rt, struct ea_list *attrs)
 {
-  eattr *rid = ea_find(attrs, EA_BABEL_ROUTER_ID);
-  rt->u.babel.router_id = rid ? *((u64*) rid->u.ptr->data) : 0;
   rt->u.babel.metric = ea_get_int(attrs, EA_BABEL_METRIC, 0);
 }
 
