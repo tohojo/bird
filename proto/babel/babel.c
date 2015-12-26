@@ -1251,7 +1251,6 @@ static void
 babel_new_interface(struct babel_proto *p, struct iface *new,
                     unsigned long flags, struct iface_patt *patt)
 {
-  struct babel_config *cf = (struct babel_config *) p->p.cf;
   struct babel_iface * ifa;
   struct babel_iface_config *iface_cf = (struct babel_iface_config *) patt;
   struct object_lock *lock;
@@ -1311,7 +1310,7 @@ babel_new_interface(struct babel_proto *p, struct iface *new,
 
   lock = olock_new( ifa->pool );
   lock->addr = IP6_BABEL_ROUTERS;
-  lock->port = cf->port;
+  lock->port = ifa->cf->port;
   lock->iface = ifa->iface;
   lock->hook = babel_open_interface;
   lock->data = ifa;
@@ -1461,7 +1460,6 @@ void
 babel_init_config(struct babel_config *c)
 {
   init_list(&c->iface_list);
-  c->port	= BABEL_PORT;
 }
 
 static void

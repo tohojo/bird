@@ -34,12 +34,12 @@ babel_cfg_start: proto_start BABEL {
 babel_cfg:
    babel_cfg_start proto_name '{'
  | babel_cfg proto_item ';'
- | babel_cfg PORT expr ';'	{ BABEL_CFG->port = $3; }
  | babel_cfg INTERFACE babel_iface ';'
  ;
 
 
 babel_iface_item:
+ | PORT expr { BABEL_IFACE_CFG->port = $2; }
  | RXCOST expr { BABEL_IFACE_CFG->rxcost = $2; }
  | TX tos { BABEL_IFACE_CFG->tx_tos = $2; }
  | TX PRIORITY expr { BABEL_IFACE_CFG->tx_priority = $3; }
@@ -64,6 +64,7 @@ babel_iface_init:
      this_ipatt = cfg_allocz(sizeof(struct babel_iface_config));
      add_tail(&BABEL_CFG->iface_list, NODE this_ipatt);
      init_list(&this_ipatt->ipn_list);
+     BABEL_IFACE_CFG->port = BABEL_PORT;
      BABEL_IFACE_CFG->rxcost = BABEL_INFINITY;
      BABEL_IFACE_CFG->type = BABEL_IFACE_TYPE_WIRED;
      BABEL_IFACE_CFG->tx_tos = IP_PREC_INTERNET_CONTROL;

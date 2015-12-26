@@ -218,6 +218,7 @@ struct babel_iface_config {
   int type;
   int tx_tos;
   int tx_priority;
+  int port;
   u16 hello_interval;
   u16 ihu_interval;
   u16 update_interval;
@@ -282,7 +283,6 @@ struct babel_config {
   struct proto_config c;
 
   list iface_list;              /* Patterns configured -- keep it first; see babel_reconfigure why */
-  int port;
 };
 
 struct babel_proto {

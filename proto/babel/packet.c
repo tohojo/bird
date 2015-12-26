@@ -559,9 +559,9 @@ babel_init_packet(void *buf)
 }
 
 static void
-babel_send_to(struct babel_iface *bif, ip_addr dest)
+babel_send_to(struct babel_iface *ifa, ip_addr dest)
 {
-  sock *s = bif->sock;
+  sock *s = ifa->sock;
   struct babel_pkt_header *hdr = (void *) s->tbuf;
   int len = get_u16(&hdr->length)+sizeof(struct babel_pkt_header);
   int done;
@@ -569,7 +569,7 @@ babel_send_to(struct babel_iface *bif, ip_addr dest)
   DBG( "Sending %d bytes to %I\n", len, dest);
   done = sk_send_to(s, len, dest, 0);
   if(!done)
-    log(L_WARN "Babel: TX queue full on %s", bif->ifname);
+    log(L_WARN "Babel: TX queue full on %s", ifa->ifname);
 }
 
 static void
@@ -731,46 +731,45 @@ babel_rx(sock *s, int size)
 }
 
 int
-babel_open_socket(struct babel_iface *bif)
+babel_open_socket(struct babel_iface *ifa)
 {
-  struct babel_proto *p = bif->proto;
-  struct babel_config *cf = (struct babel_config *) p->p.cf;
-  bif->sock = sk_new( bif->pool );
-  bif->sock->type = SK_UDP;
-  bif->sock->sport = cf->port;
-  bif->sock->rx_hook = babel_rx;
-  bif->sock->data =  bif;
-  bif->sock->rbsize = 10240;
-  bif->sock->iface = bif->iface;
-  bif->sock->tbuf = mb_alloc( bif->pool, bif->iface->mtu);
-  bif->sock->err_hook = babel_tx_err;
-  bif->sock->dport = cf->port;
-  bif->sock->daddr = IP6_BABEL_ROUTERS;
+  struct babel_proto *p = ifa->proto;
+  ifa->sock = sk_new( ifa->pool );
+  ifa->sock->type = SK_UDP;
+  ifa->sock->sport = ifa->cf->port;
+  ifa->sock->rx_hook = babel_rx;
+  ifa->sock->data =  ifa;
+  ifa->sock->rbsize = 10240;
+  ifa->sock->iface = ifa->iface;
+  ifa->sock->tbuf = mb_alloc( ifa->pool, ifa->iface->mtu);
+  ifa->sock->err_hook = babel_tx_err;
+  ifa->sock->dport = ifa->cf->port;
+  ifa->sock->daddr = IP6_BABEL_ROUTERS;
 
-  bif->sock->tos = bif->cf->tx_tos;
-  bif->sock->priority = bif->cf->tx_priority;
-  bif->sock->flags = SKF_LADDR_RX;
-  if (sk_open( bif->sock) < 0)
+  ifa->sock->tos = ifa->cf->tx_tos;
+  ifa->sock->priority = ifa->cf->tx_priority;
+  ifa->sock->flags = SKF_LADDR_RX;
+  if (sk_open( ifa->sock) < 0)
     goto err;
-  if (sk_setup_multicast( bif->sock) < 0)
+  if (sk_setup_multicast( ifa->sock) < 0)
     goto err;
-  if (sk_join_group( bif->sock,  bif->sock->daddr) < 0)
+  if (sk_join_group( ifa->sock,  ifa->sock->daddr) < 0)
     goto err;
-  TRACE(D_EVENTS, "Listening on %s, port %d, mode multicast (%I)",  bif->iface->name, cf->port,  bif->sock->daddr );
+  TRACE(D_EVENTS, "Listening on %s, port %d, mode multicast (%I)",  ifa->iface->name, ifa->cf->port,  ifa->sock->daddr );
 
-  tm_start(bif->hello_timer, bif->cf->hello_interval);
-  tm_start(bif->update_timer, bif->cf->update_interval);
-  tm_start(bif->packet_timer, 1);
+  tm_start(ifa->hello_timer, ifa->cf->hello_interval);
+  tm_start(ifa->update_timer, ifa->cf->update_interval);
+  tm_start(ifa->packet_timer, 1);
 
-  babel_send_hello(bif,0);
-  babel_send_queue(bif);
+  babel_send_hello(ifa,0);
+  babel_send_queue(ifa);
 
   return 1;
 
  err:
-  sk_log_error(bif->sock, p->p.name);
-  log(L_ERR "%s: Cannot open socket for %s", p->p.name,  bif->iface->name);
-  rfree(bif->sock);
+  sk_log_error(ifa->sock, p->p.name);
+  log(L_ERR "%s: Cannot open socket for %s", p->p.name,  ifa->iface->name);
+  rfree(ifa->sock);
   return 0;
 
 }
