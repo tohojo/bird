@@ -18,7 +18,7 @@
 #define BAD( x ) { log( L_REMOTE "%s: " x, p->p.name ); return 1; }
 #define FIRST_TLV(p) ((struct babel_pkt_tlv_header *)(((struct babel_pkt_header *) p) + 1))
 #define NEXT_TLV(t) (t = (void *)((char *)t) + TLV_SIZE(t))
-#define TLV_SIZE(t) (t->type == BABEL_TYPE_PAD0 ? 1 : t->length + sizeof(struct babel_pkt_tlv_header))
+#define TLV_SIZE(t) (t->type == BABEL_TLV_PAD0 ? 1 : t->length + sizeof(struct babel_pkt_tlv_header))
 
 
 static void babel_send_to(struct babel_iface *bif, ip_addr dest);
@@ -99,41 +99,41 @@ struct babel_pkt_tlv_data {
   void (*handle_tlv)(union babel_tlv *tlv, struct babel_iface *ifa);
 };
 
-const static struct babel_pkt_tlv_data tlv_data[BABEL_TYPE_MAX] = {
-  [BABEL_TYPE_PAD0] = {0, NULL,NULL,NULL},
-  [BABEL_TYPE_PADN] = {0, NULL,NULL,NULL},
-  [BABEL_TYPE_ACK_REQ] = {sizeof(struct babel_pkt_tlv_ack_req),
+const static struct babel_pkt_tlv_data tlv_data[BABEL_TLV_MAX] = {
+  [BABEL_TLV_PAD0] = {0, NULL,NULL,NULL},
+  [BABEL_TLV_PADN] = {0, NULL,NULL,NULL},
+  [BABEL_TLV_ACK_REQ] = {sizeof(struct babel_pkt_tlv_ack_req),
                           babel_read_ack_req,
                           NULL,
                           babel_handle_ack_req},
-  [BABEL_TYPE_ACK] = {0, NULL,
+  [BABEL_TLV_ACK] = {0, NULL,
                       babel_write_ack,
                       NULL},
-  [BABEL_TYPE_HELLO] = {sizeof(struct babel_pkt_tlv_hello),
+  [BABEL_TLV_HELLO] = {sizeof(struct babel_pkt_tlv_hello),
                         babel_read_hello,
                         babel_write_hello,
                         babel_handle_hello},
-  [BABEL_TYPE_IHU] = {sizeof(struct babel_pkt_tlv_ihu),
+  [BABEL_TLV_IHU] = {sizeof(struct babel_pkt_tlv_ihu),
                       babel_read_ihu,
                       babel_write_ihu,
                       babel_handle_ihu},
-  [BABEL_TYPE_ROUTER_ID] = {sizeof(struct babel_pkt_tlv_router_id),
+  [BABEL_TLV_ROUTER_ID] = {sizeof(struct babel_pkt_tlv_router_id),
                             babel_read_router_id,
                             NULL,
                             NULL},
-  [BABEL_TYPE_NEXT_HOP] = {sizeof(struct babel_pkt_tlv_next_hop),
+  [BABEL_TLV_NEXT_HOP] = {sizeof(struct babel_pkt_tlv_next_hop),
                            babel_read_next_hop,
                            NULL,
                            NULL},
-  [BABEL_TYPE_UPDATE] = {sizeof(struct babel_pkt_tlv_update),
+  [BABEL_TLV_UPDATE] = {sizeof(struct babel_pkt_tlv_update),
                          babel_read_update,
                          babel_write_update,
                          babel_handle_update},
-  [BABEL_TYPE_ROUTE_REQUEST] = {sizeof(struct babel_pkt_tlv_route_request),
+  [BABEL_TLV_ROUTE_REQUEST] = {sizeof(struct babel_pkt_tlv_route_request),
                                 babel_read_route_request,
                                 babel_write_route_request,
                                 babel_handle_route_request},
-  [BABEL_TYPE_SEQNO_REQUEST] = {sizeof(struct babel_pkt_tlv_seqno_request),
+  [BABEL_TLV_SEQNO_REQUEST] = {sizeof(struct babel_pkt_tlv_seqno_request),
                                 babel_read_seqno_request,
                                 babel_write_seqno_request,
                                 babel_handle_seqno_request},
@@ -144,8 +144,8 @@ read_tlv(struct babel_pkt_tlv_header *hdr,
          union babel_tlv *tlv,
          struct babel_parse_state *state)
 {
-  if(hdr->type <= BABEL_TYPE_PADN ||
-     hdr->type >= BABEL_TYPE_MAX ||
+  if(hdr->type <= BABEL_TLV_PADN ||
+     hdr->type >= BABEL_TLV_MAX ||
      tlv_data[hdr->type].read_tlv == NULL)
     return PARSE_IGNORE;
 
@@ -397,8 +397,8 @@ write_tlv(struct babel_pkt_tlv_header *hdr,
           struct babel_write_state *state,
           int max_len)
 {
-  if(tlv->type <= BABEL_TYPE_PADN ||
-     tlv->type >= BABEL_TYPE_MAX ||
+  if(tlv->type <= BABEL_TLV_PADN ||
+     tlv->type >= BABEL_TLV_MAX ||
      tlv_data[tlv->type].write_tlv == NULL)
     return 0;
 
@@ -415,7 +415,7 @@ babel_write_ack(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv,
                 struct babel_write_state *state, int max_len)
 {
   struct babel_pkt_tlv_ack * pkt_tlv = (struct babel_pkt_tlv_ack *) hdr;
-  hdr->type = BABEL_TYPE_ACK;
+  hdr->type = BABEL_TLV_ACK;
   hdr->length = sizeof(struct babel_pkt_tlv_ack) - sizeof(struct babel_pkt_tlv_header);
   put_u16(&pkt_tlv->nonce, tlv->ack.nonce);
   return sizeof(struct babel_pkt_tlv_ack);
@@ -426,7 +426,7 @@ babel_write_hello(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv,
                   struct babel_write_state *state, int max_len)
 {
   struct babel_pkt_tlv_hello * pkt_tlv = (struct babel_pkt_tlv_hello *) hdr;
-  hdr->type = BABEL_TYPE_HELLO;
+  hdr->type = BABEL_TLV_HELLO;
   hdr->length = sizeof(struct babel_pkt_tlv_hello) - sizeof(struct babel_pkt_tlv_header);
   put_u16(&pkt_tlv->seqno, tlv->hello.seqno);
   put_u16(&pkt_tlv->interval, tlv->hello.interval);
@@ -443,7 +443,7 @@ babel_write_ihu(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv,
   if(ipa_is_link_local(tlv->ihu.addr) && max_len < sizeof(struct babel_pkt_tlv_ihu) + 8)
     return 0;
 
-  hdr->type = BABEL_TYPE_IHU;
+  hdr->type = BABEL_TLV_IHU;
   hdr->length = sizeof(struct babel_pkt_tlv_ihu) - sizeof(struct babel_pkt_tlv_header);
   put_u16(&pkt_tlv->rxcost, tlv->ihu.rxcost);
   put_u16(&pkt_tlv->interval, tlv->ihu.interval);
@@ -477,7 +477,7 @@ babel_write_update(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv,
   put_ipa(buf, tlv->update.prefix);
 
   if(!state->router_id_seen || state->router_id != tlv->update.router_id) {
-    hdr->type = BABEL_TYPE_ROUTER_ID;
+    hdr->type = BABEL_TLV_ROUTER_ID;
     hdr->length = sizeof(struct babel_pkt_tlv_router_id) - sizeof(struct babel_pkt_tlv_header);
     router_id = (struct babel_pkt_tlv_router_id *)hdr;
     put_u64(&router_id->router_id, tlv->update.router_id);
@@ -489,7 +489,7 @@ babel_write_update(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv,
     state->router_id_seen = 1;
   }
 
-  hdr->type = BABEL_TYPE_UPDATE;
+  hdr->type = BABEL_TLV_UPDATE;
   hdr->length = sizeof(struct babel_pkt_tlv_update) - sizeof(struct babel_pkt_tlv_header) + len;
   pkt_tlv->ae = BABEL_AE_IP6;
   pkt_tlv->plen = tlv->update.plen;
@@ -515,7 +515,7 @@ babel_write_route_request(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv
     return 0;
   put_ipa(buf, tlv->route_request.prefix);
 
-  hdr->type = BABEL_TYPE_ROUTE_REQUEST;
+  hdr->type = BABEL_TLV_ROUTE_REQUEST;
   hdr->length = size - sizeof(struct babel_pkt_tlv_header);
   pkt_tlv->ae = BABEL_AE_IP6;
   pkt_tlv->plen = tlv->route_request.plen;
@@ -537,7 +537,7 @@ babel_write_seqno_request(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv
     return 0;
   put_ipa(buf, tlv->seqno_request.prefix);
 
-  hdr->type = BABEL_TYPE_SEQNO_REQUEST;
+  hdr->type = BABEL_TLV_SEQNO_REQUEST;
   hdr->length = size - sizeof(struct babel_pkt_tlv_header);
   pkt_tlv->ae = BABEL_AE_IP6;
   pkt_tlv->plen = tlv->seqno_request.plen;

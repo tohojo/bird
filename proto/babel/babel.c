@@ -422,7 +422,7 @@ babel_send_seqno_request(struct babel_entry *e)
     TRACE(D_EVENTS, "Sending seqno request for %I/%d router_id %lR",
           e->n.prefix, e->n.pxlen, r->router_id);
 
-    tlv.type = BABEL_TYPE_SEQNO_REQUEST;
+    tlv.type = BABEL_TLV_SEQNO_REQUEST;
     tlv.seqno_request.plen = e->n.pxlen;
     tlv.seqno_request.seqno = s->seqno + 1;
     tlv.seqno_request.hop_count = BABEL_INITIAL_HOP_COUNT;
@@ -449,7 +449,7 @@ babel_unicast_seqno_request(struct babel_route *r)
     TRACE(D_EVENTS, "Sending seqno request for %I/%d router_id %lR",
           e->n.prefix, e->n.pxlen, r->router_id);
 
-    tlv.type = BABEL_TYPE_SEQNO_REQUEST;
+    tlv.type = BABEL_TLV_SEQNO_REQUEST;
     tlv.seqno_request.plen = e->n.pxlen;
     tlv.seqno_request.seqno = s->seqno + 1;
     tlv.seqno_request.hop_count = BABEL_INITIAL_HOP_COUNT;
@@ -467,7 +467,7 @@ babel_send_route_request(struct babel_entry *e, struct babel_neighbor *n)
   union babel_tlv tlv = {0};
   TRACE(D_PACKETS, "Babel: Sending route request for %I/%d to %I\n",
         e->n.prefix, e->n.pxlen, n->addr);
-  tlv.type = BABEL_TYPE_ROUTE_REQUEST;
+  tlv.type = BABEL_TLV_ROUTE_REQUEST;
   tlv.route_request.prefix = e->n.prefix;
   tlv.route_request.plen = e->n.pxlen;
   babel_send_unicast(&tlv, ifa, n->addr);
@@ -555,7 +555,7 @@ babel_send_ack(struct babel_iface *ifa, ip_addr dest, u16 nonce)
   struct babel_proto *p = ifa->proto;
   union babel_tlv tlv = {0};
   TRACE(D_PACKETS, "Sending ACK to %I with nonce %d\n", dest, nonce);
-  tlv.type = BABEL_TYPE_ACK;
+  tlv.type = BABEL_TLV_ACK;
   tlv.ack.nonce = nonce;
   babel_send_unicast(&tlv, ifa, dest);
 }
@@ -564,7 +564,7 @@ static void
 babel_build_ihu(union babel_tlv *tlv, struct babel_iface *ifa, struct babel_neighbor *bn)
 {
   struct babel_proto *p = ifa->proto;
-  tlv->type = BABEL_TYPE_IHU;
+  tlv->type = BABEL_TLV_IHU;
   tlv->ihu.addr = bn->addr;
   tlv->ihu.rxcost = babel_compute_rxcost(bn);
   tlv->ihu.interval = ifa->cf->ihu_interval*100;
@@ -599,7 +599,7 @@ babel_send_hello(struct babel_iface *ifa, u8 send_ihu)
   struct babel_proto *p = ifa->proto;
   union babel_tlv tlv = {0};
   TRACE(D_PACKETS, "Babel: Sending hello on interface %s", ifa->ifname);
-  tlv.type = BABEL_TYPE_HELLO;
+  tlv.type = BABEL_TLV_HELLO;
   tlv.hello.seqno = ifa->hello_seqno++;
   tlv.hello.interval = ifa->cf->hello_interval*100;
   babel_enqueue(&tlv, ifa);
@@ -626,7 +626,7 @@ babel_send_update(struct babel_iface *ifa)
   FIB_WALK(&p->rtable, n)
   {
     union babel_tlv tlv = {0};
-    tlv.type = BABEL_TYPE_UPDATE;
+    tlv.type = BABEL_TLV_UPDATE;
     e = (struct babel_entry *)n;
     r = e->selected;
     if (!r) continue;
@@ -911,7 +911,7 @@ static void babel_send_retraction(struct babel_iface *ifa, ip_addr prefix, int p
 {
   struct babel_proto *p = ifa->proto;
   union babel_tlv tlv = {0};
-  tlv.type = BABEL_TYPE_UPDATE;
+  tlv.type = BABEL_TLV_UPDATE;
   tlv.update.plen = plen;
   tlv.update.interval = ifa->cf->update_interval*100;
   tlv.update.seqno = p->update_seqno;
@@ -1009,7 +1009,7 @@ babel_forward_seqno_request(struct babel_entry *e,
       if (!cache_seqno_request(p, e->n.prefix, e->n.pxlen, in->router_id, in->seqno))
 	return;
       union babel_tlv tlv = {0};
-      tlv.type = BABEL_TYPE_SEQNO_REQUEST;
+      tlv.type = BABEL_TLV_SEQNO_REQUEST;
       tlv.seqno_request.plen = in->plen;
       tlv.seqno_request.seqno = in->seqno;
       tlv.seqno_request.hop_count = in->hop_count-1;
