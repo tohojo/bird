@@ -647,36 +647,45 @@ babel_process_packet(struct babel_pkt_header *pkt, int size,
     .saddr	  = saddr,
     .next_hop	  = saddr,
   };
-  list tlvs;
+  char *ptr = (char *)tlv;
+  u16 len = get_u16(&pkt->length);
   struct babel_tlv_node *cur;
-  init_list(&tlvs);
-  char *ptr = (char *)pkt;
   enum parse_result res;
+  list tlvs;
+  init_list(&tlvs);
 
-  pkt->length = ntohs(pkt->length);
   if(pkt->magic != BABEL_MAGIC
      || pkt->version != BABEL_VERSION
-     || pkt->length > size - sizeof(struct babel_pkt_header))
+     || len + sizeof(struct babel_pkt_header) > size )
   {
-    DBG("Invalid packet: magic %d version %d length %d size %d\n",
+    log(L_ERR "Babel: Invalid packet: magic %d version %d length %d size %d\n",
 	pkt->magic, pkt->version, pkt->length, size);
     return;
   }
 
-  cur = sl_alloc(proto->tlv_slab);
-  while((char *)tlv < ptr + size)
+
+  /* First pass through the packet TLV by TLV, parsing each into internal data
+     structures. */
+  for(cur = sl_alloc(proto->tlv_slab);
+      (char *)tlv < ptr + len;
+      NEXT_TLV(tlv))
   {
+    if((char *)tlv + tlv->length > ptr + len) {
+      log(L_ERR "Babel: Framing error: TLV type %d length %d exceeds end of packet\n",
+          tlv->type, tlv->length);
+      sl_free(proto->tlv_slab, cur);
+      break;
+    }
+
     if((res = read_tlv(tlv, &cur->tlv, &state)) == PARSE_SUCCESS)
     {
       cur->tlv.type = tlv->type;
       add_tail(&tlvs, NODE cur);
-      NEXT_TLV(tlv);
       cur = sl_alloc(proto->tlv_slab);
     }
     else if(res == PARSE_IGNORE)
     {
       DBG("Ignoring TLV of type %d\n",tlv->type);
-      NEXT_TLV(tlv);
     }
     else
     {
@@ -685,6 +694,8 @@ babel_process_packet(struct babel_pkt_header *pkt, int size,
       break;
     }
   }
+
+  /* Parsing done, handle all parsed TLVs */
   WALK_LIST_FIRST(cur, tlvs) {
     if(tlv_data[cur->tlv.type].handle_tlv != NULL)
       tlv_data[cur->tlv.type].handle_tlv(&cur->tlv, bif);
@@ -696,7 +707,7 @@ babel_process_packet(struct babel_pkt_header *pkt, int size,
 static void
 babel_tx_err( sock *s, int err )
 {
-  log( L_ERR ": Unexpected error at Babel transmit: %M", err );
+  log( L_ERR "Babel: Unexpected error at Babel transmit: %M", err );
 }
 
 
