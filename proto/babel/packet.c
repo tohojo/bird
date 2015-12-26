@@ -466,6 +466,9 @@ babel_write_update(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv,
   u8 size, len = (tlv->update.plen + 7)/8;
   size = sizeof(struct babel_pkt_tlv_update) + len;
 
+  /* If we haven't added the right router ID previous to this update, we really
+     add two TLVs to the packet buffer. Check that we have space for this (if
+     relevant), and also if we have space for the update TLV itself.. */
   if(max_len < size || ((!state->router_id_seen ||
                          state->router_id != tlv->update.router_id) &&
                         max_len < size + sizeof(struct babel_pkt_tlv_router_id)))
