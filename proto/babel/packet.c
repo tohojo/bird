@@ -291,6 +291,7 @@ babel_read_update(struct babel_pkt_tlv_header *hdr,
   }
   if (pkt_tlv->flags & BABEL_FLAG_ROUTER_ID)
   {
+    if(pkt_tlv->ae == BABEL_AE_IP4) return PARSE_ERROR;
     state->router_id = ((u64) _I2(tlv->update.prefix)) << 32 | _I3(tlv->update.prefix);
     state->router_id_seen = 1;
   }
