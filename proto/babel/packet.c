@@ -708,9 +708,13 @@ babel_process_packet(struct babel_pkt_header *pkt, int size,
 }
 
 static void
-babel_tx_err( sock *s, int err )
+babel_err_hook( sock *sk, int err )
 {
-  log( L_ERR "Babel: Unexpected error at Babel transmit: %M", err );
+  struct babel_iface *ifa = sk->data;
+  struct babel_proto *p = ifa->proto;
+
+  log(L_ERR "%s: Socket error on %s: %M", p->p.name, ifa->iface->name, err);
+
 }
 
 
@@ -746,11 +750,11 @@ babel_open_socket(struct babel_iface *ifa)
   sock->type = SK_UDP;
   sock->sport = ifa->cf->port;
   sock->rx_hook = babel_rx;
-  sock->data =  ifa;
+  sock->data = ifa;
   sock->rbsize = MAX(512, ifa->iface->mtu);
   sock->tbsize = sock->rbsize;
   sock->iface = ifa->iface;
-  sock->err_hook = babel_tx_err;
+  sock->err_hook = babel_err_hook;
   sock->dport = ifa->cf->port;
   sock->daddr = IP6_BABEL_ROUTERS;
 
