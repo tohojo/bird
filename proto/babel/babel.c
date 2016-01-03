@@ -75,7 +75,8 @@ babel_init_entry(struct fib_node *n)
 {
   struct babel_entry *e = (struct babel_entry *)n;
   e->proto = NULL;
-  e->selected = NULL;
+  e->selected_in = NULL;
+  e->selected_out = NULL;
   e->updated = now;
   init_list(&e->sources);
   init_list(&e->routes);
@@ -179,10 +180,8 @@ babel_flush_route(struct babel_route *r)
       r->e->n.prefix, r->e->n.pxlen, r->router_id, r->neigh ? r->neigh->addr : IPA_NONE);
   rem_node(NODE r);
   if (r->neigh) rem_node(&r->neigh_route);
-  if (r->e->selected == r) {
-    r->e->selected = NULL;
-    r->e->updated = now;
-  }
+  if (r->e->selected_in == r) r->e->selected_in = NULL;
+  if (r->e->selected_out == r) r->e->selected_out = NULL;
   sl_free(p->route_slab, r);
 }
 
@@ -209,7 +208,7 @@ expire_route(struct babel_route *r)
 static void
 refresh_route(struct babel_route *r)
 {
-  if (!r->neigh || r != r->e->selected) return;
+  if (!r->neigh || r != r->e->selected_in) return;
   babel_send_route_request(r->e, r->neigh);
 }
 
@@ -423,7 +422,7 @@ static void
 babel_send_seqno_request(struct babel_entry *e)
 {
   struct babel_proto *p = e->proto;
-  struct babel_route *r = e->selected;
+  struct babel_route *r = e->selected_in;
   struct babel_source *s = babel_find_source(e, r->router_id);
   struct babel_iface *ifa;
   union babel_tlv tlv = {};
@@ -506,7 +505,7 @@ babel_select_route(struct babel_entry *e)
 {
   struct babel_proto *p = e->proto;
   net *n = net_get(p->p.table, e->n.prefix, e->n.pxlen);
-  struct babel_route *r, *cur = e->selected;
+  struct babel_route *r, *cur = e->selected_in;
 
   /* try to find the best feasible route */
   WALK_LIST(r, e->routes)
@@ -515,20 +514,20 @@ babel_select_route(struct babel_entry *e)
 		      r->seqno, r->advert_metric))
       cur = r;
 
-  if (cur && cur->neigh && ((!e->selected && cur->metric < BABEL_INFINITY)
-			   || (e->selected && cur->metric < e->selected->metric)))
+  if (cur && cur->neigh && ((!e->selected_in && cur->metric < BABEL_INFINITY)
+			   || (e->selected_in && cur->metric < e->selected_in->metric)))
                            {
       TRACE(D_EVENTS, "Picked new route for prefix %I/%d: router id %lR metric %d",
 	    e->n.prefix, e->n.pxlen, cur->router_id, cur->metric);
       /* Notify the nest of the update. If we change router ID, we also trigger
 	 a global update. */
-      if (!e->selected ||
-         e->selected->metric == BABEL_INFINITY ||
-         e->selected->router_id != cur->router_id)
+      if (!e->selected_in ||
+         e->selected_in->metric == BABEL_INFINITY ||
+         e->selected_in->router_id != cur->router_id)
 
         babel_trigger_update(p);
 
-      e->selected = cur;
+      e->selected_in = cur;
       e->updated = now;
       rte_update(&p->p, n, babel_build_rte(p, n, cur));
   }
@@ -539,16 +538,15 @@ babel_select_route(struct babel_entry *e)
        (as unreachable), then send a seqno request.
 
        babel_build_rte() will set the unreachable flag if the metric is BABEL_INFINITY.*/
-    if (e->selected)
+    if (e->selected_in)
     {
       TRACE(D_EVENTS, "Lost feasible route for prefix %I/%d: sending update and seqno request",
 	    e->n.prefix, e->n.pxlen);
-      e->selected->metric = BABEL_INFINITY;
+      e->selected_in->metric = BABEL_INFINITY;
       e->updated = now;
-      rte_update(&p->p, n, babel_build_rte(p, n, e->selected));
 
-      babel_trigger_update(p);
       babel_send_seqno_request(e);
+      rte_update(&p->p, n, babel_build_rte(p, n, e->selected_in));
     }
     else
     {
@@ -556,7 +554,7 @@ babel_select_route(struct babel_entry *e)
 	 don't have a route to this destination anymore (and were probably
 	 called from an expiry timer). Remove the route from the nest. */
       TRACE(D_EVENTS, "Flushing route for prefix %I/%d", e->n.prefix, e->n.pxlen);
-      e->selected = NULL;
+      e->selected_in = NULL;
       e->updated = now;
       rte_update(&p->p, n, NULL);
     }
@@ -688,7 +686,7 @@ babel_send_update(struct babel_iface *ifa, bird_clock_t changed)
     union babel_tlv tlv = {};
     tlv.type = BABEL_TLV_UPDATE;
     e = (struct babel_entry *)n;
-    r = e->selected;
+    r = e->selected_out;
     if (!r) continue;
 
 
@@ -932,7 +930,7 @@ babel_handle_update(union babel_tlv *inc, struct babel_iface *ifa)
     r->next_hop = tlv->next_hop;
     r->seqno = tlv->seqno;
   }
-  else if (r == r->e->selected && !feasible)
+  else if (r == r->e->selected_in && !feasible)
   {
 
     /* route is installed and update is infeasible - we may lose the route, so
@@ -1099,11 +1097,11 @@ babel_handle_seqno_request(union babel_tlv *inc, struct babel_iface *ifa)
 
   /* ignore if we have no such entry or entry has infinite metric */
   e = babel_find_entry(p, tlv->prefix, tlv->plen);
-  if (!e || !e->selected || e->selected->metric == BABEL_INFINITY) return;
+  if (!e || !e->selected_out || e->selected_out->metric == BABEL_INFINITY) return;
 
   /* trigger update on incoming interface if we have a selected route with
      different router id or seqno no smaller than requested */
-  r = e->selected;
+  r = e->selected_out;
   if (r->router_id != tlv->router_id || ge_mod64k(r->seqno, tlv->seqno))
   {
     e->updated = now;
@@ -1149,7 +1147,13 @@ babel_dump_entry(struct babel_entry *e)
   debug("Babel: Entry %I/%d:\n", e->n.prefix, e->n.pxlen);
   struct babel_source *s; struct babel_route *r;
   WALK_LIST(s,e->sources) { debug(" "); babel_dump_source(s); }
-  WALK_LIST(r,e->routes) { debug(r==e->selected?" * " : " "); babel_dump_route(r); }
+  WALK_LIST(r,e->routes)
+  {
+    debug(" ");
+    if (r==e->selected_out) debug("*");
+    if (r==e->selected_in) debug("+");
+    babel_dump_route(r);
+  }
 }
 
 static void
@@ -1428,26 +1432,30 @@ babel_rt_notify(struct proto *P, struct rtable *table UNUSED, struct network *ne
   if (new)
   {
     e = babel_get_entry(p, net->n.prefix, net->n.pxlen);
-    r = (e->selected) ? e->selected : babel_get_route(e, NULL);
+    r = (new->attrs->src->proto == P) ? e->selected_in : babel_get_route(e, NULL);
 
     if (!r->neigh)
     {
       r->seqno = p->update_seqno;
       r->router_id = p->router_id;
       r->metric = 0;
-      e->selected = r;
+    }
+
+    if (r != e->selected_out) {
+      e->selected_out = r;
+      e->updated = now;
     }
   }
   else if (old)
   {
     /* route has gone away; send retraction */
     e = babel_find_entry(p, net->n.prefix, net->n.pxlen);
-    if (e && e->selected && !e->selected->neigh)
+    if (e && e->selected_out && !e->selected_out->neigh)
     {
       /* no neighbour, so our route */
-      e->selected->metric = BABEL_INFINITY;
-      e->selected->expires = now + BABEL_HOLD_TIME;
-      babel_select_route(e);
+      e->selected_out->metric = BABEL_INFINITY;
+      e->selected_out->expires = now + BABEL_HOLD_TIME;
+      e->updated = now;
     }
   }
   else

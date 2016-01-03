@@ -274,7 +274,8 @@ struct babel_route {
 struct babel_entry {
   struct fib_node n;
   struct babel_proto *proto;
-  struct babel_route *selected;
+  struct babel_route *selected_in;
+  struct babel_route *selected_out;
 
   bird_clock_t updated;
 
