@@ -192,6 +192,8 @@ struct babel_iface {
 
   struct babel_iface_config *cf;
 
+  u8 up;
+
   pool *pool;
   char *ifname;
   sock *sock;
@@ -200,13 +202,14 @@ struct babel_iface {
   list neigh_list; /* List of neighbors seen on this iface (struct babel_neighbor) */
   list tlv_queue;
 
-  int update_triggered;
-
   u16 hello_seqno;              /* To be increased on each hello */
 
-  timer *hello_timer;
-  timer *update_timer;
-  timer *packet_timer;
+  bird_clock_t next_hello;
+  bird_clock_t next_regular;
+  bird_clock_t next_triggered;
+  bird_clock_t want_triggered;
+
+  timer *timer;
   event *send_event;
 
 };
@@ -273,6 +276,8 @@ struct babel_entry {
   struct babel_proto *proto;
   struct babel_route *selected;
 
+  bird_clock_t updated;
+
   list sources;   /* Source table entries for this prefix (struct babel_source). */
   list routes;    /* Routes for this prefix (struct babel_route). */
 };
@@ -292,7 +297,7 @@ struct babel_proto {
   list interfaces;     /* Interfaces we really know about (struct babel_iface) */
   u16 update_seqno;   /* To be increased on request */
   u64 router_id;
-  event  *update_event;   /* For triggering global updates */
+  u8 triggered;   /* For triggering global updates */
 
   slab *entry_slab;
   slab *route_slab;
@@ -330,6 +335,6 @@ void babel_enqueue(union babel_tlv *tlv, struct babel_iface *ifa);
 void babel_send_hello(struct babel_iface *ifa, u8 send_ihu);
 void babel_send_unicast(union babel_tlv *tlv, struct babel_iface *ifa, ip_addr dest);
 void babel_send_queue(void *arg);
-void babel_send_update(struct babel_iface *ifa);
+void babel_send_update(struct babel_iface *ifa, bird_clock_t changed);
 void babel_init_packet(void *buf);
 int babel_open_socket(struct babel_iface *ifa);

@@ -38,6 +38,7 @@
 #undef LOCAL_DEBUG
 #define LOCAL_DEBUG 1
 
+#include <stdlib.h>
 #include "babel.h"
 
 
@@ -66,6 +67,7 @@ static void babel_select_route(struct babel_entry *e);
 static void babel_send_route_request(struct babel_entry *e, struct babel_neighbor *n);
 static int cache_seqno_request(struct babel_proto *p, ip_addr prefix, u8 plen,
 			       u64 router_id, u16 seqno);
+static void babel_trigger_update(struct babel_proto *p);
 
 
 static void
@@ -74,6 +76,7 @@ babel_init_entry(struct fib_node *n)
   struct babel_entry *e = (struct babel_entry *)n;
   e->proto = NULL;
   e->selected = NULL;
+  e->updated = now;
   init_list(&e->sources);
   init_list(&e->routes);
 }
@@ -176,7 +179,10 @@ babel_flush_route(struct babel_route *r)
       r->e->n.prefix, r->e->n.pxlen, r->router_id, r->neigh ? r->neigh->addr : IPA_NONE);
   rem_node(NODE r);
   if (r->neigh) rem_node(&r->neigh_route);
-  if (r->e->selected == r) r->e->selected = NULL;
+  if (r->e->selected == r) {
+    r->e->selected = NULL;
+    r->e->updated = now;
+  }
   sl_free(p->route_slab, r);
 }
 
@@ -520,9 +526,10 @@ babel_select_route(struct babel_entry *e)
          e->selected->metric == BABEL_INFINITY ||
          e->selected->router_id != cur->router_id)
 
-	ev_schedule(p->update_event);
+        babel_trigger_update(p);
 
       e->selected = cur;
+      e->updated = now;
       rte_update(&p->p, n, babel_build_rte(p, n, cur));
   }
   else if (!cur || cur->metric == BABEL_INFINITY)
@@ -537,9 +544,10 @@ babel_select_route(struct babel_entry *e)
       TRACE(D_EVENTS, "Lost feasible route for prefix %I/%d: sending update and seqno request",
 	    e->n.prefix, e->n.pxlen);
       e->selected->metric = BABEL_INFINITY;
+      e->updated = now;
       rte_update(&p->p, n, babel_build_rte(p, n, e->selected));
 
-      ev_schedule(p->update_event);
+      babel_trigger_update(p);
       babel_send_seqno_request(e);
     }
     else
@@ -549,6 +557,7 @@ babel_select_route(struct babel_entry *e)
 	 called from an expiry timer). Remove the route from the nest. */
       TRACE(D_EVENTS, "Flushing route for prefix %I/%d", e->n.prefix, e->n.pxlen);
       e->selected = NULL;
+      e->updated = now;
       rte_update(&p->p, n, NULL);
     }
   }
@@ -613,21 +622,67 @@ babel_send_hello(struct babel_iface *ifa, u8 send_ihu)
 }
 
 static void
-babel_hello_timer(timer *t)
+babel_iface_timer(timer *t)
 {
   struct babel_iface *ifa = t->data;
-  babel_send_hello(ifa, (ifa->cf->type == BABEL_IFACE_TYPE_WIRELESS ||
-                         ifa->hello_seqno % BABEL_IHU_INTERVAL_FACTOR == 0));
+  struct babel_proto *p = ifa->proto;
+  bird_clock_t hello_period = ifa->cf->hello_interval;
+  bird_clock_t update_period = ifa->cf->update_interval;
+
+  if(now >= ifa->next_hello) {
+    babel_send_hello(ifa, (ifa->cf->type == BABEL_IFACE_TYPE_WIRELESS ||
+                           ifa->hello_seqno % BABEL_IHU_INTERVAL_FACTOR == 0));
+    ifa->next_hello +=  hello_period * (1 + (now - ifa->next_hello) / hello_period);
+  }
+
+  if(now >= ifa->next_regular) {
+    TRACE(D_EVENTS, "Sending regular update on interface %s", ifa->ifname);
+    babel_send_update(ifa, 0);
+    ifa->next_regular += update_period * (1 + (now - ifa->next_regular) / update_period);
+    ifa->want_triggered = 0;
+    p->triggered = 0;
+  } else if(ifa->want_triggered && now >= ifa->next_triggered) {
+    TRACE(D_EVENTS, "Sending triggered update on interface %s", ifa->ifname);
+    babel_send_update(ifa, ifa->want_triggered);
+    ifa->next_triggered = now + MIN(5, update_period / 2 + 1);
+    ifa->want_triggered = 0;
+    p->triggered = 0;
+  }
+  tm_start(ifa->timer, ifa->want_triggered ? 1 : MIN(ifa->next_regular,
+                                                     ifa->next_hello) - now);
 }
 
+void babel_iface_start(struct babel_iface *ifa)
+{
+  struct babel_proto *p = ifa->proto;
+  TRACE(D_EVENTS, "Starting interface %s", ifa->ifname);
+  ifa->next_hello = now + (random() % ifa->cf->hello_interval) + 1;
+  ifa->next_regular = now + (random() % ifa->cf->update_interval) + 1;
+  ifa->next_triggered = now;	/* Available immediately */
+  ifa->want_triggered = 1;	/* All routes in triggered update */
+
+  tm_start(ifa->timer, 1);
+  ifa->up = 1;
+
+  babel_send_hello(ifa,0);
+}
+
+static inline void
+babel_iface_kick_timer(struct babel_iface *ifa)
+{
+  if (ifa->timer->expires > (now + 1))
+    tm_start(ifa->timer, 1);	/* Or 100 ms */
+}
+
+
 void
-babel_send_update(struct babel_iface *ifa)
+babel_send_update(struct babel_iface *ifa, bird_clock_t changed)
 {
   struct babel_proto *p = ifa->proto;
   struct babel_entry *e;
   struct babel_route *r;
   struct babel_source *s;
-  TRACE(D_PACKETS, "Sending update on %s", ifa->ifname);
+  TRACE(D_PACKETS, "Sending update on %s changed %d", ifa->ifname, changed);
   FIB_WALK(&p->rtable, n)
   {
     union babel_tlv tlv = {};
@@ -639,8 +694,15 @@ babel_send_update(struct babel_iface *ifa)
 
     /* Our own seqno might have changed, in which case we update the routes we
        originate. */
-    if (r->router_id == p->router_id && r->seqno < p->update_seqno)
+    if (r->router_id == p->router_id && r->seqno < p->update_seqno) {
       r->seqno = p->update_seqno;
+      e->updated = now;
+    }
+
+    /* skip routes that weren't updated since 'changed' time */
+    if(e->updated < changed)
+      continue;
+
     tlv.update.plen = e->n.pxlen;
     tlv.update.interval = ifa->cf->update_interval*100;
     tlv.update.seqno = r->seqno;
@@ -663,22 +725,25 @@ babel_send_update(struct babel_iface *ifa)
 
 /* Sends and update on all interfaces. */
 static void
-babel_global_update(void *arg)
+babel_trigger_update(struct babel_proto *p)
 {
-  struct babel_proto *p = arg;
+  if(p->triggered)
+    return;
   struct babel_iface *ifa;
   TRACE(D_EVENTS, "Sending global update. Seqno %d", p->update_seqno);
-  WALK_LIST(ifa, p->interfaces)
-    ifa->update_triggered = 1;
-}
+  WALK_LIST(ifa, p->interfaces) {
 
-static void
-babel_update_timer(timer *t)
-{
-  struct babel_iface *ifa = t->data;
-  struct babel_proto *p = ifa->proto;
-  TRACE(D_EVENTS, "Update timer firing");
-  ifa->update_triggered = 1;
+    if(!ifa->up)
+      continue;
+
+    /* already triggered */
+    if(ifa->want_triggered)
+      continue;
+
+    ifa->want_triggered = now;
+    babel_iface_kick_timer(ifa);
+  }
+  p->triggered = 1;
 }
 
 
@@ -932,7 +997,7 @@ babel_handle_route_request(union babel_tlv *inc, struct babel_iface *ifa)
   /* Wildcard request - full update on the interface */
   if (ipa_equal(tlv->prefix,IPA_NONE))
   {
-    ifa->update_triggered = 1;
+    ifa->want_triggered = 1;
     return;
   }
   /* Non-wildcard request - see if we have an entry for the route. If not, send
@@ -944,7 +1009,8 @@ babel_handle_route_request(union babel_tlv *inc, struct babel_iface *ifa)
   }
   else
   {
-    ifa->update_triggered = 1;
+    e->updated = now;
+    ifa->want_triggered = now;
   }
 }
 
@@ -1040,7 +1106,8 @@ babel_handle_seqno_request(union babel_tlv *inc, struct babel_iface *ifa)
   r = e->selected;
   if (r->router_id != tlv->router_id || ge_mod64k(r->seqno, tlv->seqno))
   {
-    ifa->update_triggered = 1;
+    e->updated = now;
+    ifa->want_triggered = now;
     return;
   }
 
@@ -1049,7 +1116,7 @@ babel_handle_seqno_request(union babel_tlv *inc, struct babel_iface *ifa)
   {
     /* ours; update seqno and trigger global update */
     p->update_seqno++;
-    ev_schedule(p->update_event);
+    babel_trigger_update(p);
   }
   /* not ours; forward if TTL allows */
   else if (tlv->hop_count > 1)
@@ -1216,17 +1283,6 @@ babel_if_notify(struct proto *P, unsigned c, struct iface *iface)
   }
 }
 
-void
-babel_queue_timer(timer *t)
-{
-  struct babel_iface *ifa = t->data;
-  if (ifa->update_triggered)
-  {
-    babel_send_update(ifa);
-    ifa->update_triggered = 0;
-  }
-  ev_schedule(ifa->send_event);
-}
 
 static void
 babel_new_interface(struct babel_proto *p, struct iface *new,
@@ -1279,9 +1335,7 @@ babel_new_interface(struct babel_proto *p, struct iface *new,
   ifa->hello_seqno = 1;
   ifa->max_pkt_len = new->mtu - BABEL_OVERHEAD;
 
-  ifa->hello_timer = tm_new_set(ifa->pool, babel_hello_timer, ifa, 0, ifa->cf->hello_interval);
-  ifa->update_timer = tm_new_set(ifa->pool, babel_update_timer, ifa, 0, ifa->cf->update_interval);
-  ifa->packet_timer = tm_new_set(ifa->pool, babel_queue_timer, ifa, BABEL_MAX_SEND_INTERVAL, 1);
+  ifa->timer = tm_new_set(ifa->pool, babel_iface_timer, ifa, 0, 0);
 
 
   init_list(&ifa->tlv_queue);
@@ -1400,7 +1454,7 @@ babel_rt_notify(struct proto *P, struct rtable *table UNUSED, struct network *ne
   {
     return;
   }
-  ev_schedule(p->update_event);
+  babel_trigger_update(p);
 }
 
 static int
@@ -1470,9 +1524,6 @@ babel_start(struct proto *P)
   tm_start(p->timer, 2);
   p->update_seqno = 1;
   p->router_id = proto_get_router_id(&cf->c);
-  p->update_event = ev_new(P->pool);
-  p->update_event->hook = babel_global_update;
-  p->update_event->data = p;
 
   p->entry_slab = sl_new(P->pool, sizeof(struct babel_entry));
   p->route_slab = sl_new(P->pool, sizeof(struct babel_route));

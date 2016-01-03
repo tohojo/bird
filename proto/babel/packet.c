@@ -621,6 +621,7 @@ babel_enqueue(union babel_tlv *tlv, struct babel_iface *ifa)
   struct babel_tlv_node *tlvn = sl_alloc(p->tlv_slab);
   tlvn->tlv = *tlv;
   add_tail(&ifa->tlv_queue, NODE tlvn);
+  ev_schedule(ifa->send_event);
 }
 
 
@@ -772,12 +773,7 @@ babel_open_socket(struct babel_iface *ifa)
 
   ifa->sock = sk;
 
-  tm_start(ifa->hello_timer, ifa->cf->hello_interval);
-  tm_start(ifa->update_timer, ifa->cf->update_interval);
-  tm_start(ifa->packet_timer, 1);
-
-  babel_send_hello(ifa,0);
-  babel_send_queue(ifa);
+  babel_iface_start(ifa);
 
   return 1;
 
