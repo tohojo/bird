@@ -627,19 +627,19 @@ babel_iface_timer(timer *t)
   bird_clock_t hello_period = ifa->cf->hello_interval;
   bird_clock_t update_period = ifa->cf->update_interval;
 
-  if(now >= ifa->next_hello) {
+  if (now >= ifa->next_hello) {
     babel_send_hello(ifa, (ifa->cf->type == BABEL_IFACE_TYPE_WIRELESS ||
                            ifa->hello_seqno % BABEL_IHU_INTERVAL_FACTOR == 0));
     ifa->next_hello +=  hello_period * (1 + (now - ifa->next_hello) / hello_period);
   }
 
-  if(now >= ifa->next_regular) {
+  if (now >= ifa->next_regular) {
     TRACE(D_EVENTS, "Sending regular update on interface %s", ifa->ifname);
     babel_send_update(ifa, 0);
     ifa->next_regular += update_period * (1 + (now - ifa->next_regular) / update_period);
     ifa->want_triggered = 0;
     p->triggered = 0;
-  } else if(ifa->want_triggered && now >= ifa->next_triggered) {
+  } else if (ifa->want_triggered && now >= ifa->next_triggered) {
     TRACE(D_EVENTS, "Sending triggered update on interface %s", ifa->ifname);
     babel_send_update(ifa, ifa->want_triggered);
     ifa->next_triggered = now + MIN(5, update_period / 2 + 1);
@@ -680,7 +680,6 @@ babel_send_update(struct babel_iface *ifa, bird_clock_t changed)
   struct babel_entry *e;
   struct babel_route *r;
   struct babel_source *s;
-  TRACE(D_PACKETS, "Sending update on %s changed %d", ifa->ifname, changed);
   FIB_WALK(&p->rtable, n)
   {
     union babel_tlv tlv = {};
@@ -698,7 +697,7 @@ babel_send_update(struct babel_iface *ifa, bird_clock_t changed)
     }
 
     /* skip routes that weren't updated since 'changed' time */
-    if(e->updated < changed)
+    if (e->updated < changed)
       continue;
 
     tlv.update.plen = e->n.pxlen;
@@ -725,17 +724,17 @@ babel_send_update(struct babel_iface *ifa, bird_clock_t changed)
 static void
 babel_trigger_update(struct babel_proto *p)
 {
-  if(p->triggered)
+  if (p->triggered)
     return;
   struct babel_iface *ifa;
   TRACE(D_EVENTS, "Sending global update. Seqno %d", p->update_seqno);
   WALK_LIST(ifa, p->interfaces) {
 
-    if(!ifa->up)
+    if (!ifa->up)
       continue;
 
     /* already triggered */
-    if(ifa->want_triggered)
+    if (ifa->want_triggered)
       continue;
 
     ifa->want_triggered = now;

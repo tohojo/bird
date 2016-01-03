@@ -581,7 +581,7 @@ static int babel_write_queue(struct babel_iface *ifa, list queue)
   struct babel_write_state state = {};
   u16 written, len = 0;
 
-  if(EMPTY_LIST(queue))
+  if (EMPTY_LIST(queue))
     return 0;
 
   babel_init_packet(dst);
