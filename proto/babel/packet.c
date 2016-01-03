@@ -355,24 +355,31 @@ babel_read_seqno_request(struct babel_pkt_tlv_header *hdr,
   tlv->seqno_request.hop_count = pkt_tlv->hop_count;
   tlv->seqno_request.router_id = get_u64(&pkt_tlv->router_id);
 
-  if (tlv->seqno_request.plen > MAX_PREFIX_LENGTH)
+  if (tlv->seqno_request.plen > MAX_PREFIX_LENGTH) {
+    DBG("Babel: Prefix len too long\n");
     return PARSE_ERROR;
+  }
 
   /* Prefixes cannot be link-local addresses. */
-  if (tlv->seqno_request.ae >= BABEL_AE_IP6_LL)
+  if (tlv->seqno_request.ae >= BABEL_AE_IP6_LL) {
+    DBG("Babel: Invalid AE\n");
     return PARSE_ERROR;
+  }
 
   /* enough space to hold the prefix */
-  if (TLV_SIZE(hdr) < sizeof(struct babel_pkt_tlv_seqno_request) + len)
+  if (TLV_SIZE(hdr) < sizeof(struct babel_pkt_tlv_seqno_request) + len) {
+    DBG("Babel: TLV size too small\n");
     return PARSE_ERROR;
+  }
 
-  /* wildcard requests must have plen 0, others must not */
-  if ((tlv->seqno_request.ae == BABEL_AE_WILDCARD && tlv->seqno_request.plen > 0) ||
-     (tlv->seqno_request.ae != BABEL_AE_WILDCARD && tlv->seqno_request.plen == 0))
+  /* wildcard requests not allowed */
+  if (tlv->seqno_request.ae == BABEL_AE_WILDCARD) {
+    DBG("Babel: Wildcard request disallowed\n");
     return PARSE_ERROR;
+  }
 
   /* IP address decoding */
-  if (tlv->seqno_request.ae == BABEL_AE_WILDCARD || tlv->seqno_request.ae == BABEL_AE_IP4)
+  if (tlv->seqno_request.plen == 0 || tlv->seqno_request.ae == BABEL_AE_IP4)
   {
     tlv->seqno_request.prefix = IPA_NONE;
   }
@@ -384,6 +391,7 @@ babel_read_seqno_request(struct babel_pkt_tlv_header *hdr,
 
   tlv->seqno_request.sender = state->saddr;
   return PARSE_SUCCESS;
+
 }
 
 static int
@@ -726,7 +734,7 @@ babel_rx_hook(sock *sk, int size)
   if (!ifa->iface || sk->lifindex != ifa->iface->index)
     return 1;
 
-  TRACE(D_PACKETS, "incoming packet: %d bytes from %I via %s", size, sk->faddr, ifa->iface->name);
+  TRACE(D_PACKETS, "Incoming packet: %d bytes from %I via %s", size, sk->faddr, ifa->iface->name);
   if (size < sizeof(struct babel_pkt_header)) BAD("Too small packet");
 
   if (ipa_equal(ifa->iface->addr->ip, sk->faddr))

@@ -338,3 +338,4 @@ void babel_send_queue(void *arg);
 void babel_send_update(struct babel_iface *ifa, bird_clock_t changed);
 void babel_init_packet(void *buf);
 int babel_open_socket(struct babel_iface *ifa);
+void babel_iface_start(struct babel_iface *ifa);
