@@ -1483,7 +1483,7 @@ babel_rt_notify(struct proto *P, struct rtable *table UNUSED, struct network *ne
       e->updated = now;
     }
   }
-  else if (old)
+  else
   {
     /* route has gone away; send retraction */
     e = babel_find_entry(p, net->n.prefix, net->n.pxlen);
@@ -1494,10 +1494,6 @@ babel_rt_notify(struct proto *P, struct rtable *table UNUSED, struct network *ne
       e->selected_out->expires = now + BABEL_HOLD_TIME;
       e->updated = now;
     }
-  }
-  else
-  {
-    return;
   }
   babel_trigger_update(p);
 }
