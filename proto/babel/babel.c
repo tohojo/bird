@@ -405,33 +405,43 @@ compute_metric(struct babel_neighbor *n, uint metric)
   return MIN(metric, BABEL_INFINITY);
 }
 
-static rte *
-babel_build_rte(struct babel_proto *p, net *n, struct babel_route *r)
+
+static void
+babel_announce_rte(struct babel_proto *p, struct babel_entry *e)
 {
-  rta *a;
-  rte *rte;
+  struct babel_route *r = e->selected_in;
+  if (r)
+  {
+    net *n = net_get(p->p.table, e->n.prefix, e->n.pxlen);
+    rta A = {
+      .src = p->p.main_source,
+      .source = RTS_BABEL,
+      .scope = SCOPE_UNIVERSE,
+      .cast = RTC_UNICAST,
+      .dest = r->metric == BABEL_INFINITY ? RTD_UNREACHABLE : RTD_ROUTER,
+      .flags = 0,
+      .from = r->neigh->addr,
+      .iface = r->neigh->ifa->iface,
+    };
 
-  rta A = {
-    .src = p->p.main_source,
-    .source = RTS_BABEL,
-    .scope = SCOPE_UNIVERSE,
-    .cast = RTC_UNICAST,
-    .dest = r->metric == BABEL_INFINITY ? RTD_UNREACHABLE : RTD_ROUTER,
-    .flags = 0,
-    .from = r->neigh->addr,
-    .iface = r->neigh->ifa->iface,
-  };
+    if (r->metric < BABEL_INFINITY)
+      A.gw = r->next_hop;
 
-  if (r->metric < BABEL_INFINITY)
-    A.gw = r->next_hop;
+    rta *a = rta_lookup(&A);
+    rte *rte = rte_get_temp(a);
+    rte->u.babel.metric = r->metric;
+    rte->u.babel.router_id = r->router_id;
+    rte->net = n;
+    rte->pflags = 0;
 
-  a = rta_lookup(&A);
-  rte = rte_get_temp(a);
-  rte->u.babel.metric = r->metric;
-  rte->u.babel.router_id = r->router_id;
-  rte->net = n;
-  rte->pflags = 0;
-  return rte;
+    rte_update(&p->p, n, rte);
+  }
+  else
+  {
+    /* retraction */
+    net *n = net_find(p->p.table, e->n.prefix, e->n.pxlen);
+    rte_update(&p->p, n, NULL);
+  }
 }
 
 /**
@@ -454,7 +464,6 @@ static void
 babel_select_route(struct babel_entry *e)
 {
   struct babel_proto *p = e->proto;
-  net *n = net_get(p->p.table, e->n.prefix, e->n.pxlen);
   struct babel_route *r, *cur = e->selected_in;
 
   /* try to find the best feasible route */
@@ -473,7 +482,7 @@ babel_select_route(struct babel_entry *e)
 
       e->selected_in = cur;
       e->updated = now;
-      rte_update(&p->p, n, babel_build_rte(p, n, cur));
+      babel_announce_rte(p, e);
   }
   else if (!cur || cur->metric == BABEL_INFINITY)
   {
@@ -490,7 +499,7 @@ babel_select_route(struct babel_entry *e)
       e->updated = now;
 
       babel_send_seqno_request(e);
-      rte_update(&p->p, n, babel_build_rte(p, n, e->selected_in));
+      babel_announce_rte(p, e);
     }
     else
     {
@@ -500,7 +509,7 @@ babel_select_route(struct babel_entry *e)
       TRACE(D_EVENTS, "Flushing route for prefix %I/%d", e->n.prefix, e->n.pxlen);
       e->selected_in = NULL;
       e->updated = now;
-      rte_update(&p->p, n, NULL);
+      babel_announce_rte(p, e);
     }
   }
 }
