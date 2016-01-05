@@ -17,7 +17,7 @@
 
 #define BAD(x) { log(L_REMOTE "%s: " x, p->p.name); return 1; }
 #define FIRST_TLV(p) ((struct babel_pkt_tlv_header *)(((struct babel_pkt_header *) p) + 1))
-#define NEXT_TLV(t) (t = (void *)((char *)t) + TLV_SIZE(t))
+#define NEXT_TLV(t) (t = (void *)((byte *)t) + TLV_SIZE(t))
 #define TLV_SIZE(t) (t->type == BABEL_TLV_PAD0 ? 1 : t->length + sizeof(struct babel_pkt_tlv_header))
 
 
@@ -588,10 +588,10 @@ static int babel_write_queue(struct babel_iface *ifa, list queue)
   hdr = FIRST_TLV(dst);
   WALK_LIST_FIRST(cur, ifa->tlv_queue) {
     if ((written = write_tlv(hdr, &cur->tlv, &state,
-                            ifa->max_pkt_len - ((char *)hdr-(char *)dst))) == 0)
+                            ifa->max_pkt_len - ((byte *)hdr-(byte *)dst))) == 0)
       break;
     len += written;
-    hdr = (void *)((char *) hdr + written);
+    hdr = (void *)((byte *) hdr + written);
     rem_node(NODE cur);
     sl_free(p->tlv_slab, cur);
   }
@@ -646,7 +646,7 @@ babel_process_packet(struct babel_pkt_header *pkt, int size,
     .saddr	  = saddr,
     .next_hop	  = saddr,
   };
-  char *ptr = (char *)tlv;
+  byte *ptr = (byte *)tlv;
   u16 len = get_u16(&pkt->length);
   struct babel_tlv_node *cur;
   enum parse_result res;
@@ -666,10 +666,10 @@ babel_process_packet(struct babel_pkt_header *pkt, int size,
   /* First pass through the packet TLV by TLV, parsing each into internal data
      structures. */
   for (cur = sl_alloc(proto->tlv_slab);
-       (char *)tlv < ptr + len;
+       (byte *)tlv < ptr + len;
        NEXT_TLV(tlv))
   {
-    if ((char *)tlv + tlv->length > ptr + len) {
+    if ((byte *)tlv + tlv->length > ptr + len) {
       log(L_ERR "Babel: Framing error: TLV type %d length %d exceeds end of packet\n",
           tlv->type, tlv->length);
       sl_free(proto->tlv_slab, cur);
