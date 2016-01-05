@@ -418,16 +418,12 @@ babel_build_rte(struct babel_proto *p, net *n, struct babel_route *r)
     .cast = RTC_UNICAST,
     .dest = r->metric == BABEL_INFINITY ? RTD_UNREACHABLE : RTD_ROUTER,
     .flags = 0,
+    .from = r->neigh->addr,
+    .iface = r->neigh->ifa->iface,
   };
 
   if (r->metric < BABEL_INFINITY)
     A.gw = r->next_hop;
-
-  if (r->neigh)
-  {
-    A.from = r->neigh->addr;
-    A.iface = r->neigh->ifa->iface;
-  }
 
   a = rta_lookup(&A);
   rte = rte_get_temp(a);
@@ -464,8 +460,9 @@ babel_select_route(struct babel_entry *e)
   /* try to find the best feasible route */
   WALK_LIST(r, e->routes)
     if ((!cur || r->metric < cur->metric)
-       && is_feasible(babel_find_source(e, r->router_id),
-		      r->seqno, r->advert_metric))
+        && r->neigh /* prevent propagating out own routes back to core */
+        && is_feasible(babel_find_source(e, r->router_id),
+                       r->seqno, r->advert_metric))
       cur = r;
 
   if (cur && cur->neigh && ((!e->selected_in && cur->metric < BABEL_INFINITY)
