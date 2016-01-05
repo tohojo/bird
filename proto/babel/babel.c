@@ -1456,6 +1456,133 @@ babel_get_attr(eattr *a, byte *buf, int buflen UNUSED)
   }
 }
 
+void
+babel_show_interfaces(struct proto *P, char *iff)
+{
+  struct babel_proto *p = (void *) P;
+  struct babel_iface *ifa = NULL;
+  struct babel_neighbor *n = NULL;
+
+  if (p->p.proto_state != PS_UP)
+  {
+    cli_msg(-1021, "%s: is not up", p->p.name);
+    cli_msg(0, "");
+    return;
+  }
+
+  cli_msg(-1021, "%s:", p->p.name);
+  cli_msg(-1021, "%-10s %-6s %7s %6s %6s",
+	  "Interface", "State", "RX cost", "Nbrs", "Timer");
+
+  WALK_LIST(ifa, p->interfaces)
+  {
+    if (iff && !patmatch(iff, ifa->iface->name))
+      continue;
+
+    int nbrs = 0;
+    WALK_LIST(n, ifa->neigh_list)
+	nbrs++;
+
+    int timer = MAX(MIN(ifa->next_regular, ifa->next_hello) - now, 0);
+    cli_msg(-1021, "%-10s %-6s %7u %6u %6u",
+	    ifa->iface->name, (ifa->up ? "Up" : "Down"), ifa->cf->rxcost, nbrs, timer);
+  }
+
+  cli_msg(0, "");
+}
+
+void
+babel_show_neighbors(struct proto *P, char *iff)
+{
+  struct babel_proto *p = (void *) P;
+  struct babel_iface *ifa = NULL;
+  struct babel_neighbor *n = NULL;
+  struct babel_route *r = NULL;
+
+  if (p->p.proto_state != PS_UP)
+  {
+    cli_msg(-1022, "%s: is not up", p->p.name);
+    cli_msg(0, "");
+    return;
+  }
+
+  cli_msg(-1022, "%s:", p->p.name);
+  cli_msg(-1022, "%-25s %-10s %6s %6s %10s",
+	  "IP address", "Interface", "Metric", "Routes", "Next hello");
+
+  WALK_LIST(ifa, p->interfaces)
+  {
+    if (iff && !patmatch(iff, ifa->iface->name))
+      continue;
+
+    WALK_LIST(n, ifa->neigh_list)
+    {
+      int rts = 0;
+      WALK_LIST(r, n->routes)
+        rts++;
+      int timer = n->hello_expiry - now;
+      cli_msg(-1022, "%-25I %-10s %6u %6u %10u",
+	      n->addr, ifa->iface->name, n->txcost, rts, timer);
+    }
+  }
+
+  cli_msg(0, "");
+}
+
+void
+babel_show_entries(struct proto *P, char *iff)
+{
+  struct babel_proto *p = (void *) P;
+  struct babel_entry *e = NULL;
+  struct babel_source *s = NULL;
+  struct babel_route *r = NULL;
+
+  char ipbuf[STD_ADDRESS_P_LENGTH+5];
+  char ridbuf[ROUTER_ID_64_LENGTH+1];
+
+  if (p->p.proto_state != PS_UP)
+  {
+    cli_msg(-1022, "%s: is not up", p->p.name);
+    cli_msg(0, "");
+    return;
+  }
+
+  cli_msg(-1022, "%s:", p->p.name);
+  cli_msg(-1022, "%-29s %-23s %6s %5s %7s %7s",
+	  "Prefix", "Router ID", "Metric", "Seqno", "Expires", "Sources");
+
+  FIB_WALK(&p->rtable, n)
+  {
+    e = (struct babel_entry *)n;
+    r = e->selected_in ? e->selected_in : e->selected_out;
+    int srcs = 0;
+    WALK_LIST(s, e->sources)
+      srcs++;
+
+    bsprintf(ipbuf, "%I/%u", e->n.prefix, e->n.pxlen);
+
+    if(r) {
+
+      if(r->router_id == p->router_id)
+        bsprintf(ridbuf, "%s", "<self>");
+      else
+        bsprintf(ridbuf, "%lR", r->router_id);
+
+      int time = r->expires ? r->expires - now : 0;
+
+      cli_msg(-1022, "%-29s %-23s %6u %5u %7u %7u",
+	      ipbuf, ridbuf, r->metric, r->seqno, time, srcs);
+
+    } else {
+
+      cli_msg(-1022, "%-29s %-32s %7u", ipbuf, "<pending>", srcs);
+
+    }
+
+  } FIB_WALK_END;
+
+  cli_msg(0, "");
+}
 
 
 /** Interaction with Bird core **/

@@ -10,6 +10,7 @@
  */
 
 #include "nest/bird.h"
+#include "nest/cli.h"
 #include "nest/iface.h"
 #include "nest/route.h"
 #include "nest/protocol.h"
@@ -340,3 +341,7 @@ void babel_enqueue(union babel_tlv *tlv, struct babel_iface *ifa);
 void babel_send_unicast(union babel_tlv *tlv, struct babel_iface *ifa, ip_addr dest);
 int babel_open_socket(struct babel_iface *ifa);
 void babel_send_queue(void *arg);
+
+void babel_show_interfaces(struct proto *P, char *iff);
+void babel_show_neighbors(struct proto *P, char *iff);
+void babel_show_entries(struct proto *P, char *iff);
