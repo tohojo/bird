@@ -1530,12 +1530,14 @@ babel_show_neighbors(struct proto *P, char *iff)
 }
 
 void
-babel_show_entries(struct proto *P, char *iff)
+babel_show_entries(struct proto *P, char *ent)
 {
   struct babel_proto *p = (void *) P;
   struct babel_entry *e = NULL;
   struct babel_source *s = NULL;
   struct babel_route *r = NULL;
+
+  DBG("%s\n", ent);
 
   char ipbuf[STD_ADDRESS_P_LENGTH+5];
   char ridbuf[ROUTER_ID_64_LENGTH+1];
@@ -1560,6 +1562,9 @@ babel_show_entries(struct proto *P, char *iff)
       srcs++;
 
     bsprintf(ipbuf, "%I/%u", e->n.prefix, e->n.pxlen);
+
+    if (ent && !patmatch(ent, ipbuf))
+      continue;
 
     if(r) {
 
