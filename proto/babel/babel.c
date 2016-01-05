@@ -519,13 +519,6 @@ babel_select_route(struct babel_entry *e)
                            {
       TRACE(D_EVENTS, "Picked new route for prefix %I/%d: router id %lR metric %d",
 	    e->n.prefix, e->n.pxlen, cur->router_id, cur->metric);
-      /* Notify the nest of the update. If we change router ID, we also trigger
-	 a global update. */
-      if (!e->selected_in ||
-         e->selected_in->metric == BABEL_INFINITY ||
-         e->selected_in->router_id != cur->router_id)
-
-        babel_trigger_update(p);
 
       e->selected_in = cur;
       e->updated = now;
@@ -540,7 +533,7 @@ babel_select_route(struct babel_entry *e)
        babel_build_rte() will set the unreachable flag if the metric is BABEL_INFINITY.*/
     if (e->selected_in)
     {
-      TRACE(D_EVENTS, "Lost feasible route for prefix %I/%d: sending update and seqno request",
+      TRACE(D_EVENTS, "Lost feasible route for prefix %I/%d. Sending seqno request",
 	    e->n.prefix, e->n.pxlen);
       e->selected_in->metric = BABEL_INFINITY;
       e->updated = now;
