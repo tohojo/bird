@@ -54,8 +54,6 @@ static inline u16 ge_mod64k(u16 a, u16 b)
   return ((u16) a-b) < 0xfff0;
 }
 
-static void babel_new_interface(struct babel_proto *p, struct iface *new,
-                                unsigned long flags, struct iface_patt *patt);
 static void expire_hello(struct babel_neighbor *n);
 static void expire_ihu(struct babel_neighbor *n);
 static void expire_sources(struct babel_entry *e);
@@ -1117,7 +1115,16 @@ babel_iface_timer(timer *t)
                                                      ifa->next_hello) - now);
 }
 
-void babel_iface_start(struct babel_iface *ifa)
+static inline void
+babel_iface_kick_timer(struct babel_iface *ifa)
+{
+  if (ifa->timer->expires > (now + 1))
+    tm_start(ifa->timer, 1);	/* Or 100 ms */
+}
+
+
+static void
+babel_iface_start(struct babel_iface *ifa)
 {
   struct babel_proto *p = ifa->proto;
   TRACE(D_EVENTS, "Starting interface %s", ifa->ifname);
@@ -1132,41 +1139,19 @@ void babel_iface_start(struct babel_iface *ifa)
   babel_send_hello(ifa,0);
 }
 
-static inline void
-babel_iface_kick_timer(struct babel_iface *ifa)
-{
-  if (ifa->timer->expires > (now + 1))
-    tm_start(ifa->timer, 1);	/* Or 100 ms */
-}
-
-
-static struct babel_iface*
-babel_find_interface(struct babel_proto *p, struct iface *what)
-{
-  struct babel_iface *ifa;
-
-  WALK_LIST (ifa, p->interfaces)
-    if (ifa->iface == what)
-      return ifa;
-  return NULL;
-}
-
 static void
-kill_iface(struct babel_iface *ifa)
+babel_iface_stop(struct babel_iface *ifa)
 {
-  DBG("Babel: Interface %s disappeared\n", ifa->iface->name);
-  struct babel_neighbor *n;
-  WALK_LIST_FIRST(n, ifa->neigh_list)
-    babel_flush_neighbor(n);
-  rfree(ifa->pool);
-}
+  struct babel_proto *p = ifa->proto;
+  TRACE(D_EVENTS, "Stopping interface %s", ifa->ifname);
 
-static void
-babel_iface_linkdown(struct babel_iface *ifa)
-{
   struct babel_neighbor *n;
   struct babel_route *r;
   node *nod;
+
+  /* Rather than just flushing the neighbours, we set the metric of their routes
+     to infinity. This allows us to keep the neighbour hello state for when the
+     interface comes back up. The routes will also be kept until they expire. */
   WALK_LIST(n, ifa->neigh_list)
   {
     WALK_LIST(nod, n->routes)
@@ -1178,10 +1163,77 @@ babel_iface_linkdown(struct babel_iface *ifa)
     }
   }
 
+  tm_stop(ifa->timer);
+  ifa->up = 0;
+}
+
+static inline int
+babel_iface_link_up(struct babel_iface *ifa)
+{
+  return !ifa->cf->check_link || (ifa->iface->flags & IF_LINK_UP);
 }
 
 static void
-babel_open_interface(struct object_lock *lock)
+babel_iface_update_state(struct babel_iface *ifa)
+{
+  int up = ifa->sk && babel_iface_link_up(ifa);
+
+  if (up == ifa->up)
+    return;
+
+  if (up)
+    babel_iface_start(ifa);
+  else
+    babel_iface_stop(ifa);
+}
+
+
+static void
+babel_iface_update_buffers(struct babel_iface *ifa)
+{
+  if (!ifa->sk)
+    return;
+
+  uint rbsize = ifa->cf->rx_buffer ?: ifa->iface->mtu;
+  uint tbsize = ifa->cf->tx_length ?: ifa->iface->mtu;
+  rbsize = MAX(rbsize, tbsize);
+
+  sk_set_rbsize(ifa->sk, rbsize);
+  sk_set_tbsize(ifa->sk, tbsize);
+
+  ifa->max_pkt_len = tbsize - BABEL_OVERHEAD;
+}
+
+
+static struct babel_iface*
+babel_find_iface(struct babel_proto *p, struct iface *what)
+{
+  struct babel_iface *ifa;
+
+  WALK_LIST (ifa, p->interfaces)
+    if (ifa->iface == what)
+      return ifa;
+
+  return NULL;
+}
+
+static void
+babel_remove_iface(struct babel_iface *ifa)
+{
+  DBG("Babel: Interface %s disappeared\n", ifa->iface->name);
+
+  struct babel_neighbor *n;
+  WALK_LIST_FIRST(n, ifa->neigh_list)
+    babel_flush_neighbor(n);
+
+  rem_node(NODE ifa);
+
+  rfree(ifa->pool); /* contains ifa itself, locks, socket, etc */
+}
+
+
+static void
+babel_iface_locked(struct object_lock *lock)
 {
   struct babel_iface *ifa = lock->data;
   struct babel_proto *p = ifa->proto;
@@ -1190,55 +1242,17 @@ babel_open_interface(struct object_lock *lock)
   {
     log(L_ERR "%s: Cannot open socket for %s", p->p.name, ifa->iface->name);
   }
+
+  babel_iface_update_buffers(ifa);
+  babel_iface_update_state(ifa);
 }
 
 
-static void
-babel_if_notify(struct proto *P, unsigned c, struct iface *iface)
-{
-  struct babel_proto *p = (struct babel_proto *) P;
-  struct babel_config *cf = (struct babel_config *) P->cf;
-  DBG("Babel: if notify: %s flags %x\n", iface->name, iface->flags);
-  if (iface->flags & IF_IGNORE)
-    return;
-  if (c & IF_CHANGE_UP)
-  {
-    struct iface_patt *k = iface_patt_find(&cf->iface_list, iface, iface->addr);
-
-    /* we only speak multicast */
-    if (!(iface->flags & IF_MULTICAST)) return;
-
-    if (!k) return; /* We are not interested in this interface */
-
-    babel_new_interface(p, iface, iface->flags, k);
-
-  }
-  struct babel_iface *ifa = babel_find_interface(p, iface);
-
-  if (!ifa)
-    return;
-
-  if (!(iface->flags & IF_CHANGE_LINK))
-  {
-    TRACE(D_EVENTS, "Interface %s lost link", iface->name);
-    babel_iface_linkdown(ifa);
-  }
-
-  if (c & IF_CHANGE_DOWN)
-  {
-    rem_node(NODE ifa);
-    rfree(ifa->lock);
-    kill_iface(ifa);
-  }
-}
-
 
 static void
-babel_new_interface(struct babel_proto *p, struct iface *new,
-                    unsigned long flags, struct iface_patt *patt)
+babel_add_iface(struct babel_proto *p, struct iface *new, struct babel_iface_config *ic)
 {
   struct babel_iface * ifa;
-  struct babel_iface_config *iface_cf = (struct babel_iface_config *) patt;
   struct object_lock *lock;
   pool *pool;
   DBG("New interface %s\n", new->name);
@@ -1246,46 +1260,44 @@ babel_new_interface(struct babel_proto *p, struct iface *new,
   if (!new) return;
 
   pool = rp_new(p->p.pool, new->name);
+
   ifa = mb_allocz(pool, sizeof(struct babel_iface));
-  add_tail(&p->interfaces, NODE ifa);
-  ifa->pool = pool;
   ifa->iface = new;
   ifa->ifname = new->name;
   ifa->proto = p;
+  ifa->cf = ic;
+  ifa->pool = pool;
+
+  add_tail(&p->interfaces, NODE ifa);
+
   struct ifa* iface;
   WALK_LIST(iface, new->addrs)
     if (ipa_is_link_local(iface->ip))
       ifa->addr = iface->ip;
-  if (iface_cf)
-  {
-    ifa->cf = iface_cf;
 
-    if (ifa->cf->type == BABEL_IFACE_TYPE_WIRELESS)
-    {
-      if (!ifa->cf->hello_interval)
-        ifa->cf->hello_interval = BABEL_HELLO_INTERVAL_WIRELESS;
-      if (!ifa->cf->rxcost)
-        ifa->cf->rxcost = BABEL_RXCOST_WIRELESS;
-    }
-    else
-    {
-      if (!ifa->cf->hello_interval)
-        ifa->cf->hello_interval = BABEL_HELLO_INTERVAL_WIRED;
-      if (!ifa->cf->rxcost)
-        ifa->cf->rxcost = BABEL_RXCOST_WIRED;
-    }
-    if (!ifa->cf->update_interval)
-    {
-      ifa->cf->update_interval = ifa->cf->hello_interval*BABEL_UPDATE_INTERVAL_FACTOR;
-    }
-    ifa->cf->ihu_interval = ifa->cf->hello_interval*BABEL_IHU_INTERVAL_FACTOR;
+  if (ifa->cf->type == BABEL_IFACE_TYPE_WIRELESS)
+  {
+    if (!ifa->cf->hello_interval)
+      ifa->cf->hello_interval = BABEL_HELLO_INTERVAL_WIRELESS;
+    if (!ifa->cf->rxcost)
+      ifa->cf->rxcost = BABEL_RXCOST_WIRELESS;
   }
+  else
+  {
+    if (!ifa->cf->hello_interval)
+      ifa->cf->hello_interval = BABEL_HELLO_INTERVAL_WIRED;
+    if (!ifa->cf->rxcost)
+      ifa->cf->rxcost = BABEL_RXCOST_WIRED;
+  }
+
+  if (!ifa->cf->update_interval)
+    ifa->cf->update_interval = ifa->cf->hello_interval*BABEL_UPDATE_INTERVAL_FACTOR;
+  ifa->cf->ihu_interval = ifa->cf->hello_interval*BABEL_IHU_INTERVAL_FACTOR;
+
   init_list(&ifa->neigh_list);
   ifa->hello_seqno = 1;
-  ifa->max_pkt_len = new->mtu - BABEL_OVERHEAD;
 
   ifa->timer = tm_new_set(ifa->pool, babel_iface_timer, ifa, 0, 0);
-
 
   init_list(&ifa->tlv_queue);
   ifa->send_event = ev_new(ifa->pool);
@@ -1296,11 +1308,59 @@ babel_new_interface(struct babel_proto *p, struct iface *new,
   lock->addr = IP6_BABEL_ROUTERS;
   lock->port = ifa->cf->port;
   lock->iface = ifa->iface;
-  lock->hook = babel_open_interface;
+  lock->hook = babel_iface_locked;
   lock->data = ifa;
   lock->type = OBJLOCK_UDP;
+
   olock_acquire(lock);
 }
+
+static void
+babel_if_notify(struct proto *P, unsigned flags, struct iface *iface)
+{
+  struct babel_proto *p = (struct babel_proto *) P;
+  struct babel_config *cf = (struct babel_config *) P->cf;
+
+  DBG("Babel: if notify: %s flags %x\n", iface->name, iface->flags);
+
+  if (iface->flags & IF_IGNORE)
+    return;
+
+
+  if (flags & IF_CHANGE_UP)
+  {
+    struct babel_iface_config *ic = (void *) iface_patt_find(&cf->iface_list, iface, iface->addr);
+
+    /* we only speak multicast */
+    if (!(iface->flags & IF_MULTICAST)) return;
+
+    if (ic)
+      babel_add_iface(p, iface, ic);
+
+    return;
+  }
+
+  struct babel_iface *ifa = babel_find_iface(p, iface);
+
+  if (!ifa)
+    return;
+
+  if (flags & IF_CHANGE_DOWN)
+  {
+    babel_remove_iface(ifa);
+    return;
+  }
+
+
+  if (flags & IF_CHANGE_MTU)
+    babel_iface_update_buffers(ifa);
+
+  if (flags & IF_CHANGE_LINK)
+    babel_iface_update_state(ifa);
+
+}
+
+
 
 
 /** Debugging and info output functions **/
@@ -1348,7 +1408,7 @@ babel_dump_neighbor(struct babel_neighbor *n)
 }
 
 static void
-babel_dump_interface(struct babel_iface *ifa)
+babel_dump_iface(struct babel_iface *ifa)
 {
   struct babel_neighbor *n;
   debug("Babel: Interface %s addr %I rxcost %d type %d hello seqno %d intervals %d %d\n",
@@ -1365,7 +1425,7 @@ babel_dump(struct proto *P)
   struct babel_entry *e;
   struct babel_iface *ifa;
   debug("Babel: router id %lR update seqno %d\n", p->router_id, p->update_seqno);
-  WALK_LIST(ifa, p->interfaces) {babel_dump_interface(ifa);}
+  WALK_LIST(ifa, p->interfaces) {babel_dump_iface(ifa);}
   FIB_WALK(&p->rtable, n)
   {
     e = (struct babel_entry *)n;

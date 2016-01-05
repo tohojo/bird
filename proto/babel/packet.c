@@ -564,7 +564,7 @@ babel_init_packet(void *buf)
 static int
 babel_send_to(struct babel_iface *ifa, ip_addr dest)
 {
-  sock *sk = ifa->sock;
+  sock *sk = ifa->sk;
   struct babel_pkt_header *hdr = (void *) sk->tbuf;
   int len = get_u16(&hdr->length)+sizeof(struct babel_pkt_header);
 
@@ -575,7 +575,7 @@ babel_send_to(struct babel_iface *ifa, ip_addr dest)
 static int babel_write_queue(struct babel_iface *ifa, list queue)
 {
   struct babel_proto *p = ifa->proto;
-  struct babel_pkt_header *dst = (void *)ifa->sock->tbuf;
+  struct babel_pkt_header *dst = (void *)ifa->sk->tbuf;
   struct babel_pkt_tlv_header *hdr;
   struct babel_tlv_node *cur;
   struct babel_write_state state = {};
@@ -753,35 +753,37 @@ int
 babel_open_socket(struct babel_iface *ifa)
 {
   struct babel_proto *p = ifa->proto;
+
   sock *sk;
   sk = sk_new(ifa->pool);
   sk->type = SK_UDP;
   sk->sport = ifa->cf->port;
+  sk->dport = ifa->cf->port;
+  sk->iface = ifa->iface;
+
+  sk->daddr = IP6_BABEL_ROUTERS;
+
   sk->rx_hook = babel_rx_hook;
   sk->tx_hook = babel_tx_hook;
-  sk->data = ifa;
-  sk->rbsize = MAX(512, ifa->iface->mtu);
-  sk->tbsize = sk->rbsize;
-  sk->iface = ifa->iface;
   sk->err_hook = babel_err_hook;
-  sk->dport = ifa->cf->port;
-  sk->daddr = IP6_BABEL_ROUTERS;
+  sk->data = ifa;
+
 
   sk->tos = ifa->cf->tx_tos;
   sk->priority = ifa->cf->tx_priority;
   sk->flags = SKF_LADDR_RX;
+
   if (sk_open(sk) < 0)
     goto err;
   if (sk_setup_multicast(sk) < 0)
     goto err;
   if (sk_join_group(sk, sk->daddr) < 0)
     goto err;
+
   TRACE(D_EVENTS, "Listening on %s, port %d, mode multicast (%I)",
         ifa->iface->name, ifa->cf->port, sk->daddr);
 
-  ifa->sock = sk;
-
-  babel_iface_start(ifa);
+  ifa->sk = sk;
 
   return 1;
 

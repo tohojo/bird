@@ -50,7 +50,7 @@
 #define BABEL_GARBAGE_INTERVAL        300
 
 /* ip header + udp header + babel header */
-#define BABEL_OVERHEAD (SIZE_OF_IP_HEADER+8+sizeof(struct babel_pkt_header))
+#define BABEL_OVERHEAD (SIZE_OF_IP_HEADER+UDP_HEADER_LENGTH+sizeof(struct babel_pkt_header))
 
 struct babel_pkt_header {
   u8 magic;
@@ -196,7 +196,7 @@ struct babel_iface {
 
   pool *pool;
   char *ifname;
-  sock *sock;
+  sock *sk;
   ip_addr addr;
   int max_pkt_len;
   list neigh_list; /* List of neighbors seen on this iface (struct babel_neighbor) */
@@ -218,13 +218,18 @@ struct babel_iface_config {
   struct iface_patt i;
 
   u16 rxcost;
-  int type;
-  int tx_tos;
-  int tx_priority;
+  u8 type;
+  u8 check_link;
   int port;
   u16 hello_interval;
   u16 ihu_interval;
   u16 update_interval;
+
+  u16 rx_buffer;			/* RX buffer size, 0 for MTU */
+  u16 tx_length;			/* TX packet length limit (including headers), 0 for MTU */
+  int tx_tos;
+  int tx_priority;
+
 };
 
 struct babel_neighbor {
@@ -332,11 +337,6 @@ struct babel_tlv_node {
 };
 
 void babel_enqueue(union babel_tlv *tlv, struct babel_iface *ifa);
-
-void babel_send_hello(struct babel_iface *ifa, u8 send_ihu);
 void babel_send_unicast(union babel_tlv *tlv, struct babel_iface *ifa, ip_addr dest);
-void babel_send_queue(void *arg);
-void babel_send_update(struct babel_iface *ifa, bird_clock_t changed);
-void babel_init_packet(void *buf);
 int babel_open_socket(struct babel_iface *ifa);
-void babel_iface_start(struct babel_iface *ifa);
+void babel_send_queue(void *arg);
