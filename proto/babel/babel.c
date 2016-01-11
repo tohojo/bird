@@ -230,8 +230,16 @@ expire_routes(struct babel_proto *p)
         refresh_route(r);
         r->refresh_time = 0;
       }
-      if (r->expires && r->expires <= now)
+      if (r->expires && r->expires <= now) {
+        /*
+         * We have to restart the iteration because there may be a cascade of
+         * synchronous events babel_select_route() -> nest table change ->
+         * babel_rt_notify() -> p->rtable change, invalidating hidden variables.
+         */
+        FIB_ITERATE_PUT(&fit, n);
         expire_route(r);
+        goto loop;
+      }
     }
     expire_sources(e);
     if (EMPTY_LIST(e->sources) && EMPTY_LIST(e->routes)) {
