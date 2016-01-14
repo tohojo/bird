@@ -1588,7 +1588,7 @@ babel_show_entries(struct proto *P, char *ent)
 
     } else {
 
-      cli_msg(-1022, "%-29s %-32s %7u", ipbuf, "<pending>", srcs);
+      cli_msg(-1022, "%-29s %-45s %7u", ipbuf, "<pending>", srcs);
 
     }
 
