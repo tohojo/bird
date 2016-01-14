@@ -1671,9 +1671,9 @@ babel_rt_notify(struct proto *P, struct rtable *table UNUSED, struct network *ne
   struct babel_entry *e;
   struct babel_route *r;
 
-  TRACE(D_EVENTS, "Got route from nest: %I/%d", net->n.prefix, net->n.pxlen);
   if (new)
   {
+    TRACE(D_EVENTS, "Got route from nest: %I/%d", net->n.prefix, net->n.pxlen);
     e = babel_get_entry(p, net->n.prefix, net->n.pxlen);
     r = (new->attrs->src->proto == P) ? e->selected_in : babel_get_route(e, NULL);
 
@@ -1691,6 +1691,7 @@ babel_rt_notify(struct proto *P, struct rtable *table UNUSED, struct network *ne
   }
   else
   {
+    TRACE(D_EVENTS, "Lost route from nest: %I/%d", net->n.prefix, net->n.pxlen);
     /* route has gone away; send retraction */
     e = babel_find_entry(p, net->n.prefix, net->n.pxlen);
     if (e && e->selected_out && !e->selected_out->neigh)

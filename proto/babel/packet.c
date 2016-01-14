@@ -291,7 +291,11 @@ babel_read_update(struct babel_pkt_tlv_header *hdr,
     state->router_id = ((u64) _I2(tlv->update.prefix)) << 32 | _I3(tlv->update.prefix);
     state->router_id_seen = 1;
   }
-  if (!state->router_id_seen) return PARSE_ERROR;
+  if (!state->router_id_seen)
+  {
+    DBG("Babel: No router ID seen before update\n");
+    return PARSE_ERROR;
+  }
 
   tlv->update.router_id = state->router_id;
   tlv->update.next_hop = state->next_hop;
@@ -684,11 +688,11 @@ babel_process_packet(struct babel_pkt_header *pkt, int size,
     }
     else if (res == PARSE_IGNORE)
     {
-      DBG("Ignoring TLV of type %d\n",tlv->type);
+      DBG("Babel: Ignoring TLV of type %d\n",tlv->type);
     }
     else
     {
-      DBG("TLV read error for type %d\n",tlv->type);
+      DBG("Babel: TLV read error for type %d\n",tlv->type);
       sl_free(proto->tlv_slab, cur);
       break;
     }
