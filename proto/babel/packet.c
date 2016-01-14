@@ -521,13 +521,22 @@ babel_write_route_request(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv
   size = sizeof(struct babel_pkt_tlv_route_request) + len;
   if (max_len < size)
     return 0;
-  put_ipa(buf, tlv->route_request.prefix);
 
   hdr->type = BABEL_TLV_ROUTE_REQUEST;
   hdr->length = size - sizeof(struct babel_pkt_tlv_header);
-  pkt_tlv->ae = BABEL_AE_IP6;
-  pkt_tlv->plen = tlv->route_request.plen;
-  memcpy(pkt_tlv->addr, buf, len);
+
+  if (tlv->route_request.plen > 0)
+  {
+    pkt_tlv->ae = BABEL_AE_IP6;
+    pkt_tlv->plen = tlv->route_request.plen;
+    put_ipa(buf, tlv->route_request.prefix);
+    memcpy(pkt_tlv->addr, buf, len);
+  }
+  else
+  {
+    pkt_tlv->ae = BABEL_AE_WILDCARD;
+  }
+
   return size;
 }
 

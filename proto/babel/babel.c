@@ -63,6 +63,7 @@ static void babel_dump_entry(struct babel_entry *e);
 static void babel_dump_route(struct babel_route *r);
 static void babel_select_route(struct babel_entry *e);
 static void babel_send_route_request(struct babel_entry *e, struct babel_neighbor *n);
+static void babel_send_wildcard_request(struct babel_iface *ifa);
 static int cache_seqno_request(struct babel_proto *p, ip_addr prefix, u8 plen,
 			       u64 router_id, u16 seqno);
 static void babel_trigger_update(struct babel_proto *p);
@@ -590,6 +591,16 @@ babel_send_route_request(struct babel_entry *e, struct babel_neighbor *n)
   tlv.route_request.prefix = e->n.prefix;
   tlv.route_request.plen = e->n.pxlen;
   babel_send_unicast(&tlv, ifa, n->addr);
+}
+
+static void
+babel_send_wildcard_request(struct babel_iface *ifa)
+{
+  struct babel_proto *p = ifa->proto;
+  union babel_tlv tlv = {};
+  TRACE(D_PACKETS, "Sending wildcard route request on %s", ifa->ifname);
+  tlv.type = BABEL_TLV_ROUTE_REQUEST; /* 0-initialisation is wildcard */
+  babel_enqueue(&tlv, ifa);
 }
 
 
@@ -1152,6 +1163,7 @@ babel_iface_start(struct babel_iface *ifa)
   ifa->up = 1;
 
   babel_send_hello(ifa,0);
+  babel_send_wildcard_request(ifa);
 }
 
 static void
