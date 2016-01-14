@@ -1156,14 +1156,15 @@ babel_iface_start(struct babel_iface *ifa)
   TRACE(D_EVENTS, "Starting interface %s", ifa->ifname);
   ifa->next_hello = now + (random() % ifa->cf->hello_interval) + 1;
   ifa->next_regular = now + (random() % ifa->cf->update_interval) + 1;
-  ifa->next_triggered = now;	/* Available immediately */
-  ifa->want_triggered = 1;	/* All routes in triggered update */
+  ifa->next_triggered = now + MIN(5, ifa->cf->update_interval / 2 + 1);
+  ifa->want_triggered = 0;	/* We send an immediate update (below). */
 
   tm_start(ifa->timer, 1);
   ifa->up = 1;
 
-  babel_send_hello(ifa,0);
+  babel_send_hello(ifa, 0);
   babel_send_wildcard_request(ifa);
+  babel_send_update(ifa, 0); /* full update */
 }
 
 static void
