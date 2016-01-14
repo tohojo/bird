@@ -23,19 +23,61 @@ WIRELESS, BABEL_METRIC)
 
 CF_GRAMMAR
 
-CF_ADDTO(proto, babel_cfg '}' { } )
+CF_ADDTO(proto, babel_proto)
 
-babel_cfg_start: proto_start BABEL {
-     this_proto = proto_config_new(&proto_babel, $1);
-     init_list(&BABEL_CFG->iface_list);
-   }
+babel_proto_start: proto_start BABEL
+{
+  this_proto = proto_config_new(&proto_babel, $1);
+  init_list(&BABEL_CFG->iface_list);
+};
+
+babel_proto_item:
+   proto_item
+ | INTERFACE babel_iface
  ;
 
-babel_cfg:
-   babel_cfg_start proto_name '{'
- | babel_cfg proto_item ';'
- | babel_cfg INTERFACE babel_iface ';'
+babel_proto_opts:
+   /* empty */
+ | babel_proto_opts babel_proto_item ';'
  ;
+
+babel_proto:
+   babel_proto_start proto_name '{' babel_proto_opts '}';
+
+
+babel_iface_start:
+{
+  this_ipatt = cfg_allocz(sizeof(struct babel_iface_config));
+  add_tail(&BABEL_CFG->iface_list, NODE this_ipatt);
+  init_list(&this_ipatt->ipn_list);
+  BABEL_IFACE->port = BABEL_PORT;
+  BABEL_IFACE->type = BABEL_IFACE_TYPE_WIRED;
+  BABEL_IFACE->tx_tos = IP_PREC_INTERNET_CONTROL;
+  BABEL_IFACE->tx_priority = sk_priority_control;
+};
+
+
+babel_iface_finish:
+{
+  if (BABEL_IFACE->type == BABEL_IFACE_TYPE_WIRELESS)
+  {
+    if (!BABEL_IFACE->hello_interval)
+      BABEL_IFACE->hello_interval = BABEL_HELLO_INTERVAL_WIRELESS;
+    if (!BABEL_IFACE->rxcost)
+      BABEL_IFACE->rxcost = BABEL_RXCOST_WIRELESS;
+  }
+  else
+  {
+    if (!BABEL_IFACE->hello_interval)
+      BABEL_IFACE->hello_interval = BABEL_HELLO_INTERVAL_WIRED;
+    if (!BABEL_IFACE->rxcost)
+      BABEL_IFACE->rxcost = BABEL_RXCOST_WIRED;
+  }
+
+  if (!BABEL_IFACE->update_interval)
+    BABEL_IFACE->update_interval = BABEL_IFACE->hello_interval*BABEL_UPDATE_INTERVAL_FACTOR;
+  BABEL_IFACE->ihu_interval = BABEL_IFACE->hello_interval*BABEL_IHU_INTERVAL_FACTOR;
+};
 
 
 babel_iface_item:
@@ -59,38 +101,6 @@ babel_iface_opt_list:
  | '{' babel_iface_opts '}'
  ;
 
-babel_iface_start:
-{
-  this_ipatt = cfg_allocz(sizeof(struct babel_iface_config));
-  add_tail(&BABEL_CFG->iface_list, NODE this_ipatt);
-  init_list(&this_ipatt->ipn_list);
-  BABEL_IFACE->port = BABEL_PORT;
-  BABEL_IFACE->type = BABEL_IFACE_TYPE_WIRED;
-  BABEL_IFACE->tx_tos = IP_PREC_INTERNET_CONTROL;
-  BABEL_IFACE->tx_priority = sk_priority_control;
-};
-
-babel_iface_finish:
-{
-  if (BABEL_IFACE->type == BABEL_IFACE_TYPE_WIRELESS)
-  {
-    if (!BABEL_IFACE->hello_interval)
-      BABEL_IFACE->hello_interval = BABEL_HELLO_INTERVAL_WIRELESS;
-    if (!BABEL_IFACE->rxcost)
-      BABEL_IFACE->rxcost = BABEL_RXCOST_WIRELESS;
-  }
-  else
-  {
-    if (!BABEL_IFACE->hello_interval)
-      BABEL_IFACE->hello_interval = BABEL_HELLO_INTERVAL_WIRED;
-    if (!BABEL_IFACE->rxcost)
-      BABEL_IFACE->rxcost = BABEL_RXCOST_WIRED;
-  }
-
-  if (!BABEL_IFACE->update_interval)
-    BABEL_IFACE->update_interval = BABEL_IFACE->hello_interval*BABEL_UPDATE_INTERVAL_FACTOR;
-  BABEL_IFACE->ihu_interval = BABEL_IFACE->hello_interval*BABEL_IHU_INTERVAL_FACTOR;
-};
 
 babel_iface:
   babel_iface_start iface_patt_list_nopx babel_iface_opt_list babel_iface_finish;
