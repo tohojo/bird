@@ -138,9 +138,9 @@ const static struct babel_pkt_tlv_data tlv_data[BABEL_TLV_MAX] = {
 };
 
 static inline int
-read_tlv(struct babel_pkt_tlv_header *hdr,
-         union babel_tlv *tlv,
-         struct babel_parse_state *state)
+babel_read_tlv(struct babel_pkt_tlv_header *hdr,
+               union babel_tlv *tlv,
+               struct babel_parse_state *state)
 {
   if (hdr->type <= BABEL_TLV_PADN ||
      hdr->type >= BABEL_TLV_MAX ||
@@ -399,7 +399,7 @@ babel_read_seqno_request(struct babel_pkt_tlv_header *hdr,
 }
 
 static int
-write_tlv(struct babel_pkt_tlv_header *hdr,
+babel_write_tlv(struct babel_pkt_tlv_header *hdr,
           union babel_tlv *tlv,
           struct babel_write_state *state,
           int max_len)
@@ -600,8 +600,8 @@ static int babel_write_queue(struct babel_iface *ifa, list queue)
   babel_init_packet(dst);
   hdr = FIRST_TLV(dst);
   WALK_LIST_FIRST(cur, ifa->tlv_queue) {
-    if ((written = write_tlv(hdr, &cur->tlv, &state,
-                            ifa->max_pkt_len - ((byte *)hdr-(byte *)dst))) == 0)
+    if ((written = babel_write_tlv(hdr, &cur->tlv, &state,
+                                   ifa->max_pkt_len - ((byte *)hdr-(byte *)dst))) == 0)
       break;
     len += written;
     hdr = (void *)((byte *) hdr + written);
@@ -689,7 +689,7 @@ babel_process_packet(struct babel_pkt_header *pkt, int size,
       break;
     }
 
-    if ((res = read_tlv(tlv, &cur->tlv, &state)) == PARSE_SUCCESS)
+    if ((res = babel_read_tlv(tlv, &cur->tlv, &state)) == PARSE_SUCCESS)
     {
       cur->tlv.type = tlv->type;
       add_tail(&tlvs, NODE cur);

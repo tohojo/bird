@@ -54,17 +54,17 @@ static inline u16 ge_mod64k(u16 a, u16 b)
   return ((u16) a-b) < 0xfff0;
 }
 
-static void expire_hello(struct babel_neighbor *n);
-static void expire_ihu(struct babel_neighbor *n);
-static void expire_sources(struct babel_entry *e);
-static void expire_route(struct babel_route *r);
-static void refresh_route(struct babel_route *r);
+static void babel_expire_hello(struct babel_neighbor *n);
+static void babel_expire_ihu(struct babel_neighbor *n);
+static void babel_expire_sources(struct babel_entry *e);
+static void babel_expire_route(struct babel_route *r);
+static void babel_refresh_route(struct babel_route *r);
 static void babel_dump_entry(struct babel_entry *e);
 static void babel_dump_route(struct babel_route *r);
 static void babel_select_route(struct babel_entry *e);
 static void babel_send_route_request(struct babel_entry *e, struct babel_neighbor *n);
 static void babel_send_wildcard_request(struct babel_iface *ifa);
-static int cache_seqno_request(struct babel_proto *p, ip_addr prefix, u8 plen,
+static int  babel_cache_seqno_request(struct babel_proto *p, ip_addr prefix, u8 plen,
 			       u64 router_id, u16 seqno);
 static void babel_trigger_update(struct babel_proto *p);
 static void babel_send_seqno_request(struct babel_entry *e);
@@ -133,7 +133,7 @@ babel_get_source(struct babel_entry *e, u64 router_id)
 }
 
 static void
-expire_sources(struct babel_entry *e)
+babel_expire_sources(struct babel_entry *e)
 {
   struct babel_proto *p = e->proto;
   struct babel_source *n, *nx;
@@ -188,7 +188,7 @@ babel_flush_route(struct babel_route *r)
 }
 
 static void
-expire_route(struct babel_route *r)
+babel_expire_route(struct babel_route *r)
 {
   struct babel_entry *e = r->e;
   struct babel_proto *p = r->e->proto;
@@ -208,14 +208,14 @@ expire_route(struct babel_route *r)
 }
 
 static void
-refresh_route(struct babel_route *r)
+babel_refresh_route(struct babel_route *r)
 {
   if (!r->neigh || r != r->e->selected_in) return;
   babel_send_route_request(r->e, r->neigh);
 }
 
 static void
-expire_routes(struct babel_proto *p)
+babel_expire_routes(struct babel_proto *p)
 {
   struct babel_entry *e;
   struct babel_route *r, *rx;
@@ -229,7 +229,7 @@ expire_routes(struct babel_proto *p)
     {
       if (r->refresh_time && r->refresh_time <= now)
       {
-        refresh_route(r);
+        babel_refresh_route(r);
         r->refresh_time = 0;
       }
       if (r->expires && r->expires <= now) {
@@ -239,11 +239,11 @@ expire_routes(struct babel_proto *p)
          * babel_rt_notify() -> p->rtable change, invalidating hidden variables.
          */
         FIB_ITERATE_PUT(&fit, n);
-        expire_route(r);
+        babel_expire_route(r);
         goto loop;
       }
     }
-    expire_sources(e);
+    babel_expire_sources(e);
     if (EMPTY_LIST(e->sources) && EMPTY_LIST(e->routes)) {
       FIB_ITERATE_PUT(&fit, n);
       babel_flush_entry(e);
@@ -294,7 +294,7 @@ babel_flush_neighbor(struct babel_neighbor *n)
 }
 
 static void
-expire_neighbors(struct babel_proto *p)
+babel_expire_neighbors(struct babel_proto *p)
 {
   struct babel_iface *ifa;
   struct babel_neighbor *n, *bnx;
@@ -303,15 +303,15 @@ expire_neighbors(struct babel_proto *p)
     WALK_LIST_DELSAFE(n, bnx, ifa->neigh_list)
     {
       if (n->ihu_expiry && n->ihu_expiry <= now)
-        expire_ihu(n);
+        babel_expire_ihu(n);
       if (n->hello_expiry && n->hello_expiry <= now)
-        expire_hello(n);
+        babel_expire_hello(n);
     }
   }
 }
 
 static void
-expire_hello(struct babel_neighbor *n)
+babel_expire_hello(struct babel_neighbor *n)
 {
   n->hello_map <<= 1;
   if (n->hello_cnt < 16) n->hello_cnt++;
@@ -322,7 +322,7 @@ expire_hello(struct babel_neighbor *n)
 }
 
 static void
-expire_ihu(struct babel_neighbor *n)
+babel_expire_ihu(struct babel_neighbor *n)
 {
   n->txcost = BABEL_INFINITY;
 }
@@ -348,7 +348,7 @@ expire_ihu(struct babel_neighbor *n)
      - seqno = seqno' and metric < metric'.
 */
 static inline int
-is_feasible(struct babel_source *s, u16 seqno, u16 metric)
+babel_is_feasible(struct babel_source *s, u16 seqno, u16 metric)
 {
   if (!s || metric == BABEL_INFINITY) return 1;
   return (seqno > s->seqno
@@ -390,7 +390,7 @@ babel_compute_rxcost(struct babel_neighbor *n)
 
 
 static u16
-compute_cost(struct babel_neighbor *n)
+babel_compute_cost(struct babel_neighbor *n)
 {
   struct babel_iface *ifa = n->ifa;
   u16 rxcost = babel_compute_rxcost(n);
@@ -409,9 +409,9 @@ compute_cost(struct babel_neighbor *n)
 
 /* Simple additive metric - Appendix 3.1 in the RFC */
 static u16
-compute_metric(struct babel_neighbor *n, uint metric)
+babel_compute_metric(struct babel_neighbor *n, uint metric)
 {
-  metric += compute_cost(n);
+  metric += babel_compute_cost(n);
   return MIN(metric, BABEL_INFINITY);
 }
 
@@ -480,7 +480,7 @@ babel_select_route(struct babel_entry *e)
   WALK_LIST(r, e->routes)
     if ((!cur || r->metric < cur->metric)
         && r->neigh /* prevent propagating out own routes back to core */
-        && is_feasible(babel_find_source(e, r->router_id),
+        && babel_is_feasible(babel_find_source(e, r->router_id),
                        r->seqno, r->advert_metric))
       cur = r;
 
@@ -537,7 +537,7 @@ babel_send_seqno_request(struct babel_entry *e)
   struct babel_iface *ifa;
   union babel_tlv tlv = {};
 
-  if (s && cache_seqno_request(p, e->n.prefix, e->n.pxlen, r->router_id, s->seqno+1))
+  if (s && babel_cache_seqno_request(p, e->n.prefix, e->n.pxlen, r->router_id, s->seqno+1))
   {
     TRACE(D_EVENTS, "Sending seqno request for %I/%d router_id %lR",
           e->n.prefix, e->n.pxlen, r->router_id);
@@ -564,7 +564,7 @@ babel_unicast_seqno_request(struct babel_route *r)
   struct babel_source *s = babel_find_source(e, r->router_id);
   struct babel_iface *ifa = r->neigh->ifa;
   union babel_tlv tlv = {};
-  if (s && cache_seqno_request(p, e->n.prefix, e->n.pxlen, r->router_id, s->seqno+1))
+  if (s && babel_cache_seqno_request(p, e->n.prefix, e->n.pxlen, r->router_id, s->seqno+1))
   {
     TRACE(D_EVENTS, "Sending seqno request for %I/%d router_id %lR",
           e->n.prefix, e->n.pxlen, r->router_id);
@@ -737,12 +737,9 @@ babel_trigger_update(struct babel_proto *p)
 
 
 
-
-
-
 /* update hello history according to Appendix A1 of the RFC */
 static void
-update_hello_history(struct babel_neighbor *n, u16 seqno, u16 interval)
+babel_update_hello_history(struct babel_neighbor *n, u16 seqno, u16 interval)
 {
   u16 delta = ((u16) seqno - n->next_hello_seqno);
   if (delta == 0) {/* do nothing */}
@@ -793,7 +790,7 @@ static void babel_send_retraction(struct babel_iface *ifa, ip_addr prefix, int p
 }
 
 static void
-expire_seqno_requests(struct babel_proto *p)
+babel_expire_seqno_requests(struct babel_proto *p)
 {
   struct babel_seqno_request *n, *nx;
   WALK_LIST_DELSAFE(n, nx, p->seqno_cache)
@@ -809,8 +806,8 @@ expire_seqno_requests(struct babel_proto *p)
 /* Checks the seqno request cache for a matching request and returns failure if
    found. Otherwise, a new entry is stored in the cache. */
 static int
-cache_seqno_request(struct babel_proto *p, ip_addr prefix, u8 plen,
-                    u64 router_id, u16 seqno)
+babel_cache_seqno_request(struct babel_proto *p, ip_addr prefix, u8 plen,
+                          u64 router_id, u16 seqno)
 {
   struct babel_seqno_request *r;
   WALK_LIST(r, p->seqno_cache)
@@ -845,7 +842,7 @@ babel_forward_seqno_request(struct babel_entry *e,
     if (r->router_id == in->router_id && r->neigh
        && !ipa_equal(r->neigh->addr,sender))
     {
-      if (!cache_seqno_request(p, e->n.prefix, e->n.pxlen, in->router_id, in->seqno))
+      if (!babel_cache_seqno_request(p, e->n.prefix, e->n.pxlen, in->router_id, in->seqno))
 	return;
       union babel_tlv tlv = {};
       tlv.type = BABEL_TLV_SEQNO_REQUEST;
@@ -884,7 +881,7 @@ babel_handle_hello(union babel_tlv *inc, struct babel_iface *ifa)
   struct babel_neighbor *n = babel_get_neighbor(ifa, tlv->sender);
   TRACE(D_PACKETS, "Handling hello seqno %d interval %d", tlv->seqno,
 	tlv->interval, tlv->sender);
-  update_hello_history(n, tlv->seqno, tlv->interval);
+  babel_update_hello_history(n, tlv->seqno, tlv->interval);
   if (ifa->cf->type == BABEL_IFACE_TYPE_WIRELESS)
     babel_send_ihu(ifa, n);
 }
@@ -980,7 +977,7 @@ babel_handle_update(union babel_tlv *inc, struct babel_iface *ifa)
 
   s = babel_find_source(e, tlv->router_id); /* for feasibility */
   r = babel_find_route(e, n); /* the route entry indexed by neighbour */
-  feasible = is_feasible(s, tlv->seqno, tlv->metric);
+  feasible = babel_is_feasible(s, tlv->seqno, tlv->metric);
 
   if (!r)
   {
@@ -991,7 +988,7 @@ babel_handle_update(union babel_tlv *inc, struct babel_iface *ifa)
     r = babel_get_route(e, n);
     r->advert_metric = tlv->metric;
     r->router_id = tlv->router_id;
-    r->metric = compute_metric(n, tlv->metric);
+    r->metric = babel_compute_metric(n, tlv->metric);
     r->next_hop = tlv->next_hop;
     r->seqno = tlv->seqno;
   }
@@ -1009,7 +1006,7 @@ babel_handle_update(union babel_tlv *inc, struct babel_iface *ifa)
   {
     /* last point above - update entry */
     r->advert_metric = tlv->metric;
-    r->metric = compute_metric(n, tlv->metric);
+    r->metric = babel_compute_metric(n, tlv->metric);
     r->router_id = tlv->router_id;
     r->next_hop = tlv->next_hop;
     r->seqno = tlv->seqno;
@@ -1661,9 +1658,9 @@ static void
 babel_timer(timer *t)
 {
   struct babel_proto *p = t->data;
-  expire_routes(p);
-  expire_seqno_requests(p);
-  expire_neighbors(p);
+  babel_expire_routes(p);
+  babel_expire_seqno_requests(p);
+  babel_expire_neighbors(p);
 }
 
 static inline void
