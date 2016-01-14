@@ -649,7 +649,7 @@ babel_enqueue(union babel_tlv *tlv, struct babel_iface *ifa)
 
 void
 babel_process_packet(struct babel_pkt_header *pkt, int size,
-                     ip_addr saddr, int port, struct babel_iface *ifa)
+                     ip_addr saddr, struct babel_iface *ifa)
 {
   struct babel_pkt_tlv_header *tlv = FIRST_TLV(pkt);
   struct babel_proto *proto = ifa->proto;
@@ -747,7 +747,8 @@ babel_rx_hook(sock *sk, int size)
   if (!ifa->iface || sk->lifindex != ifa->iface->index)
     return 1;
 
-  TRACE(D_PACKETS, "Incoming packet: %d bytes from %I via %s", size, sk->faddr, ifa->iface->name);
+  TRACE(D_PACKETS, "Incoming packet: %d bytes from %I port %d via %s",
+        size, sk->faddr, sk->fport, ifa->iface->name);
   if (size < sizeof(struct babel_pkt_header)) BAD("Too small packet");
 
   if (ipa_equal(ifa->iface->addr->ip, sk->faddr))
@@ -758,7 +759,9 @@ babel_rx_hook(sock *sk, int size)
 
   if (!ipa_is_link_local(sk->faddr)) { BAD("Non-link local sender"); }
 
-  babel_process_packet((struct babel_pkt_header *) sk->rbuf, size, sk->faddr, sk->fport, ifa);
+  if (sk->fport != ifa->cf->port) { BAD("Packet received on wrong port"); }
+
+  babel_process_packet((struct babel_pkt_header *) sk->rbuf, size, sk->faddr, ifa);
   return 1;
 }
 
