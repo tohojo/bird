@@ -19,7 +19,7 @@
  *
  * The Babel protocol keeps state for each neighbour in a &babel_neighbor
  * struct, tracking received hellos and I Heard You (IHU) messages. A
- * &babel_interface struct keeps hello and update timers for each interface, and
+ * &babel_interface struct keeps hello and update times for each interface, and
  * a separate hello seqno is maintained for each interface.
  *
  * For each prefix, Babel keeps track of both the possible routes
@@ -29,10 +29,10 @@
  * and the feasibility distance is maintained through &babel_source structures.
  *
  * The main route selection is done in babel_select_route(). This is called when
- * an update for a prefix is received, when a new prefix is received from the
- * nest, and when a prefix expiry timer fires. It performs feasibility checks on
- * the available routes for the prefix and selects the one with the lowest
- * metric.
+ * an entry is updated by receiving updates from the network or when modified by
+ * internal timers. It performs feasibility checks on the available routes for
+ * the prefix and selects the one with the lowest metric to be announced to the
+ * core.
  */
 
 #undef LOCAL_DEBUG
@@ -48,7 +48,7 @@
    0, just use a simple cutoff value to determine if the difference is small
    enough that one is really larger. Since these comparisons are only made for
    values that should not differ by more than a few numbers, this should be
-   safe.*/
+   safe. */
 static inline u16 ge_mod64k(u16 a, u16 b)
 {
   return ((u16) a-b) < 0xfff0;
@@ -416,6 +416,15 @@ babel_compute_metric(struct babel_neighbor *n, uint metric)
 }
 
 
+/**
+ * babel_announce_rte - announce entry to the core.
+ * @p: Babel protocol entry.
+ * @e: Babel entry to select the best route for.
+ *
+ * This function announces a Babel entry to the core if it has a selected
+ * incoming path, and retracts it otherwise. If the selected entry has infinite
+ * metric, the route is announced as unreachable.
+ */
 static void
 babel_announce_rte(struct babel_proto *p, struct babel_entry *e)
 {
@@ -458,9 +467,9 @@ babel_announce_rte(struct babel_proto *p, struct babel_entry *e)
  * babel_select_route:
  * @e: Babel entry to select the best route for.
  *
- * Select the best feasible route for a given prefix. This just selects the
- * feasible route with the lowest metric. If this results in switching upstream
- * router (identified by router id), the nest is notified of the new route.
+ * Select the best feasible route for a given prefix among the routes received
+ * from peers, and propagate it to the nest. This just selects the feasible
+ * route with the lowest metric.
  *
  * If no feasible route is available for a prefix that previously had a route
  * selected, a seqno request is sent to try to get a valid route. In the
@@ -663,6 +672,16 @@ babel_send_hello(struct babel_iface *ifa, u8 send_ihu)
 }
 
 
+/**
+ * babel_send_update - send route table updates.
+ * @ifa: Interface to transmit on.
+ * @changed: Only send entries changed since this time.
+ *
+ * This function produces update TLVs for all entries changed since the time
+ * indicated by the &changed parameter and queues them for transmission on the
+ * selected interface. In the process, the feasibility distance for each
+ * transmitted entry is updated.
+ */
 void
 babel_send_update(struct babel_iface *ifa, bird_clock_t changed)
 {
@@ -905,6 +924,18 @@ babel_handle_ihu(union babel_tlv *inc, struct babel_iface *ifa)
   n->ihu_expiry = now + (3*tlv->interval)/200; // 1.5*interval/100
 }
 
+
+/**
+ * babel_handle_update - handle incoming route updates.
+ * @inc: Incoming update TLV.
+ * @ifa: Interface the update was received on.
+ *
+ * This function is called as a handler for update TLVs and handles the updating
+ * and maintenance of route entries in Babel's internal routing cache. The
+ * handling follows the actions described in the Babel RFC, and at the end of
+ * each update handling, babel_select_route() is called on the affected entry to
+ * optionally update the selected routes and propagate them to the core.
+ */
 void
 babel_handle_update(union babel_tlv *inc, struct babel_iface *ifa)
 {
@@ -1108,6 +1139,14 @@ babel_handle_seqno_request(union babel_tlv *inc, struct babel_iface *ifa)
 
 /** Interface handlers **/
 
+
+/**
+ * babel_iface_timer - per-interface timer handler.
+ * @t: Timer.
+ *
+ * This function is called by the per-interface timer and triggers sending of
+ * periodic Hello's and both triggered and periodic updates.
+ */
 static void
 babel_iface_timer(timer *t)
 {
@@ -1655,6 +1694,14 @@ babel_show_entries(struct proto *P, char *ent)
 /** Interaction with Bird core **/
 
 
+/**
+ * babel_timer - global timer hook.
+ * @t: Timer.
+ *
+ * This function is called by the global protocol instance timer and handles
+ * expiration of routes and neighbours as well as pruning of the seqno request
+ * cache.
+ */
 static void
 babel_timer(timer *t)
 {

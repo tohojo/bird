@@ -585,6 +585,20 @@ babel_send_to(struct babel_iface *ifa, ip_addr dest)
   return sk_send_to(sk, len, dest, 0);
 }
 
+/**
+ * babel_write_queue - Write a TLV queue to a transmission buffer.
+ * @ifa: Interface holding the transmission buffer.
+ * @queue: TLV queue to write (containing internal-format TLVs).
+ *
+ * This function writes a packet to the interface transmission buffer with as
+ * many TLVs from the &queue as will fit in the buffer. It returns the number of
+ * bytes written (NOT counting the packet header). The function is called by
+ * babel_send_queue() and babel_send_unicast() to construct packets for
+ * transmission, and uses per-TLV helper functions to convert the
+ * internal-format TLVs to their wire representations.
+ *
+ * The TLVs in the queue are freed after they are written to the buffer.
+ */
 static int babel_write_queue(struct babel_iface *ifa, list queue)
 {
   struct babel_proto *p = ifa->proto;
@@ -620,6 +634,17 @@ babel_send_queue(void *arg)
          babel_send_to(ifa, IP6_BABEL_ROUTERS) > 0) ;
 }
 
+
+/**
+ * babel_send_unicast - send a single TLV via unicast to a destination.
+ * @tlv: TLV to send.
+ * @ifa: Interface to send via.
+ * @dest: Destination of the TLV.
+ *
+ * This function is used to send a single TLV via unicast to a designated
+ * receiver. This is used for replying to certain incoming requests, and for
+ * sending unicast requests to refresh routes before they expire.
+ */
 void
 babel_send_unicast(union babel_tlv *tlv, struct babel_iface *ifa, ip_addr dest)
 {
@@ -635,6 +660,17 @@ babel_send_unicast(union babel_tlv *tlv, struct babel_iface *ifa, ip_addr dest)
 }
 
 
+/**
+ * babel_enqueue - enqueue a TLV for transmission on an interface.
+ * @tlv: TLV to enqueue (in internal TLV format).
+ * @ifa: Interface to enqueue to.
+ *
+ * This function is called to enqueue a TLV for subsequent transmission on an
+ * interface. The transmission event is triggered whenever a TLV is enqueued;
+ * this ensures that TLVs will be transmitted in a timely manner, but that TLVs
+ * which are enqueued in rapid succession can be transmitted together in one
+ * packet.
+ */
 void
 babel_enqueue(union babel_tlv *tlv, struct babel_iface *ifa)
 {
@@ -647,6 +683,22 @@ babel_enqueue(union babel_tlv *tlv, struct babel_iface *ifa)
 
 
 
+/**
+ * babel_process_packet - process incoming data packet.
+ * @pkt: Pointer to the packet data.
+ * @size: Size of received packet.
+ * @saddr: Address of packet sender.
+ * @ifa: Interface packet was received on.
+ *
+ * This function is the main processing hook of incoming Babel packets. It
+ * checks that the packet header is well-formed, then processes the TLVs
+ * contained in the packet. This is done in two passes: First all TLVs are
+ * parsed into the internal TLV format. If a TLV parser fails, processing of the
+ * rest of the packet is aborted.
+ *
+ * After the parsing step, the TLV handlers are called for each parsed TLV in
+ * order.
+ */
 void
 babel_process_packet(struct babel_pkt_header *pkt, int size,
                      ip_addr saddr, struct babel_iface *ifa)
