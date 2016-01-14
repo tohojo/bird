@@ -160,7 +160,7 @@ babel_read_ack_req(struct babel_pkt_tlv_header *hdr,
 {
   struct babel_pkt_tlv_ack_req * pkt_tlv = (struct babel_pkt_tlv_ack_req *) hdr;
   tlv->ack_req.nonce = get_u16(&pkt_tlv->nonce);
-  tlv->ack_req.interval = get_u16(&pkt_tlv->interval);
+  tlv->ack_req.interval = MAX(1,get_u16(&pkt_tlv->interval)/BABEL_TIME_UNITS);
   tlv->ack_req.sender = state->saddr;
   return PARSE_SUCCESS;
 }
@@ -173,7 +173,7 @@ babel_read_hello(struct babel_pkt_tlv_header *hdr,
 {
   struct babel_pkt_tlv_hello * pkt_tlv = (struct babel_pkt_tlv_hello *) hdr;
   tlv->hello.seqno = get_u16(&pkt_tlv->seqno);
-  tlv->hello.interval = get_u16(&pkt_tlv->interval);
+  tlv->hello.interval = MAX(1,get_u16(&pkt_tlv->interval)/BABEL_TIME_UNITS);
   tlv->hello.sender = state->saddr;
   return PARSE_SUCCESS;
 }
@@ -187,7 +187,7 @@ babel_read_ihu(struct babel_pkt_tlv_header *hdr,
   struct babel_pkt_tlv_ihu * pkt_tlv = (struct babel_pkt_tlv_ihu *) hdr;
   tlv->ihu.ae = pkt_tlv->ae;
   tlv->ihu.rxcost = get_u16(&pkt_tlv->rxcost);
-  tlv->ihu.interval = get_u16(&pkt_tlv->interval);
+  tlv->ihu.interval = MAX(1,get_u16(&pkt_tlv->interval)/BABEL_TIME_UNITS);
 
   if (tlv->ihu.ae >= BABEL_AE_MAX)
     return PARSE_IGNORE;
@@ -243,7 +243,7 @@ babel_read_update(struct babel_pkt_tlv_header *hdr,
   u8 len = (pkt_tlv->plen + 7)/8;
   tlv->update.ae = pkt_tlv->ae;
   tlv->update.plen = pkt_tlv->plen;
-  tlv->update.interval = get_u16(&pkt_tlv->interval);
+  tlv->update.interval = MAX(1,get_u16(&pkt_tlv->interval)/BABEL_TIME_UNITS);
   tlv->update.seqno = get_u16(&pkt_tlv->seqno);
   tlv->update.metric = get_u16(&pkt_tlv->metric);
 
@@ -436,7 +436,7 @@ babel_write_hello(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv,
   hdr->type = BABEL_TLV_HELLO;
   hdr->length = sizeof(struct babel_pkt_tlv_hello) - sizeof(struct babel_pkt_tlv_header);
   put_u16(&pkt_tlv->seqno, tlv->hello.seqno);
-  put_u16(&pkt_tlv->interval, tlv->hello.interval);
+  put_u16(&pkt_tlv->interval, tlv->hello.interval*BABEL_TIME_UNITS);
   return sizeof(struct babel_pkt_tlv_hello);
 }
 
@@ -453,7 +453,7 @@ babel_write_ihu(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv,
   hdr->type = BABEL_TLV_IHU;
   hdr->length = sizeof(struct babel_pkt_tlv_ihu) - sizeof(struct babel_pkt_tlv_header);
   put_u16(&pkt_tlv->rxcost, tlv->ihu.rxcost);
-  put_u16(&pkt_tlv->interval, tlv->ihu.interval);
+  put_u16(&pkt_tlv->interval, tlv->ihu.interval*BABEL_TIME_UNITS);
   if (!ipa_is_link_local(tlv->ihu.addr))
   {
     pkt_tlv->ae = BABEL_AE_WILDCARD;
@@ -502,7 +502,7 @@ babel_write_update(struct babel_pkt_tlv_header *hdr, union babel_tlv *tlv,
   hdr->length = sizeof(struct babel_pkt_tlv_update) - sizeof(struct babel_pkt_tlv_header) + len;
   pkt_tlv->ae = BABEL_AE_IP6;
   pkt_tlv->plen = tlv->update.plen;
-  put_u16(&pkt_tlv->interval, tlv->update.interval);
+  put_u16(&pkt_tlv->interval, tlv->update.interval*BABEL_TIME_UNITS);
   put_u16(&pkt_tlv->seqno, tlv->update.seqno);
   put_u16(&pkt_tlv->metric, tlv->update.metric);
   memcpy(pkt_tlv->addr, buf, len);

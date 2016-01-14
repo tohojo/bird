@@ -631,7 +631,7 @@ babel_build_ihu(union babel_tlv *tlv, struct babel_iface *ifa, struct babel_neig
   tlv->type = BABEL_TLV_IHU;
   tlv->ihu.addr = n->addr;
   tlv->ihu.rxcost = babel_compute_rxcost(n);
-  tlv->ihu.interval = ifa->cf->ihu_interval*100;
+  tlv->ihu.interval = ifa->cf->ihu_interval;
   TRACE(D_PACKETS, "Sending IHU to %I with rxcost %d interval %d",
         tlv->ihu.addr, tlv->ihu.rxcost, tlv->ihu.interval);
 }
@@ -665,7 +665,7 @@ babel_send_hello(struct babel_iface *ifa, u8 send_ihu)
   TRACE(D_PACKETS, "Sending hello on interface %s", ifa->ifname);
   tlv.type = BABEL_TLV_HELLO;
   tlv.hello.seqno = ifa->hello_seqno++;
-  tlv.hello.interval = ifa->cf->hello_interval*100;
+  tlv.hello.interval = ifa->cf->hello_interval;
   babel_enqueue(&tlv, ifa);
 
   if (send_ihu) babel_queue_ihus(ifa);
@@ -710,7 +710,7 @@ babel_send_update(struct babel_iface *ifa, bird_clock_t changed)
       continue;
 
     tlv.update.plen = e->n.pxlen;
-    tlv.update.interval = ifa->cf->update_interval*100;
+    tlv.update.interval = ifa->cf->update_interval;
     tlv.update.seqno = r->seqno;
     tlv.update.metric = r->metric;
     tlv.update.prefix = e->n.prefix;
@@ -788,7 +788,7 @@ babel_update_hello_history(struct babel_neighbor *n, u16 seqno, u16 interval)
   n->hello_map = (n->hello_map << 1) | 1;
   n->next_hello_seqno = seqno+1;
   if (n->hello_cnt < 16) n->hello_cnt++;
-  n->hello_expiry = now + (BABEL_HELLO_EXPIRY_FACTOR*interval)/100;
+  n->hello_expiry = now + (BABEL_HELLO_EXPIRY_FACTOR*interval);
 }
 
 
@@ -801,7 +801,7 @@ babel_send_retraction(struct babel_iface *ifa, ip_addr prefix, int plen)
   union babel_tlv tlv = {};
   tlv.type = BABEL_TLV_UPDATE;
   tlv.update.plen = plen;
-  tlv.update.interval = ifa->cf->update_interval*100;
+  tlv.update.interval = ifa->cf->update_interval;
   tlv.update.seqno = p->update_seqno;
   tlv.update.metric = BABEL_INFINITY;
   tlv.update.prefix = prefix;
@@ -921,7 +921,7 @@ babel_handle_ihu(union babel_tlv *inc, struct babel_iface *ifa)
 	tlv->interval);
   struct babel_neighbor *n = babel_get_neighbor(ifa, tlv->sender);
   n->txcost = tlv->rxcost;
-  n->ihu_expiry = now + (3*tlv->interval)/200; // 1.5*interval/100
+  n->ihu_expiry = now + (3*tlv->interval)/2; // 1.5*interval
 }
 
 
@@ -1044,7 +1044,7 @@ babel_handle_update(union babel_tlv *inc, struct babel_iface *ifa)
     r->seqno = tlv->seqno;
     if (tlv->metric != BABEL_INFINITY)
     {
-      r->expiry_interval = (BABEL_ROUTE_EXPIRY_FACTOR*tlv->interval)/100;
+      r->expiry_interval = (BABEL_ROUTE_EXPIRY_FACTOR*tlv->interval);
       r->expires = now + r->expiry_interval;
       if (r->expiry_interval > BABEL_ROUTE_REFRESH_INTERVAL)
         r->refresh_time = now + r->expiry_interval - BABEL_ROUTE_REFRESH_INTERVAL;
@@ -1182,7 +1182,7 @@ static inline void
 babel_iface_kick_timer(struct babel_iface *ifa)
 {
   if (ifa->timer->expires > (now + 1))
-    tm_start(ifa->timer, 1);	/* Or 100 ms */
+    tm_start(ifa->timer, 1);
 }
 
 
@@ -1715,7 +1715,7 @@ static inline void
 babel_kick_timer(struct babel_proto *p)
 {
   if (p->timer->expires > (now + 1))
-    tm_start(p->timer, 1);	/* Or 100 ms */
+    tm_start(p->timer, 1);
 }
 
 

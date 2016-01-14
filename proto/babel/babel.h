@@ -46,6 +46,7 @@
 #define BABEL_RXCOST_WIRELESS         256
 #define BABEL_INITIAL_HOP_COUNT       255
 #define BABEL_MAX_SEND_INTERVAL       5
+#define BABEL_TIME_UNITS              100 /* On-wire times are counted in centiseconds */
 
 #define BABEL_SEQNO_REQUEST_EXPIRY    60
 #define BABEL_GARBAGE_INTERVAL        300
