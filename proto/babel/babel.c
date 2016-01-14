@@ -67,6 +67,7 @@ static int cache_seqno_request(struct babel_proto *p, ip_addr prefix, u8 plen,
 			       u64 router_id, u16 seqno);
 static void babel_trigger_update(struct babel_proto *p);
 static void babel_send_seqno_request(struct babel_entry *e);
+static inline void babel_kick_timer(struct babel_proto *p);
 static inline void babel_iface_kick_timer(struct babel_iface *ifa);
 
 /** Functions to maintain data structures **/
@@ -1232,9 +1233,9 @@ babel_find_iface(struct babel_proto *p, struct iface *what)
 }
 
 static void
-babel_remove_iface(struct babel_iface *ifa)
+babel_remove_iface(struct babel_proto *p, struct babel_iface *ifa)
 {
-  DBG("Babel: Interface %s disappeared\n", ifa->iface->name);
+  TRACE(D_EVENTS, "Removing interface %s", ifa->iface->name);
 
   struct babel_neighbor *n;
   WALK_LIST_FIRST(n, ifa->neigh_list)
@@ -1342,7 +1343,7 @@ babel_if_notify(struct proto *P, unsigned flags, struct iface *iface)
 
   if (flags & IF_CHANGE_DOWN)
   {
-    babel_remove_iface(ifa);
+    babel_remove_iface(p, ifa);
     return;
   }
 
@@ -1354,6 +1355,69 @@ babel_if_notify(struct proto *P, unsigned flags, struct iface *iface)
     babel_iface_update_state(ifa);
 
 }
+
+static int
+babel_reconfigure_iface(struct babel_proto *p, struct babel_iface *ifa, struct babel_iface_config *new)
+{
+  struct babel_iface_config *old = ifa->cf;
+
+  /* Change of these options would require to reset the iface socket */
+  if ((new->port != old->port) ||
+      (new->tx_tos != old->tx_tos) ||
+      (new->tx_priority != old->tx_priority))
+    return 0;
+
+  TRACE(D_EVENTS, "Reconfiguring interface %s", ifa->iface->name);
+
+  ifa->cf = new;
+
+  if (ifa->next_regular > (now + new->update_interval))
+    ifa->next_regular = now + (random() % new->update_interval) + 1;
+
+  if ((new->tx_length != old->tx_length) || (new->rx_buffer != old->rx_buffer))
+    babel_iface_update_buffers(ifa);
+
+  if (new->check_link != old->check_link)
+    babel_iface_update_state(ifa);
+
+  if (ifa->up)
+    babel_iface_kick_timer(ifa);
+
+  return 1;
+}
+
+static void
+babel_reconfigure_ifaces(struct babel_proto *p, struct babel_config *cf)
+{
+  struct iface *iface;
+
+  WALK_LIST(iface, p->interfaces)
+  {
+    if (! (iface->flags & IF_UP))
+      continue;
+
+    struct babel_iface *ifa = babel_find_iface(p, iface);
+    struct babel_iface_config *ic = (void *) iface_patt_find(&cf->iface_list, iface, NULL);
+
+    if (ifa && ic)
+    {
+      if (babel_reconfigure_iface(p, ifa, ic))
+	continue;
+
+      /* Hard restart */
+      log(L_INFO "%s: Restarting interface %s", p->p.name, ifa->iface->name);
+      babel_remove_iface(p, ifa);
+      babel_add_iface(p, iface, ic);
+    }
+
+    if (ifa && !ic)
+      babel_remove_iface(p, ifa);
+
+    if (!ifa && ic)
+      babel_add_iface(p, iface, ic);
+  }
+}
+
 
 
 
@@ -1591,6 +1655,14 @@ babel_timer(timer *t)
   expire_neighbors(p);
 }
 
+static inline void
+babel_kick_timer(struct babel_proto *p)
+{
+  if (p->timer->expires > (now + 1))
+    tm_start(p->timer, 1);	/* Or 100 ms */
+}
+
+
 static struct ea_list *
 babel_gen_attrs(struct linpool *pool, int metric, u64 router_id)
 {
@@ -1723,9 +1795,18 @@ babel_init(struct proto_config *cfg)
 
 
 static int
-babel_reconfigure(struct proto *p, struct proto_config *c)
+babel_reconfigure(struct proto *P, struct proto_config *c)
 {
-  return 0;
+  struct babel_proto *p = (void *) P;
+  struct babel_config *new = (void *) c;
+  TRACE(D_EVENTS, "Reconfiguring");
+
+  p->p.cf = c;
+  babel_reconfigure_ifaces(p, new);
+
+  babel_trigger_update(p);
+  babel_kick_timer(p);
+  return 1;
 }
 
 static int
