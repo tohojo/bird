@@ -775,7 +775,8 @@ babel_update_hello_history(struct babel_neighbor *n, u16 seqno, u16 interval)
 
 
 /* A retraction is an update with an infinite metric. */
-static void babel_send_retraction(struct babel_iface *ifa, ip_addr prefix, int plen)
+static void
+babel_send_retraction(struct babel_iface *ifa, ip_addr prefix, int plen)
 {
   struct babel_proto *p = ifa->proto;
   union babel_tlv tlv = {};
