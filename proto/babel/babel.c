@@ -1632,9 +1632,9 @@ babel_show_entries(struct proto *P, char *ent)
     if (ent && !patmatch(ent, ipbuf))
       continue;
 
-    if(r) {
+    if (r) {
 
-      if(r->router_id == p->router_id)
+      if (r->router_id == p->router_id)
         bsprintf(ridbuf, "%s", "<self>");
       else
         bsprintf(ridbuf, "%lR", r->router_id);
