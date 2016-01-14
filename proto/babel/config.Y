@@ -14,7 +14,7 @@ CF_HDR
 CF_DEFINES
 
 #define BABEL_CFG ((struct babel_config *) this_proto)
-#define BABEL_IFACE_CFG ((struct babel_iface_config *) this_ipatt)
+#define BABEL_IFACE ((struct babel_iface_config *) this_ipatt)
 
 CF_DECLS
 
@@ -39,14 +39,14 @@ babel_cfg:
 
 
 babel_iface_item:
- | PORT expr { BABEL_IFACE_CFG->port = $2; }
- | RXCOST expr { BABEL_IFACE_CFG->rxcost = $2; }
- | TX tos { BABEL_IFACE_CFG->tx_tos = $2; }
- | TX PRIORITY expr { BABEL_IFACE_CFG->tx_priority = $3; }
- | TYPE WIRED { BABEL_IFACE_CFG->type = BABEL_IFACE_TYPE_WIRED; }
- | TYPE WIRELESS { BABEL_IFACE_CFG->type = BABEL_IFACE_TYPE_WIRELESS; }
- | HELLO INTERVAL expr { BABEL_IFACE_CFG->hello_interval = $3; }
- | UPDATE INTERVAL expr { BABEL_IFACE_CFG->update_interval = $3; }
+ | PORT expr { BABEL_IFACE->port = $2; if (($2<1) || ($2>65535)) cf_error("Invalid port number"); }
+ | RXCOST expr { BABEL_IFACE->rxcost = $2; if (($2<1) || ($2>65535)) cf_error("Invalid rxcost"); }
+ | HELLO INTERVAL expr { BABEL_IFACE->hello_interval = $3; if (($3<1) || ($3>65535)) cf_error("Invalid hello interval"); }
+ | UPDATE INTERVAL expr { BABEL_IFACE->update_interval = $3; if (($3<1) || ($3>65535)) cf_error("Invalid hello interval"); }
+ | TX tos { BABEL_IFACE->tx_tos = $2; }
+ | TX PRIORITY expr { BABEL_IFACE->tx_priority = $3; }
+ | TYPE WIRED { BABEL_IFACE->type = BABEL_IFACE_TYPE_WIRED; }
+ | TYPE WIRELESS { BABEL_IFACE->type = BABEL_IFACE_TYPE_WIRELESS; }
  ;
 
 babel_iface_opts:
@@ -59,21 +59,41 @@ babel_iface_opt_list:
  | '{' babel_iface_opts '}'
  ;
 
-babel_iface_init:
-   /* EMPTY */ {
-     this_ipatt = cfg_allocz(sizeof(struct babel_iface_config));
-     add_tail(&BABEL_CFG->iface_list, NODE this_ipatt);
-     init_list(&this_ipatt->ipn_list);
-     BABEL_IFACE_CFG->port = BABEL_PORT;
-     BABEL_IFACE_CFG->type = BABEL_IFACE_TYPE_WIRED;
-     BABEL_IFACE_CFG->tx_tos = IP_PREC_INTERNET_CONTROL;
-     BABEL_IFACE_CFG->tx_priority = sk_priority_control;
-   }
- ;
+babel_iface_start:
+{
+  this_ipatt = cfg_allocz(sizeof(struct babel_iface_config));
+  add_tail(&BABEL_CFG->iface_list, NODE this_ipatt);
+  init_list(&this_ipatt->ipn_list);
+  BABEL_IFACE->port = BABEL_PORT;
+  BABEL_IFACE->type = BABEL_IFACE_TYPE_WIRED;
+  BABEL_IFACE->tx_tos = IP_PREC_INTERNET_CONTROL;
+  BABEL_IFACE->tx_priority = sk_priority_control;
+};
 
-babel_iface:	/* TODO: switch to iface_patt_list_nopx */
-   babel_iface_init iface_patt_list babel_iface_opt_list
- ;
+babel_iface_finish:
+{
+  if (BABEL_IFACE->type == BABEL_IFACE_TYPE_WIRELESS)
+  {
+    if (!BABEL_IFACE->hello_interval)
+      BABEL_IFACE->hello_interval = BABEL_HELLO_INTERVAL_WIRELESS;
+    if (!BABEL_IFACE->rxcost)
+      BABEL_IFACE->rxcost = BABEL_RXCOST_WIRELESS;
+  }
+  else
+  {
+    if (!BABEL_IFACE->hello_interval)
+      BABEL_IFACE->hello_interval = BABEL_HELLO_INTERVAL_WIRED;
+    if (!BABEL_IFACE->rxcost)
+      BABEL_IFACE->rxcost = BABEL_RXCOST_WIRED;
+  }
+
+  if (!BABEL_IFACE->update_interval)
+    BABEL_IFACE->update_interval = BABEL_IFACE->hello_interval*BABEL_UPDATE_INTERVAL_FACTOR;
+  BABEL_IFACE->ihu_interval = BABEL_IFACE->hello_interval*BABEL_IHU_INTERVAL_FACTOR;
+};
+
+babel_iface:
+  babel_iface_start iface_patt_list_nopx babel_iface_opt_list babel_iface_finish;
 
 CF_ADDTO(dynamic_attr, BABEL_METRIC { $$ = f_new_dynamic_attr(EAF_TYPE_INT | EAF_TEMP, T_INT, EA_BABEL_METRIC); })
 

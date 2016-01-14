@@ -1289,25 +1289,6 @@ babel_add_iface(struct babel_proto *p, struct iface *new, struct babel_iface_con
     if (ipa_is_link_local(iface->ip))
       ifa->addr = iface->ip;
 
-  if (ifa->cf->type == BABEL_IFACE_TYPE_WIRELESS)
-  {
-    if (!ifa->cf->hello_interval)
-      ifa->cf->hello_interval = BABEL_HELLO_INTERVAL_WIRELESS;
-    if (!ifa->cf->rxcost)
-      ifa->cf->rxcost = BABEL_RXCOST_WIRELESS;
-  }
-  else
-  {
-    if (!ifa->cf->hello_interval)
-      ifa->cf->hello_interval = BABEL_HELLO_INTERVAL_WIRED;
-    if (!ifa->cf->rxcost)
-      ifa->cf->rxcost = BABEL_RXCOST_WIRED;
-  }
-
-  if (!ifa->cf->update_interval)
-    ifa->cf->update_interval = ifa->cf->hello_interval*BABEL_UPDATE_INTERVAL_FACTOR;
-  ifa->cf->ihu_interval = ifa->cf->hello_interval*BABEL_IHU_INTERVAL_FACTOR;
-
   init_list(&ifa->neigh_list);
   ifa->hello_seqno = 1;
 
