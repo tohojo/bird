@@ -19,7 +19,7 @@ CF_DEFINES
 CF_DECLS
 
 CF_KEYWORDS(BABEL, METRIC, RXCOST, HELLO, UPDATE, INTERVAL, PORT, WIRED,
-WIRELESS, BABEL_METRIC)
+WIRELESS, RX, TX, BUFFER, LENGTH, CHECK, LINK, BABEL_METRIC)
 
 CF_GRAMMAR
 
@@ -54,6 +54,7 @@ babel_iface_start:
   BABEL_IFACE->type = BABEL_IFACE_TYPE_WIRED;
   BABEL_IFACE->tx_tos = IP_PREC_INTERNET_CONTROL;
   BABEL_IFACE->tx_priority = sk_priority_control;
+  BABEL_IFACE->check_link = 1;
 };
 
 
@@ -85,10 +86,13 @@ babel_iface_item:
  | RXCOST expr { BABEL_IFACE->rxcost = $2; if (($2<1) || ($2>65535)) cf_error("Invalid rxcost"); }
  | HELLO INTERVAL expr { BABEL_IFACE->hello_interval = $3; if (($3<1) || ($3>65535)) cf_error("Invalid hello interval"); }
  | UPDATE INTERVAL expr { BABEL_IFACE->update_interval = $3; if (($3<1) || ($3>65535)) cf_error("Invalid hello interval"); }
+ | RX BUFFER expr	{ BABEL_IFACE->rx_buffer = $3; if (($3<256) || ($3>65535)) cf_error("RX buffer must be in range 256-65535"); }
+ | TX LENGTH expr	{ BABEL_IFACE->tx_length = $3; if (($3<256) || ($3>65535)) cf_error("TX length must be in range 256-65535"); }
  | TX tos { BABEL_IFACE->tx_tos = $2; }
  | TX PRIORITY expr { BABEL_IFACE->tx_priority = $3; }
  | TYPE WIRED { BABEL_IFACE->type = BABEL_IFACE_TYPE_WIRED; }
  | TYPE WIRELESS { BABEL_IFACE->type = BABEL_IFACE_TYPE_WIRELESS; }
+ | CHECK LINK bool	{ BABEL_IFACE->check_link = $3; }
  ;
 
 babel_iface_opts:
