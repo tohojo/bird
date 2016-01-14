@@ -585,7 +585,7 @@ babel_send_route_request(struct babel_entry *e, struct babel_neighbor *n)
   struct babel_iface *ifa = n->ifa;
   struct babel_proto *p = e->proto;
   union babel_tlv tlv = {};
-  TRACE(D_PACKETS, "Sending route request for %I/%d to %I\n",
+  TRACE(D_PACKETS, "Sending route request for %I/%d to %I",
         e->n.prefix, e->n.pxlen, n->addr);
   tlv.type = BABEL_TLV_ROUTE_REQUEST;
   tlv.route_request.prefix = e->n.prefix;
@@ -609,7 +609,7 @@ babel_send_ack(struct babel_iface *ifa, ip_addr dest, u16 nonce)
 {
   struct babel_proto *p = ifa->proto;
   union babel_tlv tlv = {};
-  TRACE(D_PACKETS, "Sending ACK to %I with nonce %d\n", dest, nonce);
+  TRACE(D_PACKETS, "Sending ACK to %I with nonce %d", dest, nonce);
   tlv.type = BABEL_TLV_ACK;
   tlv.ack.nonce = nonce;
   babel_send_unicast(&tlv, ifa, dest);
