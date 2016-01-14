@@ -752,7 +752,7 @@ babel_rx_hook(sock *sk, int size)
 
   if (ipa_equal(ifa->iface->addr->ip, sk->faddr))
   {
-    DBG("My own packet\n");
+    DBG("Babel: My own packet\n");
     return 1;
   }
 

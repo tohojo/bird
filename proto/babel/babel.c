@@ -178,7 +178,7 @@ static void
 babel_flush_route(struct babel_route *r)
 {
   struct babel_proto *p = r->e->proto;
-  DBG("Flush route %I/%d router_id %lR neigh %I\n",
+  DBG("Babel: Flush route %I/%d router_id %lR neigh %I\n",
       r->e->n.prefix, r->e->n.pxlen, r->router_id, r->neigh ? r->neigh->addr : IPA_NONE);
   rem_node(NODE r);
   if (r->neigh) rem_node(&r->neigh_route);
@@ -382,7 +382,7 @@ babel_compute_rxcost(struct babel_neighbor *n)
   else
   {
     /* k-out-of-j selection - Appendix 2.1 in the RFC. */
-    DBG("Missed %d hellos from %I\n", missed, n->addr);
+    DBG("Babel: Missed %d hellos from %I\n", missed, n->addr);
     /* Link is bad if more than half the expected hellos were lost */
     return (missed > n->hello_cnt/2) ? BABEL_INFINITY : ifa->cf->rxcost;
   }
@@ -924,19 +924,19 @@ babel_handle_update(union babel_tlv *inc, struct babel_iface *ifa)
   n = babel_find_neighbor(ifa, tlv->sender);
   if (!n)
   {
-    DBG("Haven't heard from neighbor %I; ignoring update.\n", tlv->sender);
+    DBG("Babel: Haven't heard from neighbor %I; ignoring update.\n", tlv->sender);
     return;
   }
 
   if (tlv->router_id == p->router_id)
   {
-    DBG("Ignoring update for our own router ID.\n");
+    DBG("Babel: Ignoring update for our own router ID.\n");
     return;
   }
 
   /* we don't speak no IPv4 */
   if (tlv->ae == BABEL_AE_IP4) {
-    DBG("Ignoring update for IPv4 address.\n");
+    DBG("Babel: Ignoring update for IPv4 address.\n");
     return;
   }
 
@@ -1283,7 +1283,7 @@ babel_add_iface(struct babel_proto *p, struct iface *new, struct babel_iface_con
   struct babel_iface * ifa;
   struct object_lock *lock;
   pool *pool;
-  DBG("New interface %s\n", new->name);
+  DBG("Babel: New interface %s\n", new->name);
 
   if (!new) return;
 
