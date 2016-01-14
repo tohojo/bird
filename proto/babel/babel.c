@@ -1603,8 +1603,6 @@ babel_show_entries(struct proto *P, char *ent)
   struct babel_source *s = NULL;
   struct babel_route *r = NULL;
 
-  DBG("%s\n", ent);
-
   char ipbuf[STD_ADDRESS_P_LENGTH+5];
   char ridbuf[ROUTER_ID_64_LENGTH+1];
 
