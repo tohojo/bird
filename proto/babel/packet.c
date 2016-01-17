@@ -21,14 +21,14 @@
 #define TLV_SIZE(t) (t->type == BABEL_TLV_PAD0 ? 1 : t->length + sizeof(struct babel_pkt_tlv_header))
 
 
-static inline ip_addr
+static inline ip6_addr
 get_ip6_ll(void *p)
 {
   return ipa_build6(0xfe800000,0,get_u32(p),get_u32(p+sizeof(u32)));
 }
 
 static inline void
-put_ip6_ll(void *p, ip_addr addr)
+put_ip6_ll(void *p, ip6_addr addr)
 {
   put_u32(p, _I2(addr));
   put_u32(p+sizeof(u32), _I3(addr));
@@ -279,7 +279,7 @@ babel_read_update(struct babel_pkt_tlv_header *hdr,
                                       len - pkt_tlv->omitted);
     /* make sure the tail is zeroed */
     if (len < 16) memset(buf+len, 0, 16-len);
-    tlv->update.prefix = get_ipa(buf);
+    tlv->update.prefix = get_ip6(buf);
   }
   if (pkt_tlv->flags & BABEL_FLAG_DEF_PREFIX)
   {
@@ -339,7 +339,7 @@ babel_read_route_request(struct babel_pkt_tlv_header *hdr,
   else
   {
     memcpy(buf, &pkt_tlv->addr, len);
-    tlv->route_request.prefix = get_ipa(buf);
+    tlv->route_request.prefix = get_ip6(buf);
   }
 
   return PARSE_SUCCESS;
@@ -390,7 +390,7 @@ babel_read_seqno_request(struct babel_pkt_tlv_header *hdr,
   else
   {
     memcpy(buf, &pkt_tlv->addr, len);
-    tlv->seqno_request.prefix = get_ipa(buf);
+    tlv->seqno_request.prefix = get_ip6(buf);
   }
 
   tlv->seqno_request.sender = state->saddr;
