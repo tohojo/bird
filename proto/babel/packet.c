@@ -229,6 +229,10 @@ babel_read_next_hop(struct babel_pkt_tlv_header *hdr,
   {
     if (TLV_SIZE(hdr) < sizeof(struct babel_pkt_tlv_next_hop)+8) return PARSE_ERROR;
     state->next_hop = get_ip6_ll(&pkt_tlv->addr);
+  } else if (pkt_tlv->ae == BABEL_AE_IP6) {
+    if (TLV_SIZE(hdr) < sizeof(struct babel_pkt_tlv_next_hop)+sizeof(ip6_addr))
+      return PARSE_ERROR;
+    state->next_hop = get_ip6(&pkt_tlv->addr);
   }
   return PARSE_SUCCESS;
 }
