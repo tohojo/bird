@@ -1147,7 +1147,21 @@ babel_handle_seqno_request(union babel_tlv *inc, struct babel_iface *ifa)
  * @t: Timer.
  *
  * This function is called by the per-interface timer and triggers sending of
- * periodic Hello's and both triggered and periodic updates.
+ * periodic Hello's and both triggered and periodic updates. Periodic Hello's
+ * and updates are simply handled by setting the next_{hello,regular} variables
+ * on the interface, and triggering an update (and resetting the variable)
+ * whenever 'now' exceeds that value.
+ *
+ * For triggered updates, babel_trigger_iface_update() will set the
+ * want_triggered field on the interface to a timestamp value. If this is set
+ * (and the next_triggered time has passed; this is a rate limiting mechanism),
+ * babel_send_update() will be called with this timestamp as the second
+ * parameter. This causes updates to be send consisting of only the routes that
+ * have changed since the time saved in want_triggered.
+ *
+ * Mostly when an update is triggered, the route being modified will be set to
+ * the value of 'now' at the time of the trigger; the >= comparison for
+ * selecting which routes to send in the update will make sure this is included.
  */
 static void
 babel_iface_timer(timer *t)
