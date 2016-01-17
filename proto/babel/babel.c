@@ -65,6 +65,7 @@ static void babel_send_route_request(struct babel_entry *e, struct babel_neighbo
 static void babel_send_wildcard_request(struct babel_iface *ifa);
 static int  babel_cache_seqno_request(struct babel_proto *p, ip_addr prefix, u8 plen,
 			       u64 router_id, u16 seqno);
+static void babel_trigger_iface_update(struct babel_iface *ifa);
 static void babel_trigger_update(struct babel_proto *p);
 static void babel_send_seqno_request(struct babel_entry *e);
 static inline void babel_kick_timer(struct babel_proto *p);
@@ -728,6 +729,16 @@ babel_send_update(struct babel_iface *ifa, bird_clock_t changed)
   } FIB_WALK_END;
 }
 
+static void
+babel_trigger_iface_update(struct babel_iface *ifa)
+{
+    if (ifa->up && !ifa->want_triggered)
+    {
+      ifa->want_triggered = now;
+      babel_iface_kick_timer(ifa);
+    }
+}
+
 /* Sends and update on all interfaces. */
 static void
 babel_trigger_update(struct babel_proto *p)
@@ -736,18 +747,10 @@ babel_trigger_update(struct babel_proto *p)
     return;
   struct babel_iface *ifa;
   TRACE(D_EVENTS, "Sending global update. Seqno %d", p->update_seqno);
-  WALK_LIST(ifa, p->interfaces) {
 
-    if (!ifa->up)
-      continue;
+  WALK_LIST(ifa, p->interfaces)
+    babel_trigger_iface_update(ifa);
 
-    /* already triggered */
-    if (ifa->want_triggered)
-      continue;
-
-    ifa->want_triggered = now;
-    babel_iface_kick_timer(ifa);
-  }
   p->triggered = 1;
 }
 
@@ -1086,7 +1089,7 @@ babel_handle_route_request(union babel_tlv *inc, struct babel_iface *ifa)
   else
   {
     e->updated = now;
-    ifa->want_triggered = now;
+    babel_trigger_iface_update(ifa);
   }
 }
 
@@ -1115,7 +1118,7 @@ babel_handle_seqno_request(union babel_tlv *inc, struct babel_iface *ifa)
   if (r->router_id != tlv->router_id || ge_mod64k(r->seqno, tlv->seqno))
   {
     e->updated = now;
-    ifa->want_triggered = now;
+    babel_trigger_iface_update(ifa);
     return;
   }
 
