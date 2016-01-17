@@ -19,7 +19,7 @@ CF_DEFINES
 CF_DECLS
 
 CF_KEYWORDS(BABEL, METRIC, RXCOST, HELLO, UPDATE, INTERVAL, PORT, WIRED,
-WIRELESS, RX, TX, BUFFER, LENGTH, CHECK, LINK, BABEL_METRIC)
+WIRELESS, TX, CHECK, LINK, BABEL_METRIC)
 
 CF_GRAMMAR
 
@@ -88,8 +88,6 @@ babel_iface_item:
  | UPDATE INTERVAL expr { BABEL_IFACE->update_interval = $3; if (($3<1) || ($3>65535)) cf_error("Invalid hello interval"); }
  | TYPE WIRED { BABEL_IFACE->type = BABEL_IFACE_TYPE_WIRED; }
  | TYPE WIRELESS { BABEL_IFACE->type = BABEL_IFACE_TYPE_WIRELESS; }
- | RX BUFFER expr	{ BABEL_IFACE->rx_buffer = $3; if (($3<256) || ($3>65535)) cf_error("RX buffer must be in range 256-65535"); }
- | TX LENGTH expr	{ BABEL_IFACE->tx_length = $3; if (($3<256) || ($3>65535)) cf_error("TX length must be in range 256-65535"); }
  | TX tos { BABEL_IFACE->tx_tos = $2; }
  | TX PRIORITY expr { BABEL_IFACE->tx_priority = $3; }
  | CHECK LINK bool	{ BABEL_IFACE->check_link = $3; }

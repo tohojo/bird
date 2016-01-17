@@ -1261,9 +1261,8 @@ babel_iface_update_buffers(struct babel_iface *ifa)
   if (!ifa->sk)
     return;
 
-  uint rbsize = ifa->cf->rx_buffer ?: ifa->iface->mtu;
-  uint tbsize = ifa->cf->tx_length ?: ifa->iface->mtu;
-  rbsize = MAX(rbsize, tbsize);
+  uint rbsize = MAX(BABEL_MIN_RX_LENGTH, ifa->iface->mtu);
+  uint tbsize = ifa->iface->mtu;
 
   sk_set_rbsize(ifa->sk, rbsize);
   sk_set_tbsize(ifa->sk, tbsize);
@@ -1425,9 +1424,6 @@ babel_reconfigure_iface(struct babel_proto *p, struct babel_iface *ifa, struct b
 
   if (ifa->next_regular > (now + new->update_interval))
     ifa->next_regular = now + (random() % new->update_interval) + 1;
-
-  if ((new->tx_length != old->tx_length) || (new->rx_buffer != old->rx_buffer))
-    babel_iface_update_buffers(ifa);
 
   if (new->check_link != old->check_link)
     babel_iface_update_state(ifa);

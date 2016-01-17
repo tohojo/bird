@@ -53,6 +53,7 @@
 
 /* ip header + udp header + babel header */
 #define BABEL_OVERHEAD (SIZE_OF_IP_HEADER+UDP_HEADER_LENGTH+sizeof(struct babel_pkt_header))
+#define BABEL_MIN_RX_LENGTH 512
 
 struct babel_pkt_header {
   u8 magic;
@@ -227,8 +228,6 @@ struct babel_iface_config {
   u16 ihu_interval;
   u16 update_interval;
 
-  u16 rx_buffer;			/* RX buffer size, 0 for MTU */
-  u16 tx_length;			/* TX packet length limit (including headers), 0 for MTU */
   int tx_tos;
   int tx_priority;
 
