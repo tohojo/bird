@@ -1088,8 +1088,8 @@ babel_handle_route_request(union babel_tlv *inc, struct babel_iface *ifa)
   }
   else
   {
-    e->updated = now;
     babel_trigger_iface_update(ifa);
+    e->updated = now;
   }
 }
 
@@ -1117,8 +1117,8 @@ babel_handle_seqno_request(union babel_tlv *inc, struct babel_iface *ifa)
   r = e->selected_out;
   if (r->router_id != tlv->router_id || ge_mod64k(r->seqno, tlv->seqno))
   {
-    e->updated = now;
     babel_trigger_iface_update(ifa);
+    e->updated = now;
     return;
   }
 
