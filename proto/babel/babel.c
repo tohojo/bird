@@ -44,11 +44,10 @@
 
 #define BAD(x) { log(L_REMOTE "%s: " x, p->p.name); return 1; }
 
-/* Is one number larger than another mod 65535? Since diff_mod64k is always >=
-   0, just use a simple cutoff value to determine if the difference is small
-   enough that one is really larger. Since these comparisons are only made for
-   values that should not differ by more than a few numbers, this should be
-   safe. */
+/* Is one number larger than another mod 2^16? Just use a simple cutoff value to
+   determine if the difference is small enough that one is really larger. Since
+   these comparisons are only made for values that should not differ by more
+   than a few numbers, this should be safe. */
 static inline u16 ge_mod64k(u16 a, u16 b)
 {
   return ((u16) a-b) < 0xfff0;
