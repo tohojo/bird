@@ -1438,7 +1438,7 @@ protocol babel [<name>] {
 
       <tag>tx class|dscp|priority <m/number/</tag>
       These options specify the ToS/DiffServ/Traffic class/Priority of the
-      outgoing RIP packets. See <ref id="dsc-prio" name="tx class"> common
+      outgoing Babel packets. See <ref id="dsc-prio" name="tx class"> common
       option for detailed description.
 
       <tag>rx buffer <m/number/</tag>
