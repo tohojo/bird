@@ -34,7 +34,7 @@
 #define BABEL_INFINITY 0xFFFF
 
   /* default hello intervals in seconds */
-#define BABEL_HELLO_INTERVAL_WIRED    20
+#define BABEL_HELLO_INTERVAL_WIRED    4
 #define BABEL_HELLO_INTERVAL_WIRELESS 4
 #define BABEL_UPDATE_INTERVAL_FACTOR  4
 #define BABEL_IHU_INTERVAL_FACTOR     3

@@ -1426,7 +1426,7 @@ protocol babel [<name>] {
 
       <tag>hello interval <m/num/</tag>
       Interval at which periodic "hello" messages are sent on this interface,
-      in seconds. Default: 20 seconds for wired interfaces, 4 seconds for wireless.
+      in seconds. Default: 4 seconds.
 
       <tag>update interval <m/num/</tag>
       Interval at which periodic (full) updates are sent. Default: 4 times the
