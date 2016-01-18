@@ -1444,12 +1444,14 @@ protocol babel [<name>] {
       <tag>rx buffer <m/number/</tag>
       This option specifies the size of buffers used for packet processing.
       The buffer size should be bigger than maximal size of received packets.
-      The default value is the interface MTU.
+      The default value is the interface MTU, and the value will be clamped to a
+      minimum of 512 bytes + IP packet overhead.
 
       <tag>tx length <m/number/</tag>
       This option specifies the maximum length of generated Babel packets. To
       avoid IP fragmentation, it should not exceed the interface MTU value.
-      The default value is the interface MTU value.
+      The default value is the interface MTU value, and the value will be
+      clamped to a minimum of 512 bytes + IP packet overhead.
 
       <tag>check link <m/switch/</tag>
       If set, the hardware link state (as reported by OS) is taken into

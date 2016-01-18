@@ -1275,8 +1275,8 @@ babel_iface_update_buffers(struct babel_iface *ifa)
   if (!ifa->sk)
     return;
 
-  uint rbsize = ifa->cf->rx_buffer ?: ifa->iface->mtu;
-  uint tbsize = ifa->cf->tx_length ?: ifa->iface->mtu;
+  uint rbsize = ifa->cf->rx_buffer ?: MAX(BABEL_MIN_MTU, ifa->iface->mtu);
+  uint tbsize = ifa->cf->tx_length ?: MAX(BABEL_MIN_MTU, ifa->iface->mtu);
   rbsize = MAX(rbsize, tbsize);
 
   sk_set_rbsize(ifa->sk, rbsize);

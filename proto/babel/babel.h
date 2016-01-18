@@ -53,6 +53,7 @@
 
 /* ip header + udp header + babel header */
 #define BABEL_OVERHEAD (SIZE_OF_IP_HEADER+UDP_HEADER_LENGTH+sizeof(struct babel_pkt_header))
+#define BABEL_MIN_MTU  (512 + BABEL_OVERHEAD)
 
 struct babel_pkt_header {
   u8 magic;
