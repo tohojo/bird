@@ -1,0 +1,13 @@
+doc/*.html
+doc/prog.sgml
+doc/prog.log
+obj/
+autom4te.cache
+bird
+birdc
+birdcl
+config.*
+configure
+cscope.files
+patches
+Makefile
