@@ -1,6 +1,8 @@
 /*
  *	BIRD -- Babel Configuration
  *
+ *	Copyright (c) 2015-2016 Toke Høiland-Jørgensen
+ *
  *	Can be freely distributed and used under the terms of the GNU GPL.
  */
 
