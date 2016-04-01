@@ -682,7 +682,11 @@ babel_enqueue(union babel_tlv *tlv, struct babel_iface *ifa)
   struct babel_tlv_node *tlvn = sl_alloc(p->tlv_slab);
   tlvn->tlv = *tlv;
   add_tail(&ifa->tlv_queue, NODE tlvn);
-  ev_schedule(ifa->send_event);
+
+  /* Only schedule send if there's not already data in the socket buffer.
+     Otherwise we may overwrite the data already in the buffer. */
+  if(ifa->sk->tbuf == ifa->sk->tpos)
+    ev_schedule(ifa->send_event);
 }
 
 
