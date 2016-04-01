@@ -1458,7 +1458,7 @@ babel_reconfigure_ifaces(struct babel_proto *p, struct babel_config *cf)
 {
   struct iface *iface;
 
-  WALK_LIST(iface, p->interfaces)
+  WALK_LIST(iface, iface_list)
   {
     if (! (iface->flags & IF_UP))
       continue;
