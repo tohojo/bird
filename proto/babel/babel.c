@@ -43,6 +43,7 @@
 
 
 #define BAD(x) { log(L_REMOTE "%s: " x, p->p.name); return 1; }
+#define OUR_ROUTE(r) (r->neigh == NULL)
 
 /* Is one number larger than another mod 2^16? Just use a simple cutoff value to
    determine if the difference is small enough that one is really larger. Since
@@ -210,7 +211,7 @@ babel_expire_route(struct babel_route *r)
 static void
 babel_refresh_route(struct babel_route *r)
 {
-  if (!r->neigh || r != r->e->selected_in) return;
+  if (OUR_ROUTE(r) || r != r->e->selected_in) return;
   babel_send_route_request(r->e, r->neigh);
 }
 
@@ -488,13 +489,13 @@ babel_select_route(struct babel_entry *e)
   /* try to find the best feasible route */
   WALK_LIST(r, e->routes)
     if ((!cur || r->metric < cur->metric)
-        && r->neigh /* prevent propagating out own routes back to core */
+        && !OUR_ROUTE(r) /* prevent propagating our own routes back to core */
         && babel_is_feasible(babel_find_source(e, r->router_id),
                        r->seqno, r->advert_metric))
       cur = r;
 
-  if (cur && cur->neigh && ((!e->selected_in && cur->metric < BABEL_INFINITY)
-			   || (e->selected_in && cur->metric < e->selected_in->metric)))
+  if (cur && !OUR_ROUTE(cur) && ((!e->selected_in && cur->metric < BABEL_INFINITY)
+                                 || (e->selected_in && cur->metric < e->selected_in->metric)))
                            {
       TRACE(D_EVENTS, "Picked new route for prefix %I/%d: router id %lR metric %d",
 	    e->n.prefix, e->n.pxlen, cur->router_id, cur->metric);
@@ -861,8 +862,8 @@ babel_forward_seqno_request(struct babel_entry *e,
 	e->n.prefix, e->n.pxlen, in->router_id);
   WALK_LIST(r, e->routes)
   {
-    if (r->router_id == in->router_id && r->neigh
-       && !ipa_equal(r->neigh->addr,sender))
+    if (r->router_id == in->router_id && !OUR_ROUTE(r)
+        && !ipa_equal(r->neigh->addr,sender))
     {
       if (!babel_cache_seqno_request(p, e->n.prefix, e->n.pxlen, in->router_id, in->seqno))
 	return;
@@ -1803,7 +1804,7 @@ babel_rt_notify(struct proto *P, struct rtable *table UNUSED, struct network *ne
     e = babel_get_entry(p, net->n.prefix, net->n.pxlen);
     r = (new->attrs->src->proto == P) ? e->selected_in : babel_get_route(e, NULL);
 
-    if (!r->neigh)
+    if (OUR_ROUTE(r))
     {
       r->seqno = p->update_seqno;
       r->router_id = p->router_id;
@@ -1822,7 +1823,7 @@ babel_rt_notify(struct proto *P, struct rtable *table UNUSED, struct network *ne
     e = babel_find_entry(p, net->n.prefix, net->n.pxlen);
     if (e && e->selected_out)
     {
-      if(!e->selected_out->neigh) {
+      if(OUR_ROUTE(e->selected_out)) {
         /* We originate this route, so set its metric to infinity and set an
            expiry time. This causes a retraction to be sent, and later the route
            to be flushed once the hold time has passed. */
