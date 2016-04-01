@@ -1455,14 +1455,14 @@ babel_reconfigure_iface(struct babel_proto *p, struct babel_iface *ifa, struct b
 static void
 babel_reconfigure_ifaces(struct babel_proto *p, struct babel_config *cf)
 {
-  struct iface *iface;
+  struct babel_iface *ifa;
 
-  WALK_LIST(iface, p->interfaces)
+  WALK_LIST(ifa, p->interfaces)
   {
-    if (! (iface->flags & IF_UP))
+    if (! ifa->up)
       continue;
 
-    struct babel_iface *ifa = babel_find_iface(p, iface);
+    struct iface *iface = ifa->iface;
     struct babel_iface_config *ic = (void *) iface_patt_find(&cf->iface_list, iface, NULL);
 
     if (ifa && ic)
