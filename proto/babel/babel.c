@@ -1795,6 +1795,7 @@ babel_rt_notify(struct proto *P, struct rtable *table UNUSED, struct network *ne
   struct babel_proto *p = (struct babel_proto *)P;
   struct babel_entry *e;
   struct babel_route *r;
+  u8 trigger_upd = 0;
 
   if (new)
   {
@@ -1812,22 +1813,41 @@ babel_rt_notify(struct proto *P, struct rtable *table UNUSED, struct network *ne
     if (r != e->selected_out) {
       e->selected_out = r;
       e->updated = now;
+      trigger_upd = 1;
     }
   }
   else
   {
     TRACE(D_EVENTS, "Lost route from nest: %I/%d", net->n.prefix, net->n.pxlen);
-    /* route has gone away; send retraction */
     e = babel_find_entry(p, net->n.prefix, net->n.pxlen);
-    if (e && e->selected_out && !e->selected_out->neigh)
+    if (e && e->selected_out)
     {
-      /* no neighbour, so our route */
-      e->selected_out->metric = BABEL_INFINITY;
-      e->selected_out->expires = now + BABEL_HOLD_TIME;
+      if(!e->selected_out->neigh) {
+        /* We originate this route, so set its metric to infinity and set an
+           expiry time. This causes a retraction to be sent, and later the route
+           to be flushed once the hold time has passed. */
+        e->selected_out->metric = BABEL_INFINITY;
+        e->selected_out->expires = now + BABEL_HOLD_TIME;
+        trigger_upd = 1;
+      } else {
+        /* This is a route originating from someone else that was lost;
+           presumably because an export filter was updated to filter it. This
+           means we can't set the metric to infinity (it would be overridden on
+           subsequent updates from the peer originating the route), so just
+           clear the exported route.
+
+           This causes peers to expire the route after a while (like if we just
+           shut down), but it's the best we can do in these circumstances; and
+           since export filters presumably aren't updated that often this is
+           acceptable. */
+        e->selected_out = NULL;
+      }
       e->updated = now;
     }
   }
-  babel_trigger_update(p);
+
+  if(trigger_upd)
+    babel_trigger_update(p);
 }
 
 static int
