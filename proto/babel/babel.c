@@ -45,13 +45,16 @@
 #define BAD(x) { log(L_REMOTE "%s: " x, p->p.name); return 1; }
 #define OUR_ROUTE(r) (r->neigh == NULL)
 
-/* Is one number larger than another mod 2^16? Just use a simple cutoff value to
-   determine if the difference is small enough that one is really larger. Since
-   these comparisons are only made for values that should not differ by more
-   than a few numbers, this should be safe. */
+/* Is one number larger than another mod 2^16? This is based on the definition
+   of serial number space in RFC1982.
+
+   The simple comparison works because if b - a > 0x8000 then (since the u16
+   values wrap) either b is larger than a by more than 2**15 (which means a > b
+   in sequence number space), OR a is larger than b by LESS than 2**15 (which
+   also means that a > b in sequence number space.*/
 static inline u16 ge_mod64k(u16 a, u16 b)
 {
-  return ((u16) a-b) < 0xfff0;
+  return (a == b || b - a > 0x8000);
 }
 
 static void babel_expire_hello(struct babel_neighbor *n);
