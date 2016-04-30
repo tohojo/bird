@@ -530,7 +530,11 @@ babel_read_update(struct babel_tlv *hdr, union babel_msg *m,
     state->router_id = ((u64) _I2(msg->prefix)) << 32 | _I3(msg->prefix);
     state->router_id_seen = 1;
   }
-  if (!state->router_id_seen)
+
+  /* Updates with no router ID are allowed for the special case of global
+   * retractions from a neighbour (RFC section 4.4.9). */
+  if (!state->router_id_seen &&
+	  !(msg->metric == BABEL_INFINITY && tlv->ae == BABEL_AE_WILDCARD))
   {
     DBG("Babel: No router ID seen before update\n");
     return PARSE_ERROR;
