@@ -1539,7 +1539,10 @@ babel_reconfigure_iface(struct babel_proto *p, struct babel_iface *ifa, struct b
     babel_iface_update_state(ifa);
 
   if (ifa->up)
+  {
+    babel_send_hello(ifa, 0);
     babel_iface_kick_timer(ifa);
+  }
 
   return 1;
 }
