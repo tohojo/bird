@@ -1096,9 +1096,25 @@ babel_handle_update(union babel_msg *m, struct babel_iface *ifa)
    */
 
   if (msg->metric == BABEL_INFINITY)
+  {
+    if (ipa_zero(msg->prefix))
+    {
+      /* Special case: This is a retraction of all prefixes announced by this
+         neighbour (see second-to-last paragraph of section 4.4.9 in the
+         RFC). */
+      WALK_LIST(r, n->routes)
+      {
+        r->metric = BABEL_INFINITY;
+        babel_select_route(r->e);
+      }
+      return;
+    }
     e = babel_find_entry(p, msg->prefix, msg->plen);
+  }
   else
+  {
     e = babel_get_entry(p, msg->prefix, msg->plen);
+  }
 
   if (!e)
     return;
