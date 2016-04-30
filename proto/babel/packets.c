@@ -484,6 +484,13 @@ babel_read_update(struct babel_tlv *hdr, union babel_msg *m,
     break;
 
   case BABEL_AE_IP4:
+    if (tlv->flags & BABEL_FLAG_ROUTER_ID)
+    {
+      /* spec doesn't specify how to treat updates with the router ID flag set
+       * for an IPv4 address. We consider them an error. */
+      DBG("Received update with FLAG_ROUTER_ID set for an IPv4 address.\n");
+      return PARSE_ERROR;
+    }
     /* TODO */
     return PARSE_IGNORE;
 
@@ -508,11 +515,6 @@ babel_read_update(struct babel_tlv *hdr, union babel_msg *m,
       state->def_ip6_prefix_seen = 1;
     }
 
-    if (tlv->flags & BABEL_FLAG_ROUTER_ID)
-    {
-      state->router_id = ((u64) _I2(msg->prefix)) << 32 | _I3(msg->prefix);
-      state->router_id_seen = 1;
-    }
     break;
 
   case BABEL_AE_IP6_LL:
@@ -523,6 +525,11 @@ babel_read_update(struct babel_tlv *hdr, union babel_msg *m,
     return PARSE_IGNORE;
   }
 
+  if (tlv->flags & BABEL_FLAG_ROUTER_ID)
+  {
+    state->router_id = ((u64) _I2(msg->prefix)) << 32 | _I3(msg->prefix);
+    state->router_id_seen = 1;
+  }
   if (!state->router_id_seen)
   {
     DBG("Babel: No router ID seen before update\n");
