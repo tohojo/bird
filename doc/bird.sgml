@@ -610,8 +610,8 @@ agreement").
 	options, in that case for given interface the first matching interface
 	option is used.
 
-	This option is allowed in BFD, Direct, OSPF, RAdv and RIP protocols, but
-	in OSPF protocol it is used in the <cf/area/ subsection.
+	This option is allowed in Babel, BFD, Direct, OSPF, RAdv and RIP
+	protocols, but in OSPF protocol it is used in the <cf/area/ subsection.
 
 	Default: none.
 
