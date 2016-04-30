@@ -1906,6 +1906,7 @@ babel_rt_notify(struct proto *P, struct rtable *table UNUSED, struct network *ne
   struct babel_proto *p = (void *) P;
   struct babel_entry *e;
   struct babel_route *r;
+  struct babel_source *s;
 
   if (new)
   {
@@ -1943,6 +1944,9 @@ babel_rt_notify(struct proto *P, struct rtable *table UNUSED, struct network *ne
        * expiry time. This causes a retraction to be sent, and later the route
        * to be flushed once the hold time has passed.
        */
+      s = babel_find_source(e, p->router_id);
+      if(s)
+        s->expires = now + BABEL_HOLD_TIME;
       e->selected_out->metric = BABEL_INFINITY;
       e->selected_out->expires = now + BABEL_HOLD_TIME;
       e->updated = now;
