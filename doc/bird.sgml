@@ -1475,6 +1475,33 @@ protocol babel [<name>] {
       yes.
 </descrip>
 
+<sect1>Attributes
+
+<p>Babel defines just one attribute: the internal babel metric of the route. It
+is exposed as the <cf/babel_metric/ attribute and has range from 1 to infinity
+(65535).
+
+<sect1>Example
+
+<p><code>
+protocol babel {
+	interface "eth*" {
+		type wired;
+	};
+	interface "wlan0", "wlan1" {
+		type wireless;
+		hello interval 1;
+		rxcost 512;
+	};
+	interface "tap0";
+
+	# This matches the default of babeld: redistribute all addresses
+	# configured on local interfaces, plus re-distribute all routes received
+	# from other babel peers.
+	export where (source = RTS_DEVICE) || (source = RTS_BABEL);
+}
+</code>
+
 
 <sect><label id="sect-bfd">BFD
 
