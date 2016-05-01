@@ -1312,7 +1312,7 @@ clist for most purposes.
 	<cf/RTS_DUMMY/, <cf/RTS_STATIC/, <cf/RTS_INHERIT/, <cf/RTS_DEVICE/,
 	<cf/RTS_STATIC_DEVICE/, <cf/RTS_REDIRECT/, <cf/RTS_RIP/, <cf/RTS_OSPF/,
 	<cf/RTS_OSPF_IA/, <cf/RTS_OSPF_EXT1/, <cf/RTS_OSPF_EXT2/, <cf/RTS_BGP/,
-	<cf/RTS_PIPE/.
+	<cf/RTS_PIPE/, <cf/RTS_BABEL/.
 
 	<tag><m/enum/ cast</tag>
 	Route type (Currently <cf/RTC_UNICAST/ for normal routes,
