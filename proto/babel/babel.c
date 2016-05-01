@@ -1095,9 +1095,9 @@ babel_handle_update(union babel_msg *m, struct babel_iface *ifa)
    *   of the Interval value included in the update.
    */
 
-  if (msg->metric == BABEL_INFINITY)
+  if (msg->metric == BABEL_INFINITY) /* Retraction */
   {
-    if (ipa_zero(msg->prefix))
+    if (msg->ae == BABEL_AE_WILDCARD)
     {
       /* Special case: This is a retraction of all prefixes announced by this
          neighbour (see second-to-last paragraph of section 4.4.9 in the
@@ -1109,17 +1109,24 @@ babel_handle_update(union babel_msg *m, struct babel_iface *ifa)
       }
       return;
     }
+
     e = babel_find_entry(p, msg->prefix, msg->plen);
+
+    if (!e)
+      return;
+
+    s = NULL; /* no router ID for retractions */
   }
   else
   {
     e = babel_get_entry(p, msg->prefix, msg->plen);
+
+    if (!e)
+      return;
+
+    s = babel_find_source(e, msg->router_id); /* for feasibility */
   }
 
-  if (!e)
-    return;
-
-  s = babel_find_source(e, msg->router_id); /* for feasibility */
   r = babel_find_route(e, n); /* the route entry indexed by neighbour */
   feasible = babel_is_feasible(s, msg->seqno, msg->metric);
 
