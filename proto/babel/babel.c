@@ -1053,17 +1053,18 @@ babel_handle_update(union babel_msg *m, struct babel_iface *ifa)
   struct babel_proto *p = ifa->proto;
   struct babel_msg_update *msg = &m->update;
 
-  struct babel_neighbor *n;
+  struct babel_neighbor *nbr;
   struct babel_entry *e;
   struct babel_source *s;
   struct babel_route *r;
+  node *n;
   int feasible;
 
   TRACE(D_PACKETS, "Handling update for %I/%d with seqno %d metric %d",
 	msg->prefix, msg->plen, msg->seqno, msg->metric);
 
-  n = babel_find_neighbor(ifa, msg->sender);
-  if (!n)
+  nbr = babel_find_neighbor(ifa, msg->sender);
+  if (!nbr)
   {
     DBG("Babel: Haven't heard from neighbor %I; ignoring update.\n", msg->sender);
     return;
@@ -1115,8 +1116,9 @@ babel_handle_update(union babel_msg *m, struct babel_iface *ifa)
       /* Special case: This is a retraction of all prefixes announced by this
          neighbour (see second-to-last paragraph of section 4.4.9 in the
          RFC). */
-      WALK_LIST(r, n->routes)
+      WALK_LIST(n, nbr->routes)
       {
+	r = SKIP_BACK(struct babel_route, neigh_route, n);
         r->metric = BABEL_INFINITY;
         babel_select_route(r->e);
       }
@@ -1140,7 +1142,7 @@ babel_handle_update(union babel_msg *m, struct babel_iface *ifa)
     s = babel_find_source(e, msg->router_id); /* for feasibility */
   }
 
-  r = babel_find_route(e, n); /* the route entry indexed by neighbour */
+  r = babel_find_route(e, nbr); /* the route entry indexed by neighbour */
   feasible = babel_is_feasible(s, msg->seqno, msg->metric);
 
   if (!r)
@@ -1148,10 +1150,10 @@ babel_handle_update(union babel_msg *m, struct babel_iface *ifa)
     if (!feasible || (msg->metric == BABEL_INFINITY))
       return;
 
-    r = babel_get_route(e, n);
+    r = babel_get_route(e, nbr);
     r->advert_metric = msg->metric;
     r->router_id = msg->router_id;
-    r->metric = babel_compute_metric(n, msg->metric);
+    r->metric = babel_compute_metric(nbr, msg->metric);
     r->next_hop = msg->next_hop;
     r->seqno = msg->seqno;
   }
@@ -1168,7 +1170,7 @@ babel_handle_update(union babel_msg *m, struct babel_iface *ifa)
   {
     /* Last paragraph above - update the entry */
     r->advert_metric = msg->metric;
-    r->metric = babel_compute_metric(n, msg->metric);
+    r->metric = babel_compute_metric(nbr, msg->metric);
     r->router_id = msg->router_id;
     r->next_hop = msg->next_hop;
     r->seqno = msg->seqno;
