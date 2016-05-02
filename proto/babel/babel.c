@@ -1125,32 +1125,35 @@ babel_handle_update(union babel_msg *m, struct babel_iface *ifa)
         r->metric = BABEL_INFINITY;
         babel_select_route(r->e);
       }
-      return;
+    }
+    else
+    {
+
+      e = babel_find_entry(p, msg->prefix, msg->plen);
+
+      if (!e)
+	return;
+
+      r = babel_find_route(e, nbr); /* the route entry indexed by neighbour */
+
+      if(!r)
+	return;
+
+      r->metric = BABEL_INFINITY;
+      babel_select_route(e);
     }
 
-    e = babel_find_entry(p, msg->prefix, msg->plen);
-
-    if (!e)
-      return;
-
-    s = NULL; /* no router ID for retractions */
-  }
-  else
-  {
-    e = babel_get_entry(p, msg->prefix, msg->plen);
-
-    if (!e)
-      return;
-
-    s = babel_find_source(e, msg->router_id); /* for feasibility */
+    return; /* Done with retractions */
   }
 
+  e = babel_get_entry(p, msg->prefix, msg->plen);
   r = babel_find_route(e, nbr); /* the route entry indexed by neighbour */
+  s = babel_find_source(e, msg->router_id); /* for feasibility */
   feasible = babel_is_feasible(s, msg->seqno, msg->metric);
 
   if (!r)
   {
-    if (!feasible || (msg->metric == BABEL_INFINITY))
+    if (!feasible)
       return;
 
     r = babel_get_route(e, nbr);
@@ -1167,24 +1170,22 @@ babel_handle_update(union babel_msg *m, struct babel_iface *ifa)
     babel_unicast_seqno_request(r);
 
     if (msg->router_id == r->router_id) return;
-    r->metric = BABEL_INFINITY; /* retraction */
+    r->metric = BABEL_INFINITY; /* treat as retraction */
   }
   else
   {
     /* Last paragraph above - update the entry */
     r->advert_metric = msg->metric;
     r->metric = babel_compute_metric(nbr, msg->metric);
-    r->router_id = msg->router_id;
     r->next_hop = msg->next_hop;
+
+    r->router_id = msg->router_id;
     r->seqno = msg->seqno;
 
-    if (msg->metric != BABEL_INFINITY)
-    {
-      r->expiry_interval = BABEL_ROUTE_EXPIRY_FACTOR(msg->interval);
-      r->expires = now + r->expiry_interval;
-      if (r->expiry_interval > BABEL_ROUTE_REFRESH_INTERVAL)
-        r->refresh_time = now + r->expiry_interval - BABEL_ROUTE_REFRESH_INTERVAL;
-    }
+    r->expiry_interval = BABEL_ROUTE_EXPIRY_FACTOR(msg->interval);
+    r->expires = now + r->expiry_interval;
+    if (r->expiry_interval > BABEL_ROUTE_REFRESH_INTERVAL)
+      r->refresh_time = now + r->expiry_interval - BABEL_ROUTE_REFRESH_INTERVAL;
 
     /* If the route is not feasible at this point, it means it is from another
        neighbour than the one currently selected; so send a unicast seqno
