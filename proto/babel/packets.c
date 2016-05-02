@@ -480,6 +480,7 @@ babel_read_update(struct babel_tlv *hdr, union babel_msg *m,
     if (tlv->plen > 0)
       return PARSE_ERROR;
 
+    msg->wildcard = 1;
     msg->prefix = IPA_NONE;
     break;
 
@@ -558,8 +559,12 @@ babel_write_update(struct babel_tlv *hdr, union babel_msg *m,
    * When needed, we write Router-ID TLV before Update TLV and return size of
    * both of them. There is enough space for the Router-ID TLV, because
    * sizeof(struct babel_tlv_router_id) == sizeof(struct babel_tlv_update).
+   *
+   * Router ID is not used for retractions (section 4.4.9), so don't bother with
+   * it in this case.
    */
-  if (!state->router_id_seen || (msg->router_id != state->router_id))
+  if ((!state->router_id_seen || (msg->router_id != state->router_id))
+      && msg->metric < BABEL_INFINITY)
   {
     len0 = babel_write_router_id(hdr, msg->router_id, state, max_len);
     tlv = (struct babel_tlv_update *) NEXT_TLV(tlv);
@@ -572,12 +577,19 @@ babel_write_update(struct babel_tlv *hdr, union babel_msg *m,
 
   memset(tlv, 0, sizeof(struct babel_tlv_update));
   TLV_HDR(tlv, BABEL_TLV_UPDATE, len);
-  tlv->ae = BABEL_AE_IP6;
-  tlv->plen = msg->plen;
+  if(msg->wildcard)
+  {
+    tlv->ae = BABEL_AE_WILDCARD;
+  }
+  else
+  {
+    tlv->ae = BABEL_AE_IP6;
+    tlv->plen = msg->plen;
+    put_ip6_px(tlv->addr, msg->prefix, msg->plen);
+  }
   put_time16(&tlv->interval, msg->interval);
   put_u16(&tlv->seqno, msg->seqno);
   put_u16(&tlv->metric, msg->metric);
-  put_ip6_px(tlv->addr, msg->prefix, msg->plen);
 
   return len0 + len;
 }

@@ -270,6 +270,7 @@ struct babel_msg_update {
   u8 type;
   u8 ae;
   u8 plen;
+  u8 wildcard;
   u16 interval;
   u16 seqno;
   u16 metric;
