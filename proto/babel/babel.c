@@ -788,14 +788,17 @@ babel_send_update(struct babel_iface *ifa, bird_clock_t changed)
     msg.update.prefix = e->n.prefix;
     msg.update.router_id = r->router_id;
 
-    /* Update feasibility distance */
-    struct babel_source *s = babel_get_source(e, r->router_id);
-    s->expires = now + BABEL_GARBAGE_INTERVAL;
-    if ((msg.update.seqno > s->seqno) ||
-	((msg.update.seqno == s->seqno) && (msg.update.metric < s->metric)))
+    /* Update feasibility distance if it's not our own route. */
+    if (r->router_id != p->router_id)
     {
-      s->seqno = msg.update.seqno;
-      s->metric = msg.update.metric;
+      struct babel_source *s = babel_get_source(e, r->router_id);
+      s->expires = now + BABEL_GARBAGE_INTERVAL;
+      if ((msg.update.seqno > s->seqno) ||
+	  ((msg.update.seqno == s->seqno) && (msg.update.metric < s->metric)))
+	{
+	  s->seqno = msg.update.seqno;
+	  s->metric = msg.update.metric;
+	}
     }
     babel_enqueue(&msg, ifa);
   }
