@@ -564,7 +564,7 @@ babel_write_update(struct babel_tlv *hdr, union babel_msg *m,
    * it in this case.
    */
   if ((!state->router_id_seen || (msg->router_id != state->router_id))
-      && !msg->wildcard)
+      && msg->metric < BABEL_INFINITY)
   {
     len0 = babel_write_router_id(hdr, msg->router_id, state, max_len);
     tlv = (struct babel_tlv_update *) NEXT_TLV(tlv);
