@@ -116,12 +116,20 @@ struct babel_iface_config {
   u16 tx_length;			/* TX packet length limit (including headers), 0 for MTU */
   int tx_tos;
   int tx_priority;
+
+  ip_addr next_hop_v4;
+  ip_addr next_hop_v6;
 };
 
 struct babel_proto {
   struct proto p;
   timer *timer;
-  struct fib rtable;
+  struct fib ip4_rtable;
+  struct fib ip6_rtable;
+
+  struct channel *ip4_channel;
+  struct channel *ip6_channel;
+
   list interfaces;			/* Interfaces we really know about (struct babel_iface) */
   u64 router_id;
   u16 update_seqno;			/* To be increased on request */
