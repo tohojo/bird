@@ -205,6 +205,7 @@ static inline int ip4_compare(ip4_addr a, ip4_addr b)
 { return (_I(a) > _I(b)) - (_I(a) < _I(b)); }
 
 int ip6_compare(ip6_addr a, ip6_addr b);
+int ip6_common_octets(ip6_addr a, ip6_addr b);
 
 #define ipa_hash(x) ip6_hash(x)
 #define ipa_compare(x,y) ip6_compare(x,y)

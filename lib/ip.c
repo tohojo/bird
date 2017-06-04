@@ -33,6 +33,20 @@ ip6_compare(ip6_addr a, ip6_addr b)
   return 0;
 }
 
+int
+ip6_common_octets(ip6_addr a, ip6_addr b)
+{
+  int i, j, common = 0;
+  for (i=0; i<4; i++)
+    for (j=3; j>=0; j--)
+      if ((0xff & (a.addr[i] >> (8*j))) == (0xff & (b.addr[i] >> (8*j))))
+	common++;
+      else
+	return common;
+
+  return common;
+}
+
 ip6_addr
 ip6_mkmask(uint n)
 {
