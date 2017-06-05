@@ -120,6 +120,7 @@ struct babel_parse_state {
   u8 router_id_seen;		/* router_id field is valid */
   u8 def_ip6_prefix_seen;	/* def_ip6_prefix is valid */
   u8 def_ip4_prefix_seen;	/* def_ip4_prefix is valid */
+  u8 current_tlv_endpos;        /* end of self-terminating TLVs (offset from start) */
 };
 
 enum parse_result {
@@ -379,14 +380,33 @@ babel_read_ihu(struct babel_tlv *hdr, union babel_msg *m,
   if (msg->ae >= BABEL_AE_MAX)
     return PARSE_IGNORE;
 
-  // We handle link-local IPs. In every other case, the addr field will be 0 but
-  // validation will succeed. The handler takes care of these cases.
-  if (msg->ae == BABEL_AE_IP6_LL)
+  /*
+   * We only actually read link-local IPs. In every other case, the addr field
+   * will be 0 but validation will succeed. The handler takes care of these
+   * cases. We handle them here anyway because we need the length for parsing
+   * subtlvs.
+   */
+  switch (msg->ae)
   {
+  case BABEL_AE_IP4:
+    if (TLV_OPT_LENGTH(tlv) < 4)
+      return PARSE_ERROR;
+    state->current_tlv_endpos += 4;
+    break;
+
+  case BABEL_AE_IP6:
+    if (TLV_OPT_LENGTH(tlv) < 16)
+      return PARSE_ERROR;
+    state->current_tlv_endpos += 16;
+    break;
+
+  case BABEL_AE_IP6_LL:
     if (TLV_OPT_LENGTH(tlv) < 8)
       return PARSE_ERROR;
 
     msg->addr = ipa_from_ip6(get_ip6_ll(&tlv->addr));
+    state->current_tlv_endpos += 8;
+    break;
   }
 
   return PARSE_SUCCESS;
@@ -463,6 +483,7 @@ babel_read_next_hop(struct babel_tlv *hdr, union babel_msg *m UNUSED,
       return PARSE_ERROR;
 
     state->next_hop_v4 = ipa_from_ip4(get_ip4(&tlv->addr));
+    state->current_tlv_endpos += sizeof(ip4_addr);
     return PARSE_IGNORE;
 
   case BABEL_AE_IP6:
@@ -470,6 +491,7 @@ babel_read_next_hop(struct babel_tlv *hdr, union babel_msg *m UNUSED,
       return PARSE_ERROR;
 
     state->next_hop_v6 = ipa_from_ip6(get_ip6(&tlv->addr));
+    state->current_tlv_endpos += sizeof(ip6_addr);
     return PARSE_IGNORE;
 
   case BABEL_AE_IP6_LL:
@@ -477,6 +499,7 @@ babel_read_next_hop(struct babel_tlv *hdr, union babel_msg *m UNUSED,
       return PARSE_ERROR;
 
     state->next_hop_v6 = ipa_from_ip6(get_ip6_ll(&tlv->addr));
+    state->current_tlv_endpos += 8;
     return PARSE_IGNORE;
 
   default:
@@ -635,6 +658,7 @@ babel_read_update(struct babel_tlv *hdr, union babel_msg *m,
 
   msg->router_id = state->router_id;
   msg->sender = state->saddr;
+  state->current_tlv_endpos += len;
 
   return PARSE_SUCCESS;
 }
@@ -753,6 +777,7 @@ babel_read_route_request(struct babel_tlv *hdr, union babel_msg *m,
       return PARSE_ERROR;
 
     read_ip4_px(&msg->net, tlv->addr, tlv->plen);
+    state->current_tlv_endpos += BYTES(tlv->plen);
     return PARSE_SUCCESS;
 
   case BABEL_AE_IP6:
@@ -763,6 +788,7 @@ babel_read_route_request(struct babel_tlv *hdr, union babel_msg *m,
       return PARSE_ERROR;
 
     read_ip6_px(&msg->net, tlv->addr, tlv->plen);
+    state->current_tlv_endpos += BYTES(tlv->plen);
     return PARSE_SUCCESS;
 
   case BABEL_AE_IP6_LL:
@@ -839,6 +865,7 @@ babel_read_seqno_request(struct babel_tlv *hdr, union babel_msg *m,
       return PARSE_ERROR;
 
     read_ip4_px(&msg->net, tlv->addr, tlv->plen);
+    state->current_tlv_endpos += BYTES(tlv->plen);
     return PARSE_SUCCESS;
 
   case BABEL_AE_IP6:
@@ -849,6 +876,7 @@ babel_read_seqno_request(struct babel_tlv *hdr, union babel_msg *m,
       return PARSE_ERROR;
 
     read_ip6_px(&msg->net, tlv->addr, tlv->plen);
+    state->current_tlv_endpos += BYTES(tlv->plen);
     return PARSE_SUCCESS;
 
   case BABEL_AE_IP6_LL:
@@ -894,10 +922,45 @@ babel_write_seqno_request(struct babel_tlv *hdr, union babel_msg *m,
 }
 
 static inline int
+babel_read_subtlvs(struct babel_tlv *hdr,
+		   union babel_msg *msg UNUSED,
+		   struct babel_parse_state *state)
+{
+  struct babel_tlv *subtlv;
+
+  for (subtlv = (void *) hdr + state->current_tlv_endpos;
+       subtlv < hdr + TLV_LENGTH(hdr);
+       subtlv = NEXT_TLV(subtlv))
+  {
+    /*
+     * The subtlv type space is non-contiguous (due to the mandatory bit), so
+     * use a switch for dispatch instead of the mapping array we use for TLVs
+     */
+    switch (subtlv->type)
+    {
+    case BABEL_SUBTLV_PAD1:
+    case BABEL_SUBTLV_PADN:
+      break;
+    default:
+      /* unknown mandatory subtlv; PARSE_IGNORE ignores the whole TLV */
+      if (subtlv->type > 128)
+      {
+	DBG("babel: Mandatory subtlv %d found; skipping TLV\n", subtlv->type);
+	return PARSE_IGNORE;
+      }
+      break;
+    }
+  }
+
+  return PARSE_SUCCESS;
+}
+
+static inline int
 babel_read_tlv(struct babel_tlv *hdr,
                union babel_msg *msg,
                struct babel_parse_state *state)
 {
+  int res;
   if ((hdr->type <= BABEL_TLV_PADN) ||
       (hdr->type >= BABEL_TLV_MAX) ||
       !tlv_data[hdr->type].read_tlv)
@@ -906,8 +969,15 @@ babel_read_tlv(struct babel_tlv *hdr,
   if (TLV_LENGTH(hdr) < tlv_data[hdr->type].min_length)
     return PARSE_ERROR;
 
+  state->current_tlv_endpos = tlv_data[hdr->type].min_length;
+
   memset(msg, 0, sizeof(*msg));
-  return tlv_data[hdr->type].read_tlv(hdr, msg, state);
+  res = tlv_data[hdr->type].read_tlv(hdr, msg, state);
+
+  if (res != PARSE_SUCCESS)
+    return res;
+
+  return babel_read_subtlvs(hdr, msg, state);
 }
 
 static uint
