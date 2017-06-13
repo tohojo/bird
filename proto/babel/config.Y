@@ -22,7 +22,7 @@ CF_DECLS
 
 CF_KEYWORDS(BABEL, METRIC, RXCOST, HELLO, UPDATE, INTERVAL, PORT, WIRED,
 	WIRELESS, RX, TX, BUFFER, LENGTH, CHECK, LINK, BABEL_METRIC, NEXT, HOP,
-	IPV4, IPV6)
+	IPV4, IPV6, PREFER, UNICAST)
 
 CF_GRAMMAR
 
@@ -100,6 +100,7 @@ babel_iface_item:
  | CHECK LINK bool { BABEL_IFACE->check_link = $3; }
  | NEXT HOP IPV4 ipa { BABEL_IFACE->next_hop_ip4 = $4; if (!ipa_is_ip4($4)) cf_error("Must be an IPv4 address"); }
  | NEXT HOP IPV6 ipa { BABEL_IFACE->next_hop_ip6 = $4; if (!ipa_is_ip6($4)) cf_error("Must be an IPv6 address"); }
+ | PREFER UNICAST { BABEL_IFACE->unicast_mode = BABEL_UNICAST_PREFER; }
  ;
 
 babel_iface_opts:

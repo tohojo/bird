@@ -55,7 +55,6 @@
 #define BABEL_OVERHEAD		(IP6_HEADER_LENGTH+UDP_HEADER_LENGTH)
 #define BABEL_MIN_MTU		(512 + BABEL_OVERHEAD)
 
-
 enum babel_tlv_type {
   BABEL_TLV_PAD1		= 0,
   BABEL_TLV_PADN		= 1,
@@ -99,6 +98,12 @@ enum babel_ae_type {
   BABEL_AE_MAX
 };
 
+enum babel_unicast_modes {
+  BABEL_UNICAST_DISABLED        = 0,
+  BABEL_UNICAST_PREFER          = 1,
+  BABEL_UNICAST_MAX
+};
+
 
 struct babel_config {
   struct proto_config c;
@@ -112,6 +117,7 @@ struct babel_iface_config {
   u16 rxcost;
   u8 type;
   u8 check_link;
+  u8 unicast_mode;
   uint port;
   u16 hello_interval;
   u16 ihu_interval;
@@ -190,6 +196,11 @@ struct babel_neighbor {
   u8 hello_cnt;
   u16 hello_map;
   u16 next_hello_seqno;
+
+  /* for unicast mode */
+  u8 is_unicast;
+  u16 hello_seqno;
+
   /* expiry timers */
   bird_clock_t hello_expiry;
   bird_clock_t ihu_expiry;
@@ -263,6 +274,7 @@ struct babel_msg_ack {
 
 struct babel_msg_hello {
   u8 type;
+  u8 unicast;
   u16 seqno;
   u16 interval;
   ip_addr sender;

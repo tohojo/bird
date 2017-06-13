@@ -632,6 +632,10 @@ babel_send_ihus(struct babel_iface *ifa)
   struct babel_neighbor *n;
   WALK_LIST(n, ifa->neigh_list)
   {
+    /* Don't include multicast IHUs for unicast neighbours */
+    if (n->is_unicast)
+      continue;
+
     union babel_msg msg = {};
     babel_build_ihu(&msg, ifa, n);
     babel_enqueue(&msg, ifa);
@@ -639,10 +643,30 @@ babel_send_ihus(struct babel_iface *ifa)
 }
 
 static void
+babel_send_unicast_hello(struct babel_iface *ifa, struct babel_neighbor *n)
+{
+  struct babel_proto *p = ifa->proto;
+  union babel_msg msg = {};
+
+  msg.type = BABEL_TLV_HELLO;
+  msg.hello.seqno = n->hello_seqno++;
+  msg.hello.interval = ifa->cf->hello_interval;
+  msg.hello.unicast = 1;
+
+  TRACE(D_PACKETS, "Sending unicast hello on %s to %I with seqno %d interval %d",
+	ifa->ifname, n->addr, msg.hello.seqno, msg.hello.interval);
+}
+
+static void
 babel_send_hello(struct babel_iface *ifa, u8 send_ihu)
 {
   struct babel_proto *p = ifa->proto;
   union babel_msg msg = {};
+
+  struct babel_neighbor *n;
+  WALK_LIST(n, ifa->neigh_list)
+    if (n->is_unicast)
+      babel_send_unicast_hello(ifa, n);
 
   msg.type = BABEL_TLV_HELLO;
   msg.hello.seqno = ifa->hello_seqno++;
@@ -1028,9 +1052,29 @@ babel_handle_hello(union babel_msg *m, struct babel_iface *ifa)
   TRACE(D_PACKETS, "Handling hello seqno %d interval %d",
 	msg->seqno, msg->interval);
 
-  struct babel_neighbor *n = babel_get_neighbor(ifa, msg->sender);
+  struct babel_neighbor *n = babel_find_neighbor(ifa, msg->sender);
+
+  if (!n)
+  {
+    n = babel_get_neighbor(ifa, msg->sender);
+
+    /* probe new neighbour to see if it wants to speak unicast */
+    if (ifa->cf->unicast_mode == BABEL_UNICAST_PREFER)
+      babel_send_unicast_hello(ifa, n);
+  }
+
+  if (msg->unicast && !n->is_unicast && ifa->cf->unicast_mode == BABEL_UNICAST_PREFER)
+  {
+    n->is_unicast = 1;
+    n->hello_map = n->hello_cnt = 0;
+    babel_send_unicast_hello(ifa, n);
+  }
+
+  if (!msg->unicast && n->is_unicast)
+    return; /* neighbour in unicast mode, so ignore multicast hello */
+
   babel_update_hello_history(n, msg->seqno, msg->interval);
-  if (ifa->cf->type == BABEL_IFACE_TYPE_WIRELESS)
+  if (ifa->cf->type == BABEL_IFACE_TYPE_WIRELESS || n->is_unicast)
     babel_send_ihu(ifa, n);
 }
 
