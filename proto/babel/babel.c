@@ -1066,15 +1066,23 @@ babel_handle_hello(union babel_msg *m, struct babel_iface *ifa)
       babel_send_unicast_hello(ifa, n);
   }
 
-  if (msg->unicast && !n->is_unicast && ifa->cf->unicast_mode == BABEL_UNICAST_PREFER)
+  if (msg->unicast)
   {
-    DBG("Setting neighbor %I to unicast mode\n", n->addr);
-    n->is_unicast = 1;
-    n->hello_map = n->hello_cnt = 0;
-    babel_send_unicast_hello(ifa, n);
+    if (ifa->cf->unicast_mode == BABEL_UNICAST_DISABLED)
+    {
+      DBG("Unicast mode disabled - ignoring unicast hello\n");
+      return;
+    }
+    else if(!n->is_unicast)
+    {
+      DBG("Setting neighbor %I to unicast mode\n", n->addr);
+      n->is_unicast = 1;
+      n->hello_map = n->hello_cnt = 0;
+      babel_send_unicast_hello(ifa, n);
+    }
   }
-
-  if (!msg->unicast && n->is_unicast) {
+  else if (n->is_unicast)
+  {
     DBG("Ignoring multicast hello from unicast neighbor\n");
     return; /* neighbour in unicast mode, so ignore multicast hello */
   }
