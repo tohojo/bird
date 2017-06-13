@@ -655,6 +655,9 @@ babel_send_unicast_hello(struct babel_iface *ifa, struct babel_neighbor *n)
 
   TRACE(D_PACKETS, "Sending unicast hello on %s to %I with seqno %d interval %d",
 	ifa->ifname, n->addr, msg.hello.seqno, msg.hello.interval);
+
+  babel_send_unicast(&msg, ifa, n->addr);
+  babel_send_ihu(ifa, n);
 }
 
 static void
@@ -1049,8 +1052,8 @@ babel_handle_hello(union babel_msg *m, struct babel_iface *ifa)
   struct babel_proto *p = ifa->proto;
   struct babel_msg_hello *msg = &m->hello;
 
-  TRACE(D_PACKETS, "Handling hello seqno %d interval %d",
-	msg->seqno, msg->interval);
+  TRACE(D_PACKETS, "Handling%s hello seqno %d interval %d",
+	msg->unicast ? " unicast" : "", msg->seqno, msg->interval);
 
   struct babel_neighbor *n = babel_find_neighbor(ifa, msg->sender);
 
@@ -1059,19 +1062,22 @@ babel_handle_hello(union babel_msg *m, struct babel_iface *ifa)
     n = babel_get_neighbor(ifa, msg->sender);
 
     /* probe new neighbour to see if it wants to speak unicast */
-    if (ifa->cf->unicast_mode == BABEL_UNICAST_PREFER)
+    if (ifa->cf->unicast_mode == BABEL_UNICAST_PREFER && !msg->unicast)
       babel_send_unicast_hello(ifa, n);
   }
 
   if (msg->unicast && !n->is_unicast && ifa->cf->unicast_mode == BABEL_UNICAST_PREFER)
   {
+    DBG("Setting neighbor %I to unicast mode\n", n->addr);
     n->is_unicast = 1;
     n->hello_map = n->hello_cnt = 0;
     babel_send_unicast_hello(ifa, n);
   }
 
-  if (!msg->unicast && n->is_unicast)
+  if (!msg->unicast && n->is_unicast) {
+    DBG("Ignoring multicast hello from unicast neighbor\n");
     return; /* neighbour in unicast mode, so ignore multicast hello */
+  }
 
   babel_update_hello_history(n, msg->seqno, msg->interval);
   if (ifa->cf->type == BABEL_IFACE_TYPE_WIRELESS || n->is_unicast)
@@ -1774,8 +1780,9 @@ babel_dump_entry(struct babel_entry *e)
 static void
 babel_dump_neighbor(struct babel_neighbor *n)
 {
-  debug("Neighbor %I txcost %d hello_map %x next seqno %d expires %d/%d\n",
-	n->addr, n->txcost, n->hello_map, n->next_hello_seqno,
+  debug("Neighbor %I%s txcost %d hello_map %x next seqno %d expires %d/%d\n",
+	n->addr, n->is_unicast ? " unicast" : "", n->txcost, n->hello_map,
+	n->next_hello_seqno,
         n->hello_expiry ? n->hello_expiry - now : 0,
         n->ihu_expiry ? n->ihu_expiry - now : 0);
 }
@@ -1899,8 +1906,8 @@ babel_show_neighbors(struct proto *P, char *iff)
   }
 
   cli_msg(-1024, "%s:", p->p.name);
-  cli_msg(-1024, "%-25s %-10s %6s %6s %10s",
-	  "IP address", "Interface", "Metric", "Routes", "Next hello");
+  cli_msg(-1024, "%-25s %-10s %6s %6s %10s %8s",
+	  "IP address", "Interface", "Metric", "Routes", "Next hello", "Unicast");
 
   WALK_LIST(ifa, p->interfaces)
   {
@@ -1914,8 +1921,9 @@ babel_show_neighbors(struct proto *P, char *iff)
         rts++;
 
       int timer = n->hello_expiry - now;
-      cli_msg(-1024, "%-25I %-10s %6u %6u %10u",
-	      n->addr, ifa->iface->name, n->txcost, rts, MAX(timer, 0));
+      cli_msg(-1024, "%-25I %-10s %6u %6u %10u %8s",
+	      n->addr, ifa->iface->name, n->txcost, rts, MAX(timer, 0),
+	      n->is_unicast ? "Y":"N");
     }
   }
 

@@ -348,7 +348,7 @@ babel_read_hello(struct babel_tlv *hdr, union babel_msg *m,
   msg->interval = get_time16(&tlv->interval);
   msg->sender = state->saddr;
 
-  if ((tlv->flags & BABEL_FLAG_UNICAST))
+  if (tlv->flags & BABEL_FLAG_UNICAST)
     msg->unicast = 1;
 
   return PARSE_SUCCESS;
