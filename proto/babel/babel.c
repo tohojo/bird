@@ -344,14 +344,25 @@ babel_expire_ihu(struct babel_neighbor *nbr)
 }
 
 static void
-babel_expire_hello(struct babel_neighbor *nbr)
+babel_expire_hello(struct babel_hello_history *hist)
 {
-  nbr->hello_map <<= 1;
+  if (hist->hello_expiry && hist->hello_expiry <= now)
+  {
+    hist->hello_map <<= 1;
 
-  if (nbr->hello_cnt < 16)
-    nbr->hello_cnt++;
+    if (hist->hello_cnt < 16)
+      hist->hello_cnt++;
+  }
+}
 
-  if (!nbr->hello_map)
+static void
+babel_expire_hellos(struct babel_neighbor *nbr)
+{
+  babel_expire_hello(&nbr->ucast_hello_hist);
+  babel_expire_hello(&nbr->mcast_hello_hist);
+
+  if (!nbr->ucast_hello_hist.hello_map &&
+      !nbr->mcast_hello_hist.hello_map)
     babel_flush_neighbor(nbr);
 }
 
@@ -368,8 +379,7 @@ babel_expire_neighbors(struct babel_proto *p)
       if (nbr->ihu_expiry && nbr->ihu_expiry <= now)
         babel_expire_ihu(nbr);
 
-      if (nbr->hello_expiry && nbr->hello_expiry <= now)
-        babel_expire_hello(nbr);
+      babel_expire_hellos(nbr);
     }
   }
 }
@@ -403,16 +413,23 @@ babel_is_feasible(struct babel_source *s, u16 seqno, u16 metric)
     ((seqno == s->seqno) && (metric < s->metric));
 }
 
+static struct babel_hello_history *
+babel_select_hello_history(struct babel_neighbor *n)
+{
+  return (n->ifa->cf->unicast_mode == BABEL_UNICAST_PREFER && n->ucast_hello_hist.hello_cnt) ? &n->ucast_hello_hist : &n->mcast_hello_hist;
+}
+
 static u16
 babel_compute_rxcost(struct babel_neighbor *n)
 {
   struct babel_iface *ifa = n->ifa;
+  struct babel_hello_history *hist = babel_select_hello_history(n);
   u8 cnt, missed;
-  u16 map=n->hello_map;
+  u16 map = hist->hello_map;
 
   if (!map) return BABEL_INFINITY;
   cnt = u32_popcount(map); // number of bits set
-  missed = n->hello_cnt-cnt;
+  missed = hist->hello_cnt-cnt;
 
   if (ifa->cf->type == BABEL_IFACE_TYPE_WIRELESS)
   {
@@ -425,14 +442,14 @@ babel_compute_rxcost(struct babel_neighbor *n)
        Then: rxcost = BABEL_RXCOST_WIRELESS * n->hello_cnt / cnt
    */
     if (!cnt) return BABEL_INFINITY;
-    return BABEL_RXCOST_WIRELESS * n->hello_cnt / cnt;
+    return BABEL_RXCOST_WIRELESS * hist->hello_cnt / cnt;
   }
   else
   {
     /* k-out-of-j selection - Appendix 2.1 in the RFC. */
     DBG("Babel: Missed %d hellos from %I\n", missed, n->addr);
     /* Link is bad if more than half the expected hellos were lost */
-    return (missed > n->hello_cnt/2) ? BABEL_INFINITY : ifa->cf->rxcost;
+    return (missed > hist->hello_cnt/2) ? BABEL_INFINITY : ifa->cf->rxcost;
   }
 }
 
@@ -632,10 +649,6 @@ babel_send_ihus(struct babel_iface *ifa)
   struct babel_neighbor *n;
   WALK_LIST(n, ifa->neigh_list)
   {
-    /* Don't include multicast IHUs for unicast neighbours */
-    if (n->is_unicast)
-      continue;
-
     union babel_msg msg = {};
     babel_build_ihu(&msg, ifa, n);
     babel_enqueue(&msg, ifa);
@@ -649,7 +662,7 @@ babel_send_unicast_hello(struct babel_iface *ifa, struct babel_neighbor *n)
   union babel_msg msg = {};
 
   msg.type = BABEL_TLV_HELLO;
-  msg.hello.seqno = n->hello_seqno++;
+  msg.hello.seqno = n->ucast_hello_hist.hello_seqno++;
   msg.hello.interval = ifa->cf->hello_interval;
   msg.hello.unicast = 1;
 
@@ -667,8 +680,8 @@ babel_send_hello(struct babel_iface *ifa, u8 send_ihu)
   union babel_msg msg = {};
 
   struct babel_neighbor *n;
-  WALK_LIST(n, ifa->neigh_list)
-    if (n->is_unicast)
+  if (ifa->cf->unicast_mode == BABEL_UNICAST_PREFER)
+    WALK_LIST(n, ifa->neigh_list)
       babel_send_unicast_hello(ifa, n);
 
   msg.type = BABEL_TLV_HELLO;
@@ -914,7 +927,7 @@ babel_send_wildcard_retraction(struct babel_iface *ifa)
 
 /* Update hello history according to Appendix A1 of the RFC */
 static void
-babel_update_hello_history(struct babel_neighbor *n, u16 seqno, u16 interval)
+babel_update_hello_history(struct babel_hello_history *h, u16 seqno, u16 interval)
 {
   /*
    * Compute the difference between expected and received seqno (modulo 2^16).
@@ -923,7 +936,7 @@ babel_update_hello_history(struct babel_neighbor *n, u16 seqno, u16 interval)
    * the values differ too much, so just reset the state.
    */
 
-  u16 delta = ((uint) seqno - (uint) n->next_hello_seqno);
+  u16 delta = ((uint) seqno - (uint) h->next_hello_seqno);
 
   if (delta == 0)
   {
@@ -932,27 +945,27 @@ babel_update_hello_history(struct babel_neighbor *n, u16 seqno, u16 interval)
   else if (delta <= 16)
   {
     /* Sending node decreased interval; fast-forward */
-    n->hello_map <<= delta;
-    n->hello_cnt = MIN(n->hello_cnt + delta, 16);
+    h->hello_map <<= delta;
+    h->hello_cnt = MIN(h->hello_cnt + delta, 16);
   }
   else if (delta >= 0xfff0)
   {
     u8 diff = (0xffff - delta);
     /* Sending node increased interval; undo history */
-    n->hello_map >>= diff;
-    n->hello_cnt = (diff < n->hello_cnt) ? n->hello_cnt - diff : 0;
+    h->hello_map >>= diff;
+    h->hello_cnt = (diff < h->hello_cnt) ? h->hello_cnt - diff : 0;
   }
   else
   {
     /* Note state reset - flush entries */
-    n->hello_map = n->hello_cnt = 0;
+    h->hello_map = h->hello_cnt = 0;
   }
 
   /* Current entry */
-  n->hello_map = (n->hello_map << 1) | 1;
-  n->next_hello_seqno = seqno+1;
-  if (n->hello_cnt < 16) n->hello_cnt++;
-  n->hello_expiry = now + BABEL_HELLO_EXPIRY_FACTOR(interval);
+  h->hello_map = (h->hello_map << 1) | 1;
+  h->next_hello_seqno = seqno+1;
+  if (h->hello_cnt < 16) h->hello_cnt++;
+  h->hello_expiry = now + BABEL_HELLO_EXPIRY_FACTOR(interval);
 }
 
 static void
@@ -1055,40 +1068,12 @@ babel_handle_hello(union babel_msg *m, struct babel_iface *ifa)
   TRACE(D_PACKETS, "Handling%s hello seqno %d interval %d",
 	msg->unicast ? " unicast" : "", msg->seqno, msg->interval);
 
-  struct babel_neighbor *n = babel_find_neighbor(ifa, msg->sender);
+  struct babel_neighbor *n = babel_get_neighbor(ifa, msg->sender);
 
-  if (!n)
-  {
-    n = babel_get_neighbor(ifa, msg->sender);
+  babel_update_hello_history(msg->unicast ? &n->ucast_hello_hist : &n->mcast_hello_hist,
+			  msg->seqno, msg->interval);
 
-    /* probe new neighbour to see if it wants to speak unicast */
-    if (ifa->cf->unicast_mode == BABEL_UNICAST_PREFER && !msg->unicast)
-      babel_send_unicast_hello(ifa, n);
-  }
-
-  if (msg->unicast)
-  {
-    if (ifa->cf->unicast_mode == BABEL_UNICAST_DISABLED)
-    {
-      DBG("Unicast mode disabled - ignoring unicast hello\n");
-      return;
-    }
-    else if(!n->is_unicast)
-    {
-      DBG("Setting neighbor %I to unicast mode\n", n->addr);
-      n->is_unicast = 1;
-      n->hello_map = n->hello_cnt = 0;
-      babel_send_unicast_hello(ifa, n);
-    }
-  }
-  else if (n->is_unicast)
-  {
-    DBG("Ignoring multicast hello from unicast neighbor\n");
-    return; /* neighbour in unicast mode, so ignore multicast hello */
-  }
-
-  babel_update_hello_history(n, msg->seqno, msg->interval);
-  if (ifa->cf->type == BABEL_IFACE_TYPE_WIRELESS || n->is_unicast)
+  if (ifa->cf->type == BABEL_IFACE_TYPE_WIRELESS)
     babel_send_ihu(ifa, n);
 }
 
@@ -1788,10 +1773,12 @@ babel_dump_entry(struct babel_entry *e)
 static void
 babel_dump_neighbor(struct babel_neighbor *n)
 {
-  debug("Neighbor %I%s txcost %d hello_map %x next seqno %d expires %d/%d\n",
-	n->addr, n->is_unicast ? " unicast" : "", n->txcost, n->hello_map,
-	n->next_hello_seqno,
-        n->hello_expiry ? n->hello_expiry - now : 0,
+  debug("Neighbor %I%s txcost %d hello_map %x/%x next seqno %d/%d expires %d/%d/%d\n",
+	n->addr, n->txcost,
+	n->ucast_hello_hist.hello_map, n->mcast_hello_hist.hello_map,
+	n->ucast_hello_hist.next_hello_seqno, n->mcast_hello_hist.next_hello_seqno,
+        n->ucast_hello_hist.hello_expiry ? n->ucast_hello_hist.hello_expiry - now : 0,
+        n->mcast_hello_hist.hello_expiry ? n->mcast_hello_hist.hello_expiry - now : 0,
         n->ihu_expiry ? n->ihu_expiry - now : 0);
 }
 
@@ -1924,14 +1911,23 @@ babel_show_neighbors(struct proto *P, char *iff)
 
     WALK_LIST(n, ifa->neigh_list)
     {
-      int rts = 0;
+      int rts = 0, timer;;
+      char *ucast;
+
       WALK_LIST(r, n->routes)
         rts++;
 
-      int timer = n->hello_expiry - now;
+      if (n->ucast_hello_hist.hello_expiry - now > n->mcast_hello_hist.hello_expiry - now)
+      {
+	timer = n->ucast_hello_hist.hello_expiry - now;
+	ucast = "Y";
+      } else {
+	timer = n->mcast_hello_hist.hello_expiry - now;
+	ucast = "N";
+      }
       cli_msg(-1024, "%-25I %-10s %6u %6u %10u %8s",
 	      n->addr, ifa->iface->name, n->txcost, rts, MAX(timer, 0),
-	      n->is_unicast ? "Y":"N");
+	      ucast);
     }
   }
 

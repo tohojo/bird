@@ -40,8 +40,7 @@ struct babel_tlv_ack {
 struct babel_tlv_hello {
   u8 type;
   u8 length;
-  u8 flags;
-  u8 reserved;
+  u16 flags;
   u16 seqno;
   u16 interval;
 } PACKED;
@@ -107,7 +106,7 @@ struct babel_tlv_seqno_request {
 
 #define BABEL_FLAG_DEF_PREFIX		0x80
 #define BABEL_FLAG_ROUTER_ID		0x40
-#define BABEL_FLAG_UNICAST		0x20
+#define BABEL_FLAG_UNICAST		0x8000
 
 
 struct babel_parse_state {
@@ -342,13 +341,14 @@ babel_read_hello(struct babel_tlv *hdr, union babel_msg *m,
 {
   struct babel_tlv_hello *tlv = (void *) hdr;
   struct babel_msg_hello *msg = &m->hello;
+  u16 flags = get_u16(&tlv->flags);
 
   msg->type = BABEL_TLV_HELLO;
   msg->seqno = get_u16(&tlv->seqno);
   msg->interval = get_time16(&tlv->interval);
   msg->sender = state->saddr;
 
-  if (tlv->flags & BABEL_FLAG_UNICAST)
+  if (flags & BABEL_FLAG_UNICAST)
     msg->unicast = 1;
 
   return PARSE_SUCCESS;
@@ -366,7 +366,7 @@ babel_write_hello(struct babel_tlv *hdr, union babel_msg *m,
   put_time16(&tlv->interval, msg->interval);
 
   if (msg->unicast)
-    tlv->flags = BABEL_FLAG_UNICAST;
+    put_u16(&tlv->flags, BABEL_FLAG_UNICAST);
 
   return sizeof(struct babel_tlv_hello);
 }

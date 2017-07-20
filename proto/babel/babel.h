@@ -187,22 +187,25 @@ struct babel_iface {
   event *send_event;
 };
 
+struct babel_hello_history {
+  u8 hello_cnt;
+  u16 hello_map;
+  u16 next_hello_seqno;
+  u16 hello_seqno;
+  bird_clock_t hello_expiry;
+};
+
 struct babel_neighbor {
   node n;
   struct babel_iface *ifa;
 
   ip_addr addr;
   u16 txcost;
-  u8 hello_cnt;
-  u16 hello_map;
-  u16 next_hello_seqno;
 
-  /* for unicast mode */
-  u8 is_unicast;
-  u16 hello_seqno;
+  struct babel_hello_history ucast_hello_hist;
+  struct babel_hello_history mcast_hello_hist;
 
   /* expiry timers */
-  bird_clock_t hello_expiry;
   bird_clock_t ihu_expiry;
 
   list routes;				/* Routes this neighbour has sent us (struct babel_route) */
