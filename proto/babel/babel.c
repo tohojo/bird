@@ -410,7 +410,7 @@ babel_find_neighbor(struct babel_iface *ifa, ip_addr addr)
   return NULL;
 }
 
-static struct babel_neighbor *
+struct babel_neighbor *
 babel_get_neighbor(struct babel_iface *ifa, ip_addr addr)
 {
   struct babel_proto *p = ifa->proto;
@@ -430,6 +430,7 @@ babel_get_neighbor(struct babel_iface *ifa, ip_addr addr)
   init_list(&nbr->routes);
   babel_lock_neighbor(nbr);
   add_tail(&ifa->neigh_list, NODE nbr);
+  babel_auth_init_neighbor(nbr);
 
   return nbr;
 }
@@ -504,6 +505,9 @@ babel_expire_neighbors(struct babel_proto *p)
 
       if (nbr->hello_expiry && nbr->hello_expiry <= now_)
         babel_expire_hello(p, nbr, now_);
+
+      if (nbr->auth_expiry && nbr->auth_expiry <= now_)
+        babel_flush_neighbor(p, nbr);
     }
   }
 }
@@ -1543,6 +1547,8 @@ babel_iface_update_buffers(struct babel_iface *ifa)
   sk_set_tbsize(ifa->sk, tbsize);
 
   ifa->tx_length = tbsize - BABEL_OVERHEAD;
+
+  babel_auth_set_tx_overhead(ifa);
 }
 
 static struct babel_iface*
@@ -1601,6 +1607,9 @@ babel_add_iface(struct babel_proto *p, struct iface *new, struct babel_iface_con
 
   init_list(&ifa->neigh_list);
   ifa->hello_seqno = 1;
+
+  if (ic->auth_type != BABEL_AUTH_NONE)
+    babel_auth_reset_index(ifa);
 
   ifa->timer = tm_new_init(ifa->pool, babel_iface_timer, ifa, 0, 0);
 
@@ -1697,6 +1706,9 @@ babel_reconfigure_iface(struct babel_proto *p, struct babel_iface *ifa, struct b
   ip_addr addr4 = ifa->iface->addr4 ? ifa->iface->addr4->ip : IPA_NONE;
   ifa->next_hop_ip4 = ipa_nonzero(new->next_hop_ip4) ? new->next_hop_ip4 : addr4;
   ifa->next_hop_ip6 = ipa_nonzero(new->next_hop_ip6) ? new->next_hop_ip6 : ifa->addr;
+
+  if (new->auth_type != BABEL_AUTH_NONE && old->auth_type != new->auth_type)
+    babel_auth_reset_index(ifa);
 
   if (ipa_zero(ifa->next_hop_ip4) && p->ip4_channel)
     log(L_WARN "%s: Missing IPv4 next hop address for %s", p->p.name, ifa->ifname);
@@ -1888,8 +1900,8 @@ babel_show_interfaces(struct proto *P, char *iff)
   }
 
   cli_msg(-1023, "%s:", p->p.name);
-  cli_msg(-1023, "%-10s %-6s %7s %6s %7s %-15s %s",
-	  "Interface", "State", "RX cost", "Nbrs", "Timer",
+  cli_msg(-1023, "%-10s %-6s %-5s %7s %6s %7s %-15s %s",
+	  "Interface", "State", "Auth", "RX cost", "Nbrs", "Timer",
 	  "Next hop (v4)", "Next hop (v6)");
 
   WALK_LIST(ifa, p->interfaces)
@@ -1902,8 +1914,10 @@ babel_show_interfaces(struct proto *P, char *iff)
 	nbrs++;
 
     btime timer = MIN(ifa->next_regular, ifa->next_hello) - current_time();
-    cli_msg(-1023, "%-10s %-6s %7u %6u %7t %-15I %I",
+    cli_msg(-1023, "%-10s %-6s %-5s %7u %6u %7t %-15I %I",
 	    ifa->iface->name, (ifa->up ? "Up" : "Down"),
+            (ifa->cf->auth_type == BABEL_AUTH_MAC ?
+             (ifa->cf->auth_permissive ? "Perm" : "Yes") : "No"),
 	    ifa->cf->rxcost, nbrs, MAX(timer, 0),
 	    ifa->next_hop_ip4, ifa->next_hop_ip6);
   }
@@ -1927,8 +1941,8 @@ babel_show_neighbors(struct proto *P, char *iff)
   }
 
   cli_msg(-1024, "%s:", p->p.name);
-  cli_msg(-1024, "%-25s %-10s %6s %6s %6s %7s",
-	  "IP address", "Interface", "Metric", "Routes", "Hellos", "Expires");
+  cli_msg(-1024, "%-25s %-10s %6s %6s %6s %7s %4s",
+	  "IP address", "Interface", "Metric", "Routes", "Hellos", "Expires", "Auth");
 
   WALK_LIST(ifa, p->interfaces)
   {
@@ -1942,9 +1956,10 @@ babel_show_neighbors(struct proto *P, char *iff)
         rts++;
 
       uint hellos = u32_popcount(n->hello_map);
-      btime timer = n->hello_expiry - current_time();
-      cli_msg(-1024, "%-25I %-10s %6u %6u %6u %7t",
-	      n->addr, ifa->iface->name, n->cost, rts, hellos, MAX(timer, 0));
+      btime timer = (n->hello_expiry ?: n->auth_expiry) - current_time();
+      cli_msg(-1024, "%-25I %-10s %6u %6u %6u %7t %-4s",
+	      n->addr, ifa->iface->name, n->cost, rts, hellos, MAX(timer, 0),
+              n->auth_passed ? "Yes" : "No");
     }
   }
 

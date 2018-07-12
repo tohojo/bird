@@ -202,6 +202,17 @@ put_ip6_ll(void *p, ip6_addr addr)
   put_u32(p+4, _I3(addr));
 }
 
+/*
+ *      Authentication-related functions - implementations are in auth.c
+ */
+uint babel_auth_write_challenge(struct babel_tlv *hdr, union babel_msg *msg, struct babel_write_state *state, uint max_len);
+int babel_auth_add_tlvs(struct babel_iface *ifa, struct babel_tlv *tlv, int max_len);
+int babel_auth_sign(struct babel_iface *ifa, ip_addr dest);
+int babel_auth_check(struct babel_iface *ifa,
+                     ip_addr saddr, u16 sport,
+                     ip_addr daddr, u16 dport,
+                     struct babel_pkt_header *pkt,
+                     byte *start, uint len);
 
 /*
  *	TLV read/write functions
@@ -279,6 +290,16 @@ static const struct babel_tlv_data tlv_data[BABEL_TLV_MAX] = {
     babel_read_seqno_request,
     babel_write_seqno_request,
     babel_handle_seqno_request
+  },
+  [BABEL_TLV_CHALLENGE_REQ] = {
+    sizeof(struct babel_tlv),
+    NULL,
+    babel_auth_write_challenge,
+  },
+  [BABEL_TLV_CHALLENGE_REPLY] = {
+    sizeof(struct babel_tlv),
+    NULL,
+    babel_auth_write_challenge,
   },
 };
 
@@ -1176,6 +1197,8 @@ babel_send_to(struct babel_iface *ifa, ip_addr dest)
   struct babel_pkt_header *hdr = (void *) sk->tbuf;
   int len = get_u16(&hdr->length) + sizeof(struct babel_pkt_header);
 
+  len += babel_auth_sign(ifa, dest);
+
   DBG("Babel: Sending %d bytes to %I\n", len, dest);
   return sk_send_to(sk, len, dest, 0);
 }
@@ -1227,6 +1250,8 @@ babel_write_queue(struct babel_iface *ifa, list *queue)
     rem_node(NODE msg);
     sl_free(p->msg_slab, msg);
   }
+
+  pos += babel_auth_add_tlvs(ifa, (struct babel_tlv *) pos, end-pos);
 
   uint plen = pos - (byte *) pkt;
   put_u16(&pkt->length, plen - sizeof(struct babel_pkt_header));
@@ -1305,10 +1330,13 @@ babel_enqueue(union babel_msg *msg, struct babel_iface *ifa)
 
 /**
  * babel_process_packet - process incoming data packet
+ * @ifa: Interface packet was received on.
  * @pkt: Pointer to the packet data
  * @len: Length of received packet
  * @saddr: Address of packet sender
- * @ifa: Interface packet was received on.
+ * @sport: Packet source port
+ * @daddr: Destination address of packet
+ * @dport: Packet destination port
  *
  * This function is the main processing hook of incoming Babel packets. It
  * checks that the packet header is well-formed, then processes the TLVs
@@ -1320,8 +1348,10 @@ babel_enqueue(union babel_msg *msg, struct babel_iface *ifa)
  * order.
  */
 static void
-babel_process_packet(struct babel_pkt_header *pkt, int len,
-                     ip_addr saddr, struct babel_iface *ifa)
+babel_process_packet(struct babel_iface *ifa,
+		     struct babel_pkt_header *pkt, int len,
+                     ip_addr saddr, u16 sport,
+		     ip_addr daddr, u16 dport)
 {
   struct babel_proto *p = ifa->proto;
   struct babel_tlv *tlv;
@@ -1360,6 +1390,9 @@ babel_process_packet(struct babel_pkt_header *pkt, int len,
 
   TRACE(D_PACKETS, "Packet received from %I via %s",
         saddr, ifa->iface->name);
+
+  if (babel_auth_check(ifa, saddr, sport, daddr, dport, pkt, end, len-plen))
+    return;
 
   init_list(&msgs);
 
@@ -1453,7 +1486,10 @@ babel_rx_hook(sock *sk, uint len)
   if (sk->flags & SKF_TRUNCATED)
     DROP("truncated", len);
 
-  babel_process_packet((struct babel_pkt_header *) sk->rbuf, len, sk->faddr, ifa);
+  babel_process_packet(ifa,
+		       (struct babel_pkt_header *) sk->rbuf, len,
+		       sk->faddr, sk->fport,
+		       sk->laddr, sk->dport);
   return 1;
 
 drop:
