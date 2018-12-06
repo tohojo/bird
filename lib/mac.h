@@ -21,6 +21,10 @@
 #define ALG_SHA256		0x04
 #define ALG_SHA384		0x05
 #define ALG_SHA512		0x06
+#define ALG_BLAKE2S_128	0x07
+#define ALG_BLAKE2S_256	0x08
+#define ALG_BLAKE2B_256	0x09
+#define ALG_BLAKE2B_512	0x0A
 #define ALG_HMAC		0x10
 #define ALG_HMAC_MD5		0x11
 #define ALG_HMAC_SHA1		0x12
