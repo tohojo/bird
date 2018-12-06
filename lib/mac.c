@@ -32,6 +32,7 @@
 #include "lib/sha1.h"
 #include "lib/sha256.h"
 #include "lib/sha512.h"
+#include "lib/blake2.h"
 
 
 /*
@@ -169,6 +170,12 @@ const struct mac_desc mac_table[ALG_MAX] = {
   [ALG_SHA256] = 	HASH_DESC("Keyed SHA-256",	sha256,	SHA256),
   [ALG_SHA384] = 	HASH_DESC("Keyed SHA-384",	sha384,	SHA384),
   [ALG_SHA512] = 	HASH_DESC("Keyed SHA-512",	sha512,	SHA512),
+  [ALG_BLAKE2S] = 	{"Blake2s", BLAKE2S_SIZE, sizeof(struct blake2s_context),
+                         blake2s_bird_init, blake2s_bird_update,
+                         blake2s_bird_final, BLAKE2S_SIZE, BLAKE2S_BLOCK_SIZE},
+  [ALG_BLAKE2B] = 	{"Blake2b", BLAKE2B_SIZE, sizeof(struct blake2b_context),
+                         blake2b_bird_init, blake2b_bird_update,
+                         blake2b_bird_final, BLAKE2B_SIZE, BLAKE2B_BLOCK_SIZE},
   [ALG_HMAC_MD5] = 	HMAC_DESC("HMAC-MD5",		md5,	MD5),
   [ALG_HMAC_SHA1] = 	HMAC_DESC("HMAC-SHA-1",		sha1,	SHA1),
   [ALG_HMAC_SHA224] = 	HMAC_DESC("HMAC-SHA-224",	sha224,	SHA224),
