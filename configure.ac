@@ -364,6 +364,21 @@ elif test "$bird_cv_lib_log" != yes ; then
   LIBS="$LIBS $bird_cv_lib_log"
 fi
 
+BIRD_CHECK_GETRANDOM_SYSCALL
+if test "$have_getrandom_syscall" = yes; then
+    AC_DEFINE(HAVE_GETRANDOM_SYSCALL, 1,
+              [Define to 1 if the Linux getrandom() syscall is available])
+fi
+
+BIRD_CHECK_GETRANDOM
+if test "$have_getrandom" = yes; then
+    AC_DEFINE(HAVE_GETRANDOM, 1,
+              [Define to 1 if the getrandom() function is available])
+fi
+
+AC_CHECK_FUNCS(getentropy)
+AC_CHECK_HEADERS(sys/random.h)
+
 if test "$enable_debug" = yes ; then
   AC_DEFINE([DEBUGGING], [1], [Define to 1 if debugging is enabled])
   LDFLAGS="$LDFLAGS -rdynamic"

@@ -515,6 +515,7 @@ order_shutdown(int gr)
   c->gr_down = gr;
 
   config_commit(c, RECONFIG_HARD, 0);
+  close_urandom();
   shutting_down = 1;
 }
 

@@ -239,3 +239,52 @@ AC_DEFUN([BIRD_CHECK_BISON_VERSION],
       ;;
   esac
 ])
+
+# BIRD_CHECK_GETRANDOM_SYSCALL
+# Check for the getrandom syscall - borrowed from Python
+AC_DEFUN([BIRD_CHECK_GETRANDOM_SYSCALL], [{
+  # check if the Linux getrandom() syscall is available
+  # borrowed from the Python sources
+  AC_MSG_CHECKING(for the Linux getrandom() syscall)
+  AC_LINK_IFELSE(
+  [
+    AC_LANG_SOURCE([[
+      #include <unistd.h>
+      #include <sys/syscall.h>
+      #include <linux/random.h>
+
+      int main() {
+          char buffer[1];
+          const size_t buflen = sizeof(buffer);
+          const int flags = GRND_NONBLOCK;
+          int res = syscall(SYS_getrandom, buffer, buflen, flags);
+          return res == 0 ? 0 : 1;
+      }
+    ]])
+  ],[have_getrandom_syscall=yes],[have_getrandom_syscall=no])
+  AC_MSG_RESULT($have_getrandom_syscall)
+}])
+
+# BIRD_CHECK_GETRANDOM
+# Check for the getrandom function - borrowed from Python
+AC_DEFUN([BIRD_CHECK_GETRANDOM], [{
+  # check if the Linux getrandom() syscall is available
+  # borrowed from the Python sources
+  AC_MSG_CHECKING(for the getrandom() function)
+  AC_LINK_IFELSE(
+  [
+    AC_LANG_SOURCE([[
+    #include <sys/random.h>
+
+    int main() {
+        char buffer[1];
+        const size_t buflen = sizeof(buffer);
+        const int flags = 0;
+        int res = getrandom(buffer, buflen, flags);
+        return res == 0 ? 0 : 1;
+    }
+    ]])
+  ],[have_getrandom=yes],[have_getrandom=no])
+  AC_MSG_RESULT($have_getrandom)
+}])
+
