@@ -100,6 +100,9 @@ static inline const char *mac_type_name(uint id)
 static inline uint mac_type_length(uint id)
 { return mac_table[id].mac_length; }
 
+static inline uint mac_type_block_size(uint id)
+{ return mac_table[id].block_size; }
+
 static inline void mac_validate_key(uint id, const byte *key, uint keylen)
 {
   if (mac_table[id].validate_key)
