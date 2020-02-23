@@ -11,19 +11,7 @@
  */
 
 #include "babel.h"
-
-
-struct babel_pkt_header {
-  u8 magic;
-  u8 version;
-  u16 length;
-} PACKED;
-
-struct babel_tlv {
-  u8 type;
-  u8 length;
-  u8 value[0];
-} PACKED;
+#include "packets.h"
 
 struct babel_tlv_ack_req {
   u8 type;
@@ -122,9 +110,7 @@ struct babel_subtlv_source_prefix {
 
 
 struct babel_parse_state {
-  struct babel_proto *proto;
-  struct babel_iface *ifa;
-  ip_addr saddr;
+  struct babel_read_state rstate; /* Keep as first entry */
   ip_addr next_hop_ip4;
   ip_addr next_hop_ip6;
   u64 router_id;		/* Router ID used in subsequent updates */
@@ -133,14 +119,7 @@ struct babel_parse_state {
   u8 router_id_seen;		/* router_id field is valid */
   u8 def_ip6_prefix_seen;	/* def_ip6_prefix is valid */
   u8 def_ip4_prefix_seen;	/* def_ip4_prefix is valid */
-  u8 current_tlv_endpos;	/* End of self-terminating TLVs (offset from start) */
   u8 sadr_enabled;
-};
-
-enum parse_result {
-  PARSE_SUCCESS,
-  PARSE_ERROR,
-  PARSE_IGNORE,
 };
 
 struct babel_write_state {
@@ -155,17 +134,8 @@ struct babel_write_state {
 
 #define DROP(DSC,VAL) do { err_dsc = DSC; err_val = VAL; goto drop; } while(0)
 #define DROP1(DSC) do { err_dsc = DSC; goto drop; } while(0)
-#define LOG_PKT(msg, args...) \
-  log_rl(&p->log_pkt_tbf, L_REMOTE "%s: " msg, p->p.name, args)
 
-#define FIRST_TLV(p) ((struct babel_tlv *) (((struct babel_pkt_header *) p) + 1))
-#define NEXT_TLV(t) ((struct babel_tlv *) (((byte *) t) + TLV_LENGTH(t)))
-#define TLV_LENGTH(t) (t->type == BABEL_TLV_PAD1 ? 1 : t->length + sizeof(struct babel_tlv))
-#define TLV_OPT_LENGTH(t) (t->length + sizeof(struct babel_tlv) - sizeof(*t))
-#define TLV_HDR(tlv,t,l) ({ tlv->type = t; tlv->length = l - sizeof(struct babel_tlv); })
-#define TLV_HDR0(tlv,t) TLV_HDR(tlv, t, tlv_data[t].min_length)
-
-#define NET_SIZE(n) BYTES(net_pxlen(n))
+#define TO_PARSE_STATE(_s,_r) struct babel_parse_state *_s = ((struct babel_parse_state *)_r)
 
 static inline uint
 bytes_equal(u8 *b1, u8 *b2, uint maxlen)
@@ -237,15 +207,15 @@ put_ip6_ll(void *p, ip6_addr addr)
  *	TLV read/write functions
  */
 
-static int babel_read_ack_req(struct babel_tlv *hdr, union babel_msg *msg, struct babel_parse_state *state);
-static int babel_read_hello(struct babel_tlv *hdr, union babel_msg *msg, struct babel_parse_state *state);
-static int babel_read_ihu(struct babel_tlv *hdr, union babel_msg *msg, struct babel_parse_state *state);
-static int babel_read_router_id(struct babel_tlv *hdr, union babel_msg *msg, struct babel_parse_state *state);
-static int babel_read_next_hop(struct babel_tlv *hdr, union babel_msg *msg, struct babel_parse_state *state);
-static int babel_read_update(struct babel_tlv *hdr, union babel_msg *msg, struct babel_parse_state *state);
-static int babel_read_route_request(struct babel_tlv *hdr, union babel_msg *msg, struct babel_parse_state *state);
-static int babel_read_seqno_request(struct babel_tlv *hdr, union babel_msg *msg, struct babel_parse_state *state);
-static int babel_read_source_prefix(struct babel_tlv *hdr, union babel_msg *msg, struct babel_parse_state *state);
+static int babel_read_ack_req(struct babel_tlv *hdr, union babel_msg *msg, struct babel_read_state *state);
+static int babel_read_hello(struct babel_tlv *hdr, union babel_msg *msg, struct babel_read_state *state);
+static int babel_read_ihu(struct babel_tlv *hdr, union babel_msg *msg, struct babel_read_state *state);
+static int babel_read_router_id(struct babel_tlv *hdr, union babel_msg *msg, struct babel_read_state *state);
+static int babel_read_next_hop(struct babel_tlv *hdr, union babel_msg *msg, struct babel_read_state *state);
+static int babel_read_update(struct babel_tlv *hdr, union babel_msg *msg, struct babel_read_state *state);
+static int babel_read_route_request(struct babel_tlv *hdr, union babel_msg *msg, struct babel_read_state *state);
+static int babel_read_seqno_request(struct babel_tlv *hdr, union babel_msg *msg, struct babel_read_state *state);
+static int babel_read_source_prefix(struct babel_tlv *hdr, union babel_msg *msg, struct babel_read_state *state);
 
 static uint babel_write_ack(struct babel_tlv *hdr, union babel_msg *msg, struct babel_write_state *state, uint max_len);
 static uint babel_write_hello(struct babel_tlv *hdr, union babel_msg *msg, struct babel_write_state *state, uint max_len);
@@ -254,13 +224,6 @@ static uint babel_write_update(struct babel_tlv *hdr, union babel_msg *msg, stru
 static uint babel_write_route_request(struct babel_tlv *hdr, union babel_msg *msg, struct babel_write_state *state, uint max_len);
 static uint babel_write_seqno_request(struct babel_tlv *hdr, union babel_msg *msg, struct babel_write_state *state, uint max_len);
 static int babel_write_source_prefix(struct babel_tlv *hdr, net_addr *net, uint max_len);
-
-struct babel_tlv_data {
-  u8 min_length;
-  int (*read_tlv)(struct babel_tlv *hdr, union babel_msg *m, struct babel_parse_state *state);
-  uint (*write_tlv)(struct babel_tlv *hdr, union babel_msg *m, struct babel_write_state *state, uint max_len);
-  void (*handle_tlv)(union babel_msg *m, struct babel_iface *ifa);
-};
 
 static const struct babel_tlv_data tlv_data[BABEL_TLV_MAX] = {
   [BABEL_TLV_ACK_REQ] = {
@@ -319,17 +282,42 @@ static const struct babel_tlv_data tlv_data[BABEL_TLV_MAX] = {
   },
 };
 
+static const struct babel_tlv_data *get_packet_tlv_data(u8 type)
+{
+  return type < sizeof(tlv_data) / sizeof(*tlv_data) ? &tlv_data[type] : NULL;
+}
+
+static const struct babel_tlv_data source_prefix_tlv_data = {
+  sizeof(struct babel_subtlv_source_prefix),
+  babel_read_source_prefix,
+  NULL,
+  NULL
+};
+
+static const struct babel_tlv_data *get_packet_subtlv_data(u8 type)
+{
+  switch(type)
+  {
+  case BABEL_SUBTLV_SOURCE_PREFIX:
+    return &source_prefix_tlv_data;
+
+  default:
+    return NULL;
+  }
+}
+
 static int
 babel_read_ack_req(struct babel_tlv *hdr, union babel_msg *m,
-		   struct babel_parse_state *state)
+		   struct babel_read_state *rstate)
 {
   struct babel_tlv_ack_req *tlv = (void *) hdr;
   struct babel_msg_ack_req *msg = &m->ack_req;
+  TO_PARSE_STATE(state, rstate);
 
   msg->type = BABEL_TLV_ACK_REQ;
   msg->nonce = get_u16(&tlv->nonce);
   msg->interval = get_time16(&tlv->interval);
-  msg->sender = state->saddr;
+  msg->sender = state->rstate.saddr;
 
   if (!msg->interval)
     return PARSE_ERROR;
@@ -352,10 +340,11 @@ babel_write_ack(struct babel_tlv *hdr, union babel_msg *m,
 
 static int
 babel_read_hello(struct babel_tlv *hdr, union babel_msg *m,
-                 struct babel_parse_state *state)
+                 struct babel_read_state *rstate)
 {
   struct babel_tlv_hello *tlv = (void *) hdr;
   struct babel_msg_hello *msg = &m->hello;
+  TO_PARSE_STATE(state, rstate);
 
   /* We currently don't support unicast Hello */
   u16 flags = get_u16(&tlv->flags);
@@ -365,7 +354,7 @@ babel_read_hello(struct babel_tlv *hdr, union babel_msg *m,
   msg->type = BABEL_TLV_HELLO;
   msg->seqno = get_u16(&tlv->seqno);
   msg->interval = get_time16(&tlv->interval);
-  msg->sender = state->saddr;
+  msg->sender = state->rstate.saddr;
 
   return PARSE_SUCCESS;
 }
@@ -386,17 +375,18 @@ babel_write_hello(struct babel_tlv *hdr, union babel_msg *m,
 
 static int
 babel_read_ihu(struct babel_tlv *hdr, union babel_msg *m,
-               struct babel_parse_state *state)
+               struct babel_read_state *rstate)
 {
   struct babel_tlv_ihu *tlv = (void *) hdr;
   struct babel_msg_ihu *msg = &m->ihu;
+  TO_PARSE_STATE(state, rstate);
 
   msg->type = BABEL_TLV_IHU;
   msg->ae = tlv->ae;
   msg->rxcost = get_u16(&tlv->rxcost);
   msg->interval = get_time16(&tlv->interval);
   msg->addr = IPA_NONE;
-  msg->sender = state->saddr;
+  msg->sender = state->rstate.saddr;
 
   if (msg->ae >= BABEL_AE_MAX)
     return PARSE_IGNORE;
@@ -412,13 +402,13 @@ babel_read_ihu(struct babel_tlv *hdr, union babel_msg *m,
   case BABEL_AE_IP4:
     if (TLV_OPT_LENGTH(tlv) < 4)
       return PARSE_ERROR;
-    state->current_tlv_endpos += 4;
+    state->rstate.current_tlv_endpos += 4;
     break;
 
   case BABEL_AE_IP6:
     if (TLV_OPT_LENGTH(tlv) < 16)
       return PARSE_ERROR;
-    state->current_tlv_endpos += 16;
+    state->rstate.current_tlv_endpos += 16;
     break;
 
   case BABEL_AE_IP6_LL:
@@ -426,7 +416,7 @@ babel_read_ihu(struct babel_tlv *hdr, union babel_msg *m,
       return PARSE_ERROR;
 
     msg->addr = ipa_from_ip6(get_ip6_ll(&tlv->addr));
-    state->current_tlv_endpos += 8;
+    state->rstate.current_tlv_endpos += 8;
     break;
   }
 
@@ -460,9 +450,10 @@ babel_write_ihu(struct babel_tlv *hdr, union babel_msg *m,
 
 static int
 babel_read_router_id(struct babel_tlv *hdr, union babel_msg *m UNUSED,
-                     struct babel_parse_state *state)
+                     struct babel_read_state *rstate)
 {
   struct babel_tlv_router_id *tlv = (void *) hdr;
+  TO_PARSE_STATE(state, rstate);
 
   state->router_id = get_u64(&tlv->router_id);
   state->router_id_seen = 1;
@@ -490,9 +481,10 @@ babel_write_router_id(struct babel_tlv *hdr, u64 router_id,
 
 static int
 babel_read_next_hop(struct babel_tlv *hdr, union babel_msg *m UNUSED,
-                    struct babel_parse_state *state)
+                    struct babel_read_state *rstate)
 {
   struct babel_tlv_next_hop *tlv = (void *) hdr;
+  TO_PARSE_STATE(state, rstate);
 
   switch (tlv->ae)
   {
@@ -504,7 +496,7 @@ babel_read_next_hop(struct babel_tlv *hdr, union babel_msg *m UNUSED,
       return PARSE_ERROR;
 
     state->next_hop_ip4 = ipa_from_ip4(get_ip4(&tlv->addr));
-    state->current_tlv_endpos += sizeof(ip4_addr);
+    state->rstate.current_tlv_endpos += sizeof(ip4_addr);
     return PARSE_IGNORE;
 
   case BABEL_AE_IP6:
@@ -512,7 +504,7 @@ babel_read_next_hop(struct babel_tlv *hdr, union babel_msg *m UNUSED,
       return PARSE_ERROR;
 
     state->next_hop_ip6 = ipa_from_ip6(get_ip6(&tlv->addr));
-    state->current_tlv_endpos += sizeof(ip6_addr);
+    state->rstate.current_tlv_endpos += sizeof(ip6_addr);
     return PARSE_IGNORE;
 
   case BABEL_AE_IP6_LL:
@@ -520,7 +512,7 @@ babel_read_next_hop(struct babel_tlv *hdr, union babel_msg *m UNUSED,
       return PARSE_ERROR;
 
     state->next_hop_ip6 = ipa_from_ip6(get_ip6_ll(&tlv->addr));
-    state->current_tlv_endpos += 8;
+    state->rstate.current_tlv_endpos += 8;
     return PARSE_IGNORE;
 
   default:
@@ -577,10 +569,12 @@ babel_write_next_hop(struct babel_tlv *hdr, ip_addr addr,
 
 static int
 babel_read_update(struct babel_tlv *hdr, union babel_msg *m,
-                  struct babel_parse_state *state)
+                  struct babel_read_state *rstate)
 {
   struct babel_tlv_update *tlv = (void *) hdr;
   struct babel_msg_update *msg = &m->update;
+  TO_PARSE_STATE(state, rstate);
+
 
   msg->type = BABEL_TLV_UPDATE;
   msg->interval = get_time16(&tlv->interval);
@@ -685,8 +679,8 @@ babel_read_update(struct babel_tlv *hdr, union babel_msg *m,
   }
 
   msg->router_id = state->router_id;
-  msg->sender = state->saddr;
-  state->current_tlv_endpos += len;
+  msg->sender = state->rstate.saddr;
+  state->rstate.current_tlv_endpos += len;
 
   return PARSE_SUCCESS;
 }
@@ -797,10 +791,11 @@ babel_write_update(struct babel_tlv *hdr, union babel_msg *m,
 
 static int
 babel_read_route_request(struct babel_tlv *hdr, union babel_msg *m,
-                         struct babel_parse_state *state)
+                         struct babel_read_state *rstate)
 {
   struct babel_tlv_route_request *tlv = (void *) hdr;
   struct babel_msg_route_request *msg = &m->route_request;
+  TO_PARSE_STATE(state, rstate);
 
   msg->type = BABEL_TLV_ROUTE_REQUEST;
 
@@ -822,7 +817,7 @@ babel_read_route_request(struct babel_tlv *hdr, union babel_msg *m,
       return PARSE_ERROR;
 
     read_ip4_px(&msg->net, tlv->addr, tlv->plen);
-    state->current_tlv_endpos += BYTES(tlv->plen);
+    state->rstate.current_tlv_endpos += BYTES(tlv->plen);
     return PARSE_SUCCESS;
 
   case BABEL_AE_IP6:
@@ -833,7 +828,7 @@ babel_read_route_request(struct babel_tlv *hdr, union babel_msg *m,
       return PARSE_ERROR;
 
     read_ip6_px(&msg->net, tlv->addr, tlv->plen);
-    state->current_tlv_endpos += BYTES(tlv->plen);
+    state->rstate.current_tlv_endpos += BYTES(tlv->plen);
 
     if (state->sadr_enabled)
       net_make_ip6_sadr(&msg->net);
@@ -896,16 +891,17 @@ babel_write_route_request(struct babel_tlv *hdr, union babel_msg *m,
 
 static int
 babel_read_seqno_request(struct babel_tlv *hdr, union babel_msg *m,
-                         struct babel_parse_state *state)
+                         struct babel_read_state *rstate)
 {
   struct babel_tlv_seqno_request *tlv = (void *) hdr;
   struct babel_msg_seqno_request *msg = &m->seqno_request;
+  TO_PARSE_STATE(state, rstate);
 
   msg->type = BABEL_TLV_SEQNO_REQUEST;
   msg->seqno = get_u16(&tlv->seqno);
   msg->hop_count = tlv->hop_count;
   msg->router_id = get_u64(&tlv->router_id);
-  msg->sender = state->saddr;
+  msg->sender = state->rstate.saddr;
 
   if (tlv->hop_count == 0)
     return PARSE_ERROR;
@@ -923,7 +919,7 @@ babel_read_seqno_request(struct babel_tlv *hdr, union babel_msg *m,
       return PARSE_ERROR;
 
     read_ip4_px(&msg->net, tlv->addr, tlv->plen);
-    state->current_tlv_endpos += BYTES(tlv->plen);
+    state->rstate.current_tlv_endpos += BYTES(tlv->plen);
     return PARSE_SUCCESS;
 
   case BABEL_AE_IP6:
@@ -934,7 +930,7 @@ babel_read_seqno_request(struct babel_tlv *hdr, union babel_msg *m,
       return PARSE_ERROR;
 
     read_ip6_px(&msg->net, tlv->addr, tlv->plen);
-    state->current_tlv_endpos += BYTES(tlv->plen);
+    state->rstate.current_tlv_endpos += BYTES(tlv->plen);
 
     if (state->sadr_enabled)
       net_make_ip6_sadr(&msg->net);
@@ -996,7 +992,7 @@ babel_write_seqno_request(struct babel_tlv *hdr, union babel_msg *m,
 
 static int
 babel_read_source_prefix(struct babel_tlv *hdr, union babel_msg *msg,
-			 struct babel_parse_state *state UNUSED)
+			 struct babel_read_state *state UNUSED)
 {
   struct babel_subtlv_source_prefix *tlv = (void *) hdr;
   net_addr_ip6_sadr *net;
@@ -1083,70 +1079,68 @@ babel_write_source_prefix(struct babel_tlv *hdr, net_addr *n, uint max_len)
   return len;
 }
 
-
 static inline int
 babel_read_subtlvs(struct babel_tlv *hdr,
 		   union babel_msg *msg,
-		   struct babel_parse_state *state)
+		   struct babel_read_state *state)
 {
+  const struct babel_tlv_data *tlv_data;
+  struct babel_proto *p = state->proto;
   struct babel_tlv *tlv;
-  byte *pos, *end = (byte *) hdr + TLV_LENGTH(hdr);
+  byte *end = (byte *) hdr + TLV_LENGTH(hdr);
   int res;
 
-  for (tlv = (void *) hdr + state->current_tlv_endpos;
-       (byte *) tlv < end;
-       tlv = NEXT_TLV(tlv))
+  WALK_TLVS(hdr + state->current_tlv_endpos, end, tlv,
+            state->saddr, state->ifa->ifname)
   {
-    /* Ugly special case */
-    if (tlv->type == BABEL_TLV_PAD1)
+    if (tlv->type == BABEL_SUBTLV_PADN)
       continue;
 
-    /* The end of the common TLV header */
-    pos = (byte *)tlv + sizeof(struct babel_tlv);
-    if ((pos > end) || (pos + tlv->length > end))
-      return PARSE_ERROR;
-
-    /*
-     * The subtlv type space is non-contiguous (due to the mandatory bit), so
-     * use a switch for dispatch instead of the mapping array we use for TLVs
-     */
-    switch (tlv->type)
+    if (!state->get_subtlv_data ||
+        !(tlv_data = state->get_subtlv_data(tlv->type)) ||
+        !tlv_data->read_tlv)
     {
-    case BABEL_SUBTLV_SOURCE_PREFIX:
-      res = babel_read_source_prefix(tlv, msg, state);
-      if (res != PARSE_SUCCESS)
-	return res;
-      break;
-
-    case BABEL_SUBTLV_PADN:
-    default:
       /* Unknown mandatory subtlv; PARSE_IGNORE ignores the whole TLV */
       if (tlv->type >= 128)
-	return PARSE_IGNORE;
-      break;
+        return PARSE_IGNORE;
+      continue;
     }
+
+    res = tlv_data->read_tlv(tlv, msg, state);
+    if (res != PARSE_SUCCESS)
+      return res;
   }
+  WALK_TLVS_END;
 
   return PARSE_SUCCESS;
+
+frame_err:
+  return PARSE_ERROR;
 }
 
-static inline int
+int
 babel_read_tlv(struct babel_tlv *hdr,
                union babel_msg *msg,
-               struct babel_parse_state *state)
+               struct babel_read_state *state)
 {
+  const struct babel_tlv_data *tlv_data;
+
   if ((hdr->type <= BABEL_TLV_PADN) ||
-      (hdr->type >= BABEL_TLV_MAX) ||
-      !tlv_data[hdr->type].read_tlv)
+      (hdr->type >= BABEL_TLV_MAX))
     return PARSE_IGNORE;
 
-  if (TLV_LENGTH(hdr) < tlv_data[hdr->type].min_length)
+  tlv_data = state->get_tlv_data(hdr->type);
+
+  if (!tlv_data || !tlv_data->read_tlv)
+    return PARSE_IGNORE;
+
+  if (TLV_LENGTH(hdr) < tlv_data->min_length)
     return PARSE_ERROR;
 
-  state->current_tlv_endpos = tlv_data[hdr->type].min_length;
+  state->current_tlv_endpos = tlv_data->min_length;
   memset(msg, 0, sizeof(*msg));
 
-  int res = tlv_data[hdr->type].read_tlv(hdr, msg, state);
+  int res = tlv_data->read_tlv(hdr, msg, state);
   if (res != PARSE_SUCCESS)
     return res;
 
@@ -1170,7 +1164,6 @@ babel_write_tlv(struct babel_tlv *hdr,
   memset(hdr, 0, tlv_data[msg->type].min_length);
   return tlv_data[msg->type].write_tlv(hdr, msg, state, max_len);
 }
-
 
 /*
  *	Packet RX/TX functions
@@ -1337,15 +1330,18 @@ babel_process_packet(struct babel_pkt_header *pkt, int len,
   int res;
 
   int plen = sizeof(struct babel_pkt_header) + get_u16(&pkt->length);
-  byte *pos;
   byte *end = (byte *)pkt + plen;
 
   struct babel_parse_state state = {
-    .proto	  = p,
-    .ifa	  = ifa,
-    .saddr	  = saddr,
-    .next_hop_ip6 = saddr,
-    .sadr_enabled = babel_sadr_enabled(p),
+    .rstate = {
+      .get_tlv_data    = &get_packet_tlv_data,
+      .get_subtlv_data = &get_packet_subtlv_data,
+      .proto           = p,
+      .ifa             = ifa,
+      .saddr           = saddr,
+    },
+    .next_hop_ip6      = saddr,
+    .sadr_enabled      = babel_sadr_enabled(p),
   };
 
   if ((pkt->magic != BABEL_MAGIC) || (pkt->version != BABEL_VERSION))
@@ -1369,25 +1365,10 @@ babel_process_packet(struct babel_pkt_header *pkt, int len,
 
   /* First pass through the packet TLV by TLV, parsing each into internal data
      structures. */
-  for (tlv = FIRST_TLV(pkt);
-       (byte *)tlv < end;
-       tlv = NEXT_TLV(tlv))
+  WALK_TLVS(FIRST_TLV(pkt), end, tlv, saddr, ifa->iface->name)
   {
-    /* Ugly special case */
-    if (tlv->type == BABEL_TLV_PAD1)
-      continue;
-
-    /* The end of the common TLV header */
-    pos = (byte *)tlv + sizeof(struct babel_tlv);
-    if ((pos > end) || (pos + tlv->length > end))
-    {
-      LOG_PKT("Bad TLV from %I via %s type %d pos %d - framing error",
-	      saddr, ifa->iface->name, tlv->type, (byte *)tlv - (byte *)pkt);
-      break;
-    }
-
     msg = sl_alloc(p->msg_slab);
-    res = babel_read_tlv(tlv, &msg->msg, &state);
+    res = babel_read_tlv(tlv, &msg->msg, &state.rstate);
     if (res == PARSE_SUCCESS)
     {
       add_tail(&msgs, NODE msg);
@@ -1405,6 +1386,9 @@ babel_process_packet(struct babel_pkt_header *pkt, int len,
       break;
     }
   }
+  WALK_TLVS_END;
+
+frame_err:
 
   /* Parsing done, handle all parsed TLVs */
   WALK_LIST_FIRST(msg, msgs)
