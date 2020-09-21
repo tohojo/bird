@@ -151,6 +151,23 @@ hmac_final(struct mac_context *ctx)
 }
 
 
+/**
+ * mac_validate_key_length_to_output - enforce that the key length matches the MAC output
+ * @id: MAC algorithm ID,
+ * @key: key to verify
+ * @keylen: length of key
+ *
+ * This is a common MAC algorithm validation function that will enforce that the
+ * key length matches the MAC output length.
+ */
+static void
+mac_validate_key_length_to_output(uint id, const byte *key UNUSED, uint keylen)
+{
+  if (keylen != mac_type_length(id))
+    cf_error("Key size %d does not match required size of %d bytes for %s",
+             keylen, mac_type_length(id), mac_type_name(id));
+}
+
 /*
  *	Common code
  */
@@ -167,7 +184,7 @@ hmac_final(struct mac_context *ctx)
   {                                                                            \
     name, size/8, sizeof(struct vx##_context), vx##_bird_init,     \
         vx##_bird_update, vx##_bird_final, size/8,                \
-        VX##_BLOCK_SIZE, NULL, NULL, NULL \
+        VX##_BLOCK_SIZE, NULL, NULL, NULL, mac_validate_key_length_to_output \
   }
 
 const struct mac_desc mac_table[ALG_MAX] = {

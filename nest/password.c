@@ -85,3 +85,9 @@ max_mac_length(list *l)
 
   return val;
 }
+
+void
+password_validate_config(struct password_item *p)
+{
+  mac_validate_key(p->alg, p->password, p->length);
+}

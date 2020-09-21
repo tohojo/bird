@@ -491,8 +491,8 @@ password_items:
 ;
 
 password_item:
-    password_item_begin '{' password_item_params '}'
-  | password_item_begin
+    password_item_begin '{' password_item_params '}' password_item_end
+  | password_item_begin password_item_end
 ;
 
 password_item_begin:
@@ -529,6 +529,10 @@ password_algorithm:
  | BLAKE2B512	{ $$ = ALG_BLAKE2B_512; }
  ;
 
+password_item_end:
+{
+  password_validate_config(this_p_item);
+};
 
 /* BFD options */
 
