@@ -128,6 +128,11 @@ struct symbol {
   char name[0];
 };
 
+struct bytestring {
+    size_t sz;
+    byte b[];
+};
+
 struct sym_scope {
   struct sym_scope *next;		/* Next on scope stack */
   struct symbol *name;			/* Name of this scope */
