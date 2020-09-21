@@ -89,6 +89,7 @@ struct mac_desc {
   void (*hash_init)(struct hash_context *ctx);
   void (*hash_update)(struct hash_context *ctx, const byte *data, uint datalen);
   byte *(*hash_final)(struct hash_context *ctx);
+  void (*validate_key)(const byte *key, uint keylen);
 };
 
 extern const struct mac_desc mac_table[ALG_MAX];
@@ -98,6 +99,12 @@ static inline const char *mac_type_name(uint id)
 
 static inline uint mac_type_length(uint id)
 { return mac_table[id].mac_length; }
+
+static inline void mac_validate_key(uint id, const byte *key, uint keylen)
+{
+  if (mac_table[id].validate_key)
+    mac_table[id].validate_key(key, keylen);
+}
 
 static inline const char *mac_get_name(struct mac_context *ctx)
 { return ctx->type->name; }

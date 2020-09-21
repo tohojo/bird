@@ -7,6 +7,8 @@
  */
 
 
+#include "nest/bird.h"
+#include "conf/conf.h"
 #include "blake2-ref.h"
 
 void blake2s_bird_init(struct mac_context *mac, const byte *key, uint keylen)
@@ -28,6 +30,13 @@ byte *blake2s_bird_final(struct mac_context *mac)
   return ctx->buf;
 }
 
+void blake2s_bird_validate_key(const byte *key UNUSED, uint keylen)
+{
+  if (keylen != BLAKE2S_SIZE)
+    cf_error("Key size %d does not match required size of %d bytes for Blake2s",
+             keylen, BLAKE2S_SIZE);
+}
+
 void blake2b_bird_init(struct mac_context *mac, const byte *key, uint keylen)
 {
   struct blake2b_context *ctx = (void *) mac;
@@ -43,4 +52,11 @@ byte *blake2b_bird_final(struct mac_context *mac)
   struct blake2b_context *ctx = (void *) mac;
   blake2b_final(&ctx->state, ctx->buf, BLAKE2B_SIZE);
   return ctx->buf;
+}
+
+void blake2b_bird_validate_key(const byte *key UNUSED, uint keylen)
+{
+  if (keylen != BLAKE2B_SIZE)
+    cf_error("Key size %d does not match required size of %d bytes for Blake2b",
+             keylen, BLAKE2B_SIZE);
 }

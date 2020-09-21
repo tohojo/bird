@@ -467,8 +467,8 @@ password_items:
 ;
 
 password_item:
-    password_item_begin '{' password_item_params '}'
-  | password_item_begin
+    password_item_begin '{' password_item_params '}' password_item_end
+  | password_item_begin password_item_end
 ;
 
 password_item_begin:
@@ -502,6 +502,11 @@ password_algorithm:
  | BLAKE2S	{ $$ = ALG_BLAKE2S; }
  | BLAKE2B	{ $$ = ALG_BLAKE2B; }
  ;
+
+password_item_end:
+{
+  password_validate_config(this_p_item);
+};
 
 /* Core commands */
 CF_CLI_HELP(SHOW, ..., [[Show status information]])

@@ -58,10 +58,12 @@ struct blake2b_context {
 void blake2s_bird_init(struct mac_context *ctx, const byte *key, uint keylen);
 void blake2s_bird_update(struct mac_context *ctx, const byte *buf, uint len);
 byte *blake2s_bird_final(struct mac_context *ctx);
+void blake2s_bird_validate_key(const byte *key, uint keylen);
 
 void blake2b_bird_init(struct mac_context *ctx, const byte *key, uint keylen);
 void blake2b_bird_update(struct mac_context *ctx, const byte *buf, uint len);
 byte *blake2b_bird_final(struct mac_context *ctx);
+void blake2b_bird_validate_key(const byte *key, uint keylen);
 
 
 #endif /* _BIRD_BLAKE2_H_ */
