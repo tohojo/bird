@@ -151,6 +151,27 @@ hmac_final(struct mac_context *ctx)
 }
 
 
+/**
+ * mac_type_validate_key - enforce key length validation
+ * @id: MAC algorithm ID,
+ * @key: key to verify
+ * @keylen: length of key
+ *
+ * This is a common MAC algorithm validation function that will enforce that the
+ * key length constrains specified in the MAC type table.
+ */
+void
+mac_type_validate_key(uint id, const byte *key UNUSED, uint keylen)
+{
+  if (mac_table[id].min_key_size && keylen < mac_table[id].min_key_size)
+    cf_error("Key size %d smaller than minimum size of %d bytes for %s",
+             keylen, mac_table[id].min_key_size, mac_type_name(id));
+
+  if (mac_table[id].max_key_size && keylen > mac_table[id].max_key_size)
+    cf_error("Key size %d larger than maximum size of %d bytes for %s",
+             keylen, mac_table[id].max_key_size, mac_type_name(id));
+}
+
 /*
  *	Common code
  */
@@ -163,11 +184,11 @@ hmac_final(struct mac_context *ctx)
   { name, PX##_SIZE, sizeof(struct hmac_context), hmac_init, hmac_update, hmac_final, \
     PX##_SIZE, PX##_BLOCK_SIZE, px##_init, px##_update, px##_final }
 
-#define BLAKE_DESC(name, vx, VX, size)                                         \
-  {                                                                            \
-    name, size/8, sizeof(struct vx##_context), vx##_bird_init,     \
-        vx##_bird_update, vx##_bird_final, size/8,                \
-        VX##_BLOCK_SIZE, NULL, NULL, NULL \
+#define BLAKE_DESC(name, vx, VX, size)                                  \
+  {                                                                     \
+    name, size/8, sizeof(struct vx##_context), vx##_bird_init,          \
+      vx##_bird_update, vx##_bird_final, size/8,                        \
+      VX##_BLOCK_SIZE, NULL, NULL, NULL, VX##_SIZE, VX##_SIZE           \
   }
 
 const struct mac_desc mac_table[ALG_MAX] = {
