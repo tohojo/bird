@@ -37,6 +37,25 @@ iface_patt_check(void)
       cf_error("Interface name/mask expected, not IP prefix");
 }
 
+static inline void
+init_password(void *data, size_t sz)
+{
+   if (!this_p_list) {
+      this_p_list = cfg_allocz(sizeof(list));
+      init_list(this_p_list);
+      password_id = 1;
+   }
+   this_p_item = cfg_allocz(sizeof (struct password_item));
+   this_p_item->password = data;
+   this_p_item->length = sz;
+   this_p_item->genfrom = 0;
+   this_p_item->gento = TIME_INFINITY;
+   this_p_item->accfrom = 0;
+   this_p_item->accto = TIME_INFINITY;
+   this_p_item->id = password_id++;
+   this_p_item->alg = ALG_UNDEFINED;
+   add_tail(this_p_list, &this_p_item->n);
+}
 
 static inline void
 reset_passwords(void)
@@ -99,7 +118,7 @@ CF_KEYWORDS(RELOAD, IN, OUT, MRTDUMP, MESSAGES, RESTRICT, MEMORY, IGP_METRIC, CL
 CF_KEYWORDS(TIMEFORMAT, ISO, SHORT, LONG, ROUTE, PROTOCOL, BASE, LOG, S, MS, US)
 CF_KEYWORDS(GRACEFUL, RESTART, WAIT, MAX, FLUSH, AS)
 CF_KEYWORDS(MIN, IDLE, RX, TX, INTERVAL, MULTIPLIER, PASSIVE)
-CF_KEYWORDS(CHECK, LINK)
+CF_KEYWORDS(CHECK, LINK, KEY)
 
 /* For r_args_channel */
 CF_KEYWORDS(IPV4, IPV4_MC, IPV4_MPLS, IPV6, IPV6_MC, IPV6_MPLS, IPV6_SADR, VPN4, VPN4_MC, VPN4_MPLS, VPN6, VPN6_MC, VPN6_MPLS, ROA4, ROA6, FLOW4, FLOW6, MPLS, PRI, SEC)
@@ -477,23 +496,8 @@ password_item:
 ;
 
 password_item_begin:
-   PASSWORD text {
-     if (!this_p_list) {
-	this_p_list = cfg_allocz(sizeof(list));
-	init_list(this_p_list);
-	password_id = 1;
-     }
-     this_p_item = cfg_allocz(sizeof(struct password_item));
-     this_p_item->password = $2;
-     this_p_item->length = strlen($2);
-     this_p_item->genfrom = 0;
-     this_p_item->gento = TIME_INFINITY;
-     this_p_item->accfrom = 0;
-     this_p_item->accto = TIME_INFINITY;
-     this_p_item->id = password_id++;
-     this_p_item->alg = ALG_UNDEFINED;
-     add_tail(this_p_list, &this_p_item->n);
-   }
+    PASSWORD text { init_password((void *)$2, strlen($2)); }
+  | KEY BYTES { init_password($2->b, $2->sz); }
 ;
 
 password_item_params:
