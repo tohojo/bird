@@ -14,7 +14,7 @@
 /**
  * DOC: The Babel protocol
  *
- * Babel (RFC6126) is a loop-avoiding distance-vector routing protocol that is
+ * Babel (RFC8966) is a loop-avoiding distance-vector routing protocol that is
  * robust and efficient both in ordinary wired networks and in wireless mesh
  * networks.
  *
@@ -1303,7 +1303,7 @@ babel_handle_route_request(union babel_msg *m, struct babel_iface *ifa)
   struct babel_proto *p = ifa->proto;
   struct babel_msg_route_request *msg = &m->route_request;
 
-  /* RFC 6126 3.8.1.1 */
+  /* RFC 8966 3.8.1.1 */
 
   /* Wildcard request - full update on the interface */
   if (msg->full)
@@ -1335,7 +1335,7 @@ babel_handle_seqno_request(union babel_msg *m, struct babel_iface *ifa)
   struct babel_proto *p = ifa->proto;
   struct babel_msg_seqno_request *msg = &m->seqno_request;
 
-  /* RFC 6126 3.8.1.2 */
+  /* RFC 8966 3.8.1.2 */
 
   TRACE(D_PACKETS, "Handling seqno request for %N router-id %lR seqno %d hop count %d",
 	&msg->net, msg->router_id, msg->seqno, msg->hop_count);
