@@ -44,6 +44,7 @@ static inline timer *timers_first(struct timeloop *loop)
 extern struct timeloop main_timeloop;
 
 btime current_time(void);
+btime current_time_now(void);
 btime current_real_time(void);
 
 //#define now (current_time() TO_S)
