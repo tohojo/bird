@@ -63,6 +63,18 @@
 #define BABEL_RTT_MAX			(120 MS_)
 #define BABEL_RTT_DECAY			42
 
+/*
+ * Constants for calculating metric smoothing. Chosen so that:
+ * log(2) = BABEL_SMOOTHING_CONSTANT / BABEL_SMOOTHING_UNIT, which means that
+ * log(2)/x can be calculated as BABEL_SMOOTHING_UNIT + BABEL_SMOOTHING_CONSTANT / x
+ */
+#define BABEL_SMOOTHING_UNIT		0x10000000
+#define BABEL_SMOOTHING_CONSTANT	186065279
+#define BABEL_SMOOTHING_STEP		(1 S_)		/* smoothing calculated in this step size */
+#define BABEL_SMOOTHING_MIN_DIFF	4		/* metric diff beneath this is converged */
+#define BABEL_SMOOTHING_DECAY		(4 S_)
+#define BABEL_SMOOTHING_DECAY_MAX	(180 S_)
+
 /* Max interval that will not overflow when carried as 16-bit centiseconds */
 #define BABEL_TIME_UNITS		10000	/* On-wire times are counted in centiseconds */
 #define BABEL_MIN_INTERVAL		(0x0001 * BABEL_TIME_UNITS)
@@ -131,6 +143,8 @@ enum babel_ae_type {
 struct babel_config {
   struct proto_config c;
   list iface_list;			/* List of iface configs (struct babel_iface_config) */
+  btime metric_decay;
+  uint smooth_recp;			/* Reciprocal for exponential metric smoothing */
   uint hold_time;			/* Time to hold stale entries and unreachable routes */
   u8 randomize_router_id;
 
@@ -285,9 +299,11 @@ struct babel_route {
   u16 seqno;
   u16 metric;
   u16 advert_metric;
+  u16 smoothed_metric;
   u64 router_id;
   ip_addr next_hop;
   btime refresh_time;
+  btime smoothed_time;
   btime expires;
 };
 

@@ -1915,6 +1915,7 @@ protocol babel [<name>] {
 	ipv4 { <channel config> };
 	ipv6 [sadr] { <channel config> };
         randomize router id <switch>;
+        metric decay <time>;
 	interface <interface pattern> {
 		type <wired|wireless|tunnel>;
 		rxcost <number>;
@@ -1964,6 +1965,17 @@ protocol babel [<name>] {
       the order of minutes). Enabling this option causes Bird to pick a random
       router ID every time it starts up, which avoids this problem at the cost
       of not having stable router IDs in the network. Default: no.
+
+      <tag><label id="babel-metric-decay">metric decay <m/time/ s</tag>
+      The metric smoothing decay time. When route metrics vary (because of
+      varying quality of a wireless link, or varying RTT when timestamps are
+      enabled), Babel applies an exponential smoothing procedure to the metric
+      to dampen route oscillations. This parameter specifies the half-life of
+      the convergence of the smoothed metric to the actual metric of the route.
+      I.e., the distance between the smoothed and the actual metric will be
+      halfed for each time period specified here (until they converge). Set to 0
+      to disable metric smoothing; if set, the value must be in the interval
+      1-180 s. Default: 4 s
 
       <tag><label id="babel-type">type wired|wireless|tunnel </tag>
       This option specifies the interface type: Wired, wireless or tunnel. On

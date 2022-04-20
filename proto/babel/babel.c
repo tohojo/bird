@@ -144,6 +144,103 @@ babel_expire_sources(struct babel_proto *p UNUSED, struct babel_entry *e)
   }
 }
 
+static u16
+babel_calc_smoothed_metric(struct babel_proto *p, struct babel_route *r, u8 update)
+{
+  struct babel_config *cf = (void *) p->p.cf;
+  uint metric = r->metric, smoothed_metric = r->smoothed_metric;
+  btime smoothed_time = r->smoothed_time, now = current_time();
+
+  if (!cf->metric_decay || metric == BABEL_INFINITY ||
+      metric == smoothed_metric || !smoothed_time)
+  {
+    smoothed_metric = metric;
+    smoothed_time = now;
+    goto out;
+  }
+
+  int diff = metric - smoothed_metric;
+
+  /*
+   * The decay defines the half-life of the metric convergence, so first iterate
+   * in halving steps
+   */
+  while (smoothed_time < now - cf->metric_decay && diff) {
+    smoothed_metric += diff/2;
+    smoothed_time += cf->metric_decay;
+    diff = metric - smoothed_metric;
+  }
+
+  /*
+   * Then, update remainder in BABEL_SMOOTHING_STEP intervals using the
+   * exponential function (approximated via the pre-computed reciprocal).
+   */
+  while (smoothed_time < now - BABEL_SMOOTHING_STEP && diff) {
+    smoothed_metric += (BABEL_SMOOTHING_STEP * diff *
+                        (cf->smooth_recp - BABEL_SMOOTHING_UNIT) / BABEL_SMOOTHING_UNIT);
+    smoothed_time += BABEL_SMOOTHING_STEP;
+    diff = metric - smoothed_metric;
+  }
+
+  /* Consider the metric converged once we're close enough */
+  if (ABS(diff) < BABEL_SMOOTHING_MIN_DIFF)
+    smoothed_metric = metric;
+
+out:
+  if (update) {
+    r->smoothed_metric = smoothed_metric;
+    r->smoothed_time = smoothed_time;
+  }
+
+  return smoothed_metric;
+}
+
+static u16
+babel_update_smoothed_metric(struct babel_proto *p, struct babel_route *r)
+{
+  if (!r->metric)
+    return 0;
+
+  if (!r->smoothed_metric) {
+    r->smoothed_metric = r->metric;
+    r->smoothed_time = current_time();
+    return r->smoothed_metric;
+  }
+
+  u16 smoothed = babel_calc_smoothed_metric(p, r, 1);
+  DBG("Updated smoothed metric for prefix %N: router-id %lR metric %d/%d\n",
+      r->e->n.addr, r->router_id, r->metric, smoothed);
+
+  return smoothed;
+}
+
+static u16
+babel_smoothed_metric(struct babel_proto *p, struct babel_route *r)
+{
+  return babel_calc_smoothed_metric(p, r, 0);
+}
+
+static void
+babel_update_metric(struct babel_proto *p, struct babel_route *r, u16 metric)
+{
+  babel_update_smoothed_metric(p, r);
+  r->metric = metric;
+}
+
+static inline u8
+babel_route_better(struct babel_proto *p, struct babel_route *mod,
+                   struct babel_route *best)
+{
+  if (!mod->feasible)
+    return 0;
+
+  if (!best)
+    return mod->metric < BABEL_INFINITY;
+
+  return (mod->metric < best->metric &&
+          babel_smoothed_metric(p, mod) < babel_smoothed_metric(p, best));
+}
+
 static struct babel_route *
 babel_find_route(struct babel_entry *e, struct babel_neighbor *n)
 {
@@ -161,8 +258,10 @@ babel_get_route(struct babel_proto *p, struct babel_entry *e, struct babel_neigh
 {
   struct babel_route *r = babel_find_route(e, nbr);
 
-  if (r)
+  if (r) {
+    babel_update_smoothed_metric(p, r);
     return r;
+  }
 
   r = sl_allocz(p->route_slab);
 
@@ -662,7 +761,7 @@ done:
     struct babel_route *r; node *n;
     WALK_LIST2(r, n, nbr->routes, neigh_route)
     {
-      r->metric = babel_compute_metric(nbr, r->advert_metric);
+      babel_update_metric(p, r, babel_compute_metric(nbr, r->advert_metric));
       babel_select_route(p, r->e, r);
     }
   }
@@ -802,8 +901,7 @@ babel_select_route(struct babel_proto *p, struct babel_entry *e, struct babel_ro
   /* Shortcut if only non-best was modified */
   if (mod && (mod != best))
   {
-    /* Either select modified route, or keep old best route */
-    if ((mod->metric < (best ? best->metric : BABEL_INFINITY)) && mod->feasible)
+    if (babel_route_better(p, mod, best))
       best = mod;
     else
       return;
@@ -814,17 +912,24 @@ babel_select_route(struct babel_proto *p, struct babel_entry *e, struct babel_ro
     if (!best || (best->metric == BABEL_INFINITY) || !best->feasible)
       best = NULL;
 
+    /* best will be compared to many routes below, make sure it's up-to-date */
+    if (best)
+      babel_update_smoothed_metric(p, best);
+
     /* Find the best feasible route from all routes */
     WALK_LIST(r, e->routes)
-      if ((r->metric < (best ? best->metric : BABEL_INFINITY)) && r->feasible)
+      if (babel_route_better(p, r, best))
 	best = r;
   }
 
   if (best)
   {
     if (best != e->selected)
-      TRACE(D_EVENTS, "Picked new route for prefix %N: router-id %lR metric %d",
-	    e->n.addr, best->router_id, best->metric);
+    {
+      u16 smoothed = babel_update_smoothed_metric(p, best);
+      TRACE(D_EVENTS, "Picked new route for prefix %N: router-id %lR metric %d/%d",
+	    e->n.addr, best->router_id, best->metric, smoothed);
+    }
   }
   else if (e->selected)
   {
@@ -1425,9 +1530,9 @@ babel_handle_update(union babel_msg *m, struct babel_iface *ifa)
     return;
 
   /* Last paragraph above - update the entry */
+  babel_update_metric(p, r, metric);
   r->feasible = feasible;
   r->seqno = msg->seqno;
-  r->metric = metric;
   r->advert_metric = msg->metric;
   r->router_id = msg->router_id;
   r->next_hop = msg->next_hop;

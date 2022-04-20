@@ -37,6 +37,13 @@ babel_proto_start: proto_start BABEL
   this_proto = proto_config_new(&proto_babel, $1);
   init_list(&BABEL_CFG->iface_list);
   BABEL_CFG->hold_time = 1 S_;
+  BABEL_CFG->metric_decay = BABEL_SMOOTHING_DECAY;
+};
+
+babel_proto_finish:
+{
+  if (BABEL_CFG->metric_decay)
+    BABEL_CFG->smooth_recp = BABEL_SMOOTHING_UNIT + BABEL_SMOOTHING_CONSTANT / BABEL_CFG->metric_decay;
 };
 
 babel_proto_item:
@@ -44,6 +51,7 @@ babel_proto_item:
  | proto_channel
  | INTERFACE babel_iface
  | RANDOMIZE ROUTER ID bool { BABEL_CFG->randomize_router_id = $4; }
+ | METRIC DECAY expr_us { BABEL_CFG->metric_decay = $3; if ($3 && (($3 < BABEL_SMOOTHING_STEP) || ($3 > BABEL_SMOOTHING_DECAY_MAX))) cf_error("Metric decay must be 0, or between 1-180s"); }
  ;
 
 babel_proto_opts:
@@ -52,7 +60,7 @@ babel_proto_opts:
  ;
 
 babel_proto:
-   babel_proto_start proto_name '{' babel_proto_opts '}';
+   babel_proto_start proto_name '{' babel_proto_opts '}' babel_proto_finish;
 
 
 babel_iface_start:
