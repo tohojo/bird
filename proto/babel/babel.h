@@ -240,7 +240,6 @@ struct babel_neighbor {
   btime init_expiry;
 
   list routes;				/* Routes this neighbour has sent us (struct babel_route) */
-  list requests;			/* Seqno requests bound to this neighbor */
 };
 
 struct babel_source {
@@ -276,7 +275,7 @@ struct babel_seqno_request {
   u8 hop_count;
   u8 count;
   btime expires;
-  struct babel_neighbor *nbr;
+  u8 forwarded;
 };
 
 struct babel_entry {

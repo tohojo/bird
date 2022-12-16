@@ -53,7 +53,7 @@ static void babel_expire_requests(struct babel_proto *p, struct babel_entry *e);
 static void babel_select_route(struct babel_proto *p, struct babel_entry *e, struct babel_route *mod);
 static inline void babel_announce_retraction(struct babel_proto *p, struct babel_entry *e);
 static void babel_send_route_request(struct babel_proto *p, struct babel_entry *e, struct babel_neighbor *n);
-static void babel_send_seqno_request(struct babel_proto *p, struct babel_entry *e, struct babel_seqno_request *sr);
+static void babel_send_seqno_request(struct babel_proto *p, struct babel_entry *e, struct babel_seqno_request *sr, struct babel_neighbor *tgt);
 static void babel_update_cost(struct babel_neighbor *n);
 static inline void babel_kick_timer(struct babel_proto *p);
 static inline void babel_iface_kick_timer(struct babel_iface *ifa);
@@ -288,9 +288,6 @@ babel_expire_routes(struct babel_proto *p)
   babel_expire_routes_(p, &p->ip6_rtable);
 }
 
-static inline int seqno_request_valid(struct babel_seqno_request *sr)
-{ return !sr->nbr || sr->nbr->ifa; }
-
 /*
  * Add seqno request to the table of pending requests (RFC 6216 3.2.6) and send
  * it to network. Do nothing if it is already in the table.
@@ -299,50 +296,73 @@ static inline int seqno_request_valid(struct babel_seqno_request *sr)
 static void
 babel_add_seqno_request(struct babel_proto *p, struct babel_entry *e,
 			u64 router_id, u16 seqno, u8 hop_count,
-			struct babel_neighbor *nbr)
+			struct babel_neighbor *tgt)
 {
   struct babel_seqno_request *sr;
 
   WALK_LIST(sr, e->requests)
     if (sr->router_id == router_id)
     {
-      /* Found matching or newer */
-      if (ge_mod64k(sr->seqno, seqno) && seqno_request_valid(sr))
+      /*
+       * To suppress duplicates, check if we already have a newer (higher seqno)
+       * outstanding request. If we do, suppress this request if the outstanding
+       * request is one we originated ourselves. If the outstanding request is
+       * forwarded, supress only if this request is also one we're forwarding
+       * *and* we're within the first expiry period of that request. The latter
+       * is to ensure we don't suppress retransmissions of the request from the
+       * same source.
+       */
+      if (ge_mod64k(sr->seqno, seqno) &&
+          (!sr->forwarded || (tgt && !sr->count)))
 	return;
 
-      /* Found older */
       rem_node(NODE sr);
 
-      if (sr->nbr)
-        rem_node(&sr->nbr_node);
+      /* Allow upgrading from forwarded to non-forwarded */
+      if (!tgt)
+        sr->forwarded = 0;
 
       goto found;
     }
 
   /* No entries found */
   sr = sl_allocz(p->seqno_slab);
+  sr->forwarded = !!tgt;
 
 found:
   sr->router_id = router_id;
   sr->seqno = seqno;
-  sr->hop_count = hop_count;
+  sr->hop_count = hop_count ?: BABEL_INITIAL_HOP_COUNT;
   sr->count = 0;
-  sr->expires = current_time() + BABEL_SEQNO_REQUEST_EXPIRY;
 
-  if (sr->nbr = nbr)
-    add_tail(&nbr->requests, &sr->nbr_node);
+  /*
+   * Set the initial expiry time of forwarded requests to half the usual expiry
+   * time to be reasonably sure we expire it before it is resent by the source.
+   */
+  sr->expires = current_time() + (sr->forwarded ?
+                                  (BABEL_SEQNO_REQUEST_EXPIRY/2) :
+                                  BABEL_SEQNO_REQUEST_EXPIRY);
 
   add_tail(&e->requests, NODE sr);
+  babel_send_seqno_request(p, e, sr, tgt);
+}
 
-  babel_send_seqno_request(p, e, sr);
+static void
+babel_generate_seqno_request(struct babel_proto *p, struct babel_entry *e,
+                             u64 router_id, u16 seqno, struct babel_neighbor *tgt)
+{
+  struct babel_seqno_request req = {
+    .router_id = router_id,
+    .seqno = seqno,
+    .hop_count = BABEL_INITIAL_HOP_COUNT,
+  };
+
+  babel_send_seqno_request(p, e, &req, tgt);
 }
 
 static void
 babel_remove_seqno_request(struct babel_proto *p UNUSED, struct babel_seqno_request *sr)
 {
-  if (sr->nbr)
-    rem_node(&sr->nbr_node);
-
   rem_node(NODE sr);
   sl_free(sr);
 }
@@ -372,13 +392,6 @@ babel_expire_requests(struct babel_proto *p, struct babel_entry *e)
 
   WALK_LIST_DELSAFE(sr, srx, e->requests)
   {
-    /* Remove seqno requests sent to dead neighbors */
-    if (!seqno_request_valid(sr))
-    {
-      babel_remove_seqno_request(p, sr);
-      continue;
-    }
-
     /* Handle expired requests - resend or remove */
     if (sr->expires && sr->expires <= now_)
     {
@@ -386,7 +399,19 @@ babel_expire_requests(struct babel_proto *p, struct babel_entry *e)
       {
 	sr->count++;
 	sr->expires += (BABEL_SEQNO_REQUEST_EXPIRY << sr->count);
-	babel_send_seqno_request(p, e, sr);
+
+        /*
+         * Forwarded requests will be resent by their originator. However, we
+         * don't want to immediately remove the forwarded request objects,
+         * because they are also used to trigger updates (see
+         * babel_satisfy_seqno_request()). For this reason we cycle forwarded
+         * requests through the same number of expiry rounds as those we
+         * retransmit; there's a check in babel_add_seqno_request() which uses
+         * sr->count to determine if the request is within the first expiry
+         * period.
+         */
+        if (!sr->forwarded)
+          babel_send_seqno_request(p, e, sr, NULL);
       }
       else
       {
@@ -431,7 +456,6 @@ babel_get_neighbor(struct babel_iface *ifa, ip_addr addr)
   nbr->cost = BABEL_INFINITY;
   nbr->init_expiry = current_time() + BABEL_INITIAL_NEIGHBOR_TIMEOUT;
   init_list(&nbr->routes);
-  init_list(&nbr->requests);
   add_tail(&ifa->neigh_list, NODE nbr);
 
   return nbr;
@@ -451,10 +475,6 @@ babel_flush_neighbor(struct babel_proto *p, struct babel_neighbor *nbr)
     babel_retract_route(p, r);
     babel_flush_route(p, r);
   }
-
-  struct babel_seqno_request *sr;
-  WALK_LIST_FIRST2(sr, nbr_node, nbr->requests)
-    babel_remove_seqno_request(p, sr);
 
   nbr->ifa = NULL;
   rem_node(NODE nbr);
@@ -903,22 +923,23 @@ babel_send_wildcard_request(struct babel_iface *ifa)
 }
 
 static void
-babel_send_seqno_request(struct babel_proto *p, struct babel_entry *e, struct babel_seqno_request *sr)
+babel_send_seqno_request(struct babel_proto *p, struct babel_entry *e,
+                         struct babel_seqno_request *sr, struct babel_neighbor *tgt)
 {
   union babel_msg msg = {};
 
   msg.type = BABEL_TLV_SEQNO_REQUEST;
-  msg.seqno_request.hop_count = sr->hop_count ?: BABEL_INITIAL_HOP_COUNT;
+  msg.seqno_request.hop_count = sr->hop_count;
   msg.seqno_request.seqno = sr->seqno;
   msg.seqno_request.router_id = sr->router_id;
   net_copy(&msg.seqno_request.net, e->n.addr);
 
-  if (sr->nbr)
+  if (tgt)
   {
     TRACE(D_PACKETS, "Sending seqno request for %N router-id %lR seqno %d to %I on %s",
-	  e->n.addr, sr->router_id, sr->seqno, sr->nbr->addr, sr->nbr->ifa->ifname);
+          e->n.addr, sr->router_id, sr->seqno, tgt->addr, tgt->ifa->ifname);
 
-    babel_send_unicast(&msg, sr->nbr->ifa, sr->nbr->addr);
+    babel_send_unicast(&msg, tgt->ifa, tgt->addr);
   }
   else
   {
@@ -1285,10 +1306,13 @@ babel_handle_update(union babel_msg *m, struct babel_iface *ifa)
   metric = babel_compute_metric(nbr, msg->metric);
   best = e->selected;
 
-  /* RFC section 3.8.2.2 - Dealing with unfeasible updates */
+  /*
+   * RFC section 3.8.2.2 - Dealing with unfeasible updates. Generate a one-off
+   * (not retransmitted) unicast seqno request to the originator of this update
+   */
   if (!feasible && (metric != BABEL_INFINITY) &&
       (!best || (r == best) || (metric < best->metric)))
-    babel_add_seqno_request(p, e, s->router_id, s->seqno + 1, 0, nbr);
+    babel_generate_seqno_request(p, e, s->router_id, s->seqno + 1, nbr);
 
   /* Special case - ignore unfeasible update to best route */
   if (r == best && !feasible && (msg->router_id == r->router_id))
@@ -1353,6 +1377,32 @@ babel_handle_route_request(union babel_msg *m, struct babel_iface *ifa)
   }
 }
 
+static struct babel_neighbor *
+babel_find_seqno_request_tgt(struct babel_entry *e, struct babel_neighbor *skip)
+{
+  struct babel_route *r, *best_feasible = NULL, *best_any = NULL;
+
+  WALK_LIST(r, e->routes)
+  {
+    if (r->neigh == skip)
+      continue;
+
+    if (r->feasible && (!best_feasible || r->metric < best_feasible->metric))
+      best_feasible = r;
+
+    if (!best_any || r->metric < best_any->metric)
+      best_any = r;
+  }
+
+  if (best_feasible)
+    return best_feasible->neigh;
+
+  if (best_any)
+    return best_any->neigh;
+
+  return NULL;
+}
+
 void
 babel_handle_seqno_request(union babel_msg *m, struct babel_iface *ifa)
 {
@@ -1389,26 +1439,21 @@ babel_handle_seqno_request(union babel_msg *m, struct babel_iface *ifa)
   {
     /* Not ours; forward if TTL allows it */
 
-    /* Find best admissible route */
-    struct babel_route *r, *best1 = NULL, *best2 = NULL;
-    WALK_LIST(r, e->routes)
-      if ((r->router_id == msg->router_id) && !ipa_equal(r->neigh->addr, msg->sender))
-      {
-	/* Find best feasible route */
-	if ((!best1 || r->metric < best1->metric) && r->feasible)
-	  best1 = r;
+    struct babel_neighbor *nbr, *tgt;
 
-	/* Find best not necessary feasible route */
-	if (!best2 || r->metric < best2->metric)
-	  best2 = r;
-      }
-
-    /* If no route is found, do nothing */
-    r = best1 ?: best2;
-    if (!r)
+    nbr = babel_find_neighbor(ifa, msg->sender);
+    if (!nbr)
       return;
 
-    babel_add_seqno_request(p, e, msg->router_id, msg->seqno, msg->hop_count-1, r->neigh);
+    tgt = babel_find_seqno_request_tgt(e, nbr);
+    if (!tgt)
+    {
+      TRACE(D_PACKETS, "Couldn't find a neighbour to forward seqno request for %N router-id %lR seqno %d to",
+            e->n.addr, msg->router_id, msg->seqno);
+      return;
+    }
+
+    babel_add_seqno_request(p, e, msg->router_id, msg->seqno, msg->hop_count-1, tgt);
   }
 }
 
